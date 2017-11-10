@@ -235,6 +235,21 @@ init_sva_counter(void) {
   wp_num = as_num = 0;
 }
 
+/*
+ * Function: sva_random()
+ *
+ * Description:
+ *  Random number generator in SVA. Current implementation uses the rdrand
+ *  instruction to generate a 64-bit random number.
+ */
+static inline unsigned long
+sva_random(void) {
+  unsigned long rand;
+  __asm__ __volatile__ ("1: rdrand %0\n"
+			"jae 1b\n" : "=r" (rand));
+  return rand;
+}
+
 #ifdef __cplusplus
 }
 #endif
