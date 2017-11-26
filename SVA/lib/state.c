@@ -548,6 +548,11 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
     flushSecureMemory (oldThread);
   }
 
+#ifdef SVA_LLC_PART
+   if (vg && (oldThread->secmemSize) && (newThread->secmemSize) && (oldThread->secmemPML4e != newThread->secmemPML4e)) 
+	    wbinvd();
+#endif
+
   /*
    * Turn off access to the Floating Point Unit (FPU).  We will leave this
    * state on the CPU but force a trap if another process attempts to use it.
@@ -626,10 +631,7 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
       protect_paging ();
     }
 
-#ifdef SVA_LLC_PART
-    if (vg && (oldThread->secmemSize) && (newThread->secmemSize) && (oldThread->secmemPML4e != newThread->secmemPML4e)) 
-	    wbinvd();
-#endif
+
     /*
      * Invalidate the state that we're about to load.
      */
