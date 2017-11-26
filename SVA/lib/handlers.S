@@ -154,6 +154,8 @@ interrupt##x: \
 .global sva_syscall
 .type sva_syscall, @function
 
+.global trap_pfault_ghost
+.type trap_pfault_ghost, @function 
 /*
  * Function: SVAbadtrap
  *
@@ -438,6 +440,20 @@ L15:
 L24:
 #endif
 
+  cmpq $14, %rdi
+  jne L100
+  movabsq $-3298534883329, %r14
+  cmpq %rsi, %r14
+  jbe L100
+  movabsq $-2748779069441, %r14
+  cmpq %rsi, %r14
+  ja L100
+  xor %r14, %r14
+  callq trap_pfault_ghost
+  RETTARGET
+  jmpq L101
+
+L100:
   /*
    * Call the trap handler registered by the OS for this trap.
    */
@@ -445,6 +461,7 @@ L24:
   callq *(%rax,%rdi,8)
   RETTARGET
 
+L101:
   /*
    * Disable interrupts.
    */

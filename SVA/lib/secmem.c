@@ -631,3 +631,12 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
   return;
 }
 
+void
+trap_pfault_ghost(unsigned trapno, void * trapAddr) {
+  printf("[trap_pfault_ghost] trapno = 0x%u, trapAddr = 0x%lx\n", trapno, (uintptr_t)trapAddr);
+  /*struct CPUState * cpup = getCPUState();
+  sva_icontext_t * p = getCPUState()->newCurrentIC;
+  uintptr_t vaddr = (unsigned long)(trapAddr) & ~(PAGE_MASK);
+  sva_ghost_fault(vaddr, p->code); */
+}
+
