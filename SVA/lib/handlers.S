@@ -441,19 +441,19 @@ L24:
 #endif
 
   cmpq $14, %rdi
-  jne L100
+  jne one
   movabsq $-3298534883329, %r14
   cmpq %rsi, %r14
-  jbe L100
+  jbe one
   movabsq $-2748779069441, %r14
   cmpq %rsi, %r14
-  ja L100
+  ja one
   xor %r14, %r14
   callq trap_pfault_ghost
   RETTARGET
-  jmpq L101
+  jmp two
 
-L100:
+one:
   /*
    * Call the trap handler registered by the OS for this trap.
    */
@@ -461,7 +461,7 @@ L100:
   callq *(%rax,%rdi,8)
   RETTARGET
 
-L101:
+two:
   /*
    * Disable interrupts.
    */
