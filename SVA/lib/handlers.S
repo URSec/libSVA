@@ -440,6 +440,12 @@ L15:
 L24:
 #endif
 
+  /*
+   * If the trapno is page fault, check whether the faulting 
+   * address falls within the region of ghost memory.
+   * Call the ghost memory page fault handler trap_pfault_ghost
+   * instead for ghost memory page faults.
+   */
   cmpq $14, %rdi
   jne one
   movabsq $-3298534883329, %r14
