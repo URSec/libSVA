@@ -1658,6 +1658,8 @@ sva_mm_load_pgtable (void * pg_ptr) {
   /* Cast the page table pointer to an integer */
   uintptr_t pg = (uintptr_t) pg_ptr;
 
+  uintptr_t data = 0;
+   
   uint64_t tsc_tmp;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
@@ -1711,8 +1713,14 @@ sva_mm_load_pgtable (void * pg_ptr) {
      * Restore the PML4E entry for the secure memory region.
      */
     *secmemp = threadp->secmemPML4e;
+     
+    /* 
+     * Invalidate TLB since we update the PML4E entry for the secure memory region
+     */
+     __asm __volatile("movq %%cr3,%0" : "=r" (data));
+     __asm __volatile("movq %0,%%cr3" : : "r" (data) : "memory");
 
-    /*
+     /*
      * Mark the page table pages as read-only again.
      */
 #ifndef SVA_DMAP
