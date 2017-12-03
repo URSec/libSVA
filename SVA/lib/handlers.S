@@ -448,16 +448,15 @@ L24:
    */
   cmpq $14, %rdi
   jne one
-  movabsq $-3298534883329, %r14
-  cmpq %rsi, %r14
-  jbe one
-  movabsq $-2748779069441, %r14
-  cmpq %rsi, %r14
-  ja one
-  xor %r14, %r14
+  movq %rsi, %rax
+  shrq $32, %rax
+  cmp $0xfffffd00, %eax
+  jb one
+  cmp $0xfffffd80, %eax
+  jae one
   callq trap_pfault_ghost
   RETTARGET
-  jmp two
+  jmp two 
 
 one:
   /*
