@@ -579,7 +579,6 @@ testmpx (void) {
   return;
 }
 
-extern int cache_part_enable_sva;
 /*
  * Intrinsic: sva_init_primary()
  *
@@ -616,10 +615,6 @@ sva_init_primary () {
 #if 0
   llva_reset_counters();
   llva_reset_local_counters();
-#endif
-
-#ifdef SVA_LLC_PART
-  cache_part_enable_sva = 0;
 #endif
 
   record_tsc(sva_init_primary_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
