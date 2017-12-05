@@ -115,7 +115,7 @@ static inline uintptr_t
 randomNumber (void) {
   uintptr_t rand;
   __asm__ __volatile__ ("1: rdrand %0\n"
-                        "jae 1\n" : "=r" (rand));
+                        "jae 1b\n" : "=r" (rand));
   return rand;
 }
 

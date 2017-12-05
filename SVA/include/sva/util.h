@@ -118,14 +118,13 @@ bochsBreak (void) {
  * Function: sva_read_tsc
  *
  * Descripton:
- * Loads the current value of the processor's time-stamp counter into the EDX:EAX registers.
+ *  Reads the processor time-stamp counter.
  *
  * Return value:
- * The current value of the time-stamp counter.
+ *  The current value of the time-stamp counter.
  * 
  */
-static inline uint64_t sva_read_tsc (void)
-{
+static inline uint64_t sva_read_tsc (void) {
   uint64_t hi, lo;
 
   __asm__ __volatile__ ("rdtsc\n" : "=a"(lo), "=d"(hi));
@@ -141,26 +140,19 @@ static inline uint64_t sva_read_tsc (void)
  * the 64-bit model specific register (MSR) specified in the ECX register.
  *
  */
-
 static inline void
-sva_store_tsc (uint64_t lo, uint64_t hi) 
-{
+sva_store_tsc (uint64_t lo, uint64_t hi) {
   __asm__ __volatile__ ("wrmsr\n" :: "a" (lo), "d" (hi), "c" (0x10));
 }
 
 #define SVA_API_NUM 55 //54 
 
-extern int tsc_read_enable;
-extern int tsc_read_enable_sva;
+extern unsigned tsc_read_enable;
+extern unsigned tsc_read_enable_sva;
 extern uint64_t sva_tsc_val[SVA_API_NUM];
 extern uint64_t sva_call_freq[SVA_API_NUM];
 extern uint64_t wp_num;
 extern uint64_t as_num;
-
-#define COS_MSR 0xc8f
-#define APP_COS 0
-#define OS_COS  1
-#define SVA_COS 2
 
 enum SVA_OS_NAME
 {
@@ -222,27 +214,23 @@ enum SVA_OS_NAME
 };
 
 static inline void
-clear_tsc (void)
-{
-  if(tsc_read_enable_sva)
+clear_tsc (void) {
+  if (tsc_read_enable_sva)
     sva_store_tsc(0, 0);
 }
 
 static inline void 
-record_tsc(int index, uint64_t tsc_tmp)
-{
-  if(tsc_read_enable_sva) //&& ( (int64_t) tsc_tmp >= 0))
-  {
+record_tsc(int index, uint64_t tsc_tmp) {
+  if (tsc_read_enable_sva) {
      sva_tsc_val[index] += (uint64_t) tsc_tmp;
      sva_call_freq[index] ++;
   }
 }
 
 static inline void
-init_sva_counter(void)
-{
+init_sva_counter(void) {
   int i;
-  for(i = 0; i < SVA_API_NUM; i++)
+  for (i = 0; i < SVA_API_NUM; i++)
     sva_tsc_val[i] = sva_call_freq[i] = 0;
   wp_num = as_num = 0;
 }
