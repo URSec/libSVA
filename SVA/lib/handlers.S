@@ -125,7 +125,6 @@ interrupt##x: \
  ****************************************************************************/
 .data
 .comm interrupt_table, 2048
-.comm cache_part_enable_sva, 8
 /*****************************************************************************
  * Text Section
  ****************************************************************************/
@@ -180,23 +179,18 @@ SVAbadtrap:
 Trap:
 
 #ifdef SVA_LLC_PART
-  pushq %rax 
-  movq cache_part_enable_sva, %rax
-  testq %rax, %rax
-  je L20
- 
-  pushq %rcx
-  pushq %rdx
+  movq %rax, %gs:0x288
+  movq %rcx, %gs:0x290
+  movq %rdx, %gs:0x298
   
   movl $COS_MSR, %ecx
   movl $0, %edx
   movl $SVA_COS, %eax
   wrmsr
 
-  popq %rdx
-  popq %rcx
-L20:
-  popq %rax
+  movq %gs:0x298, %rdx
+  movq %gs:0x290, %rcx
+  movq %gs:0x288, %rax
 #endif
 
   /*
@@ -429,14 +423,10 @@ L15:
 #endif
 
 #ifdef SVA_LLC_PART
-  movq cache_part_enable_sva, %rax
-  testq %rax, %rax
-  je L24
   movl $COS_MSR, %ecx
   movl $0, %edx
   movl $OS_COS, %eax
   wrmsr
-L24:
 #endif
 
   /*
@@ -472,14 +462,10 @@ two:
   cli
 
 #ifdef SVA_LLC_PART
-  movq cache_part_enable_sva, %rax
-  testq %rax, %rax
-  je L25
   movl $COS_MSR, %ecx
   movl $0, %edx
   movl $SVA_COS, %eax
   wrmsr
-L25:
 #endif
 
 
@@ -633,13 +619,9 @@ L14:
   jne 1f
 
 #ifdef SVA_LLC_PART
-  pushq %rax
-  movq cache_part_enable_sva, %rax
-  testq %rax, %rax
-  je L21
-
-  pushq %rcx
-  pushq %rdx
+  movq %rax, %gs:0x288
+  movq %rcx, %gs:0x290
+  movq %rdx, %gs:0x298
 
   movl $COS_MSR, %ecx
   movl $0, %edx
@@ -652,9 +634,10 @@ L14:
 
   movl $APP_COS, %eax
   wrmsr
- 
-  popq %rdx
-  popq %rcx
+
+  movq %gs:0x298, %rdx
+  movq %gs:0x290, %rcx
+  movq %gs:0x288, %rax 
 #endif
 
   /* We came from user mode.  First switch to the kernel %GS register. */
@@ -667,14 +650,9 @@ L14:
 1:
 
 #ifdef SVA_LLC_PART
-  pushq %rax
-  movq cache_part_enable_sva, %rax
-  testq %rax, %rax
-  je L21
-
-  pushq %rcx
-  pushq %rdx
-
+  movq %rax, %gs:0x288
+  movq %rcx, %gs:0x290
+  movq %rdx, %gs:0x298
   movl $COS_MSR, %ecx
   movl $0, %edx
   jmp L28
@@ -685,10 +663,10 @@ L28:
   movl $OS_COS, %eax
   wrmsr
 
-  popq %rdx
-  popq %rcx
+  movq %gs:0x298, %rdx
+  movq %gs:0x290, %rcx
+  movq %gs:0x288, %rax
 L21:
-  popq %rax
 #endif
 
   /*
@@ -728,23 +706,18 @@ SVAsyscall:
   swapgs
 
 #ifdef SVA_LLC_PART
-  pushq %rax
-  movq cache_part_enable_sva, %rax
-  testq %rax, %rax
-  je L22
-  
-  pushq %rcx
-  pushq %rdx
+  movq %rax, %gs:0x288
+  movq %rcx, %gs:0x290
+  movq %rdx, %gs:0x298  
 
   movl $COS_MSR, %ecx
   movl $0, %edx
   movl $SVA_COS, %eax
   wrmsr
 
-  popq %rdx
-  popq %rcx
-L22:
-  popq %rax
+  movq %gs:0x298, %rdx
+  movq %gs:0x290, %rcx
+  movq %gs:0x288, %rax
 #endif
 
   /*
@@ -952,14 +925,10 @@ L17:
 #endif
 
 #ifdef SVA_LLC_PART
-  movq cache_part_enable_sva, %rax
-  testq %rax, %rax
-  je L26
   movl $COS_MSR, %ecx
   movl $0, %edx
   movl $OS_COS, %eax
   wrmsr
-L26:
 #endif
 
   /*
@@ -975,14 +944,10 @@ sc_ret:
   cli
 
 #ifdef SVA_LLC_PART
-  movq cache_part_enable_sva, %rax
-  testq %rax, %rax
-  je L27
   movl $COS_MSR, %ecx
   movl $0, %edx
   movl $SVA_COS, %eax
   wrmsr
-L27:
 #endif
 
 #ifdef SVA_ASID_PG
@@ -1066,13 +1031,9 @@ L18:
   movq IC_RBP(%rsp), %rbp
 
 #ifdef SVA_LLC_PART
-  pushq %rax
-  movq cache_part_enable_sva, %rax
-  testq %rax, %rax
-  je L23
-
-  pushq %rcx
-  pushq %rdx
+  movq %rax, %gs:0x288
+  movq %rcx, %gs:0x290
+  movq %rdx, %gs:0x298
 
   movl $COS_MSR, %ecx
   movl $0, %edx
@@ -1091,10 +1052,9 @@ L30:
 L31:
   wrmsr
 
-  popq %rdx
-  popq %rcx
-L23:
-  popq %rax
+  movq %gs:0x298, %rdx
+  movq %gs:0x290, %rcx
+  movq %gs:0x288, %rax
 #endif
 
   /*
