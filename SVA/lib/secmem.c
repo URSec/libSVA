@@ -346,7 +346,7 @@ allocSecureMemory (void) {
    */
   unsigned char * vaddrStart = 0;
   struct SVAThread * threadp = cpup->currentThread;
-  if (threadp->secmemSize) {
+  if (threadp->secmemSize && !pgdef) {
     /*
      * Pretend to allocate more ghost memory (but let demand paging actually
      * map it in.
