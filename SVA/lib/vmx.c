@@ -40,11 +40,13 @@ static const uint32_t CPUID_01H_ECX_SMX_BIT = 0x40; // bit 6
  * of space up to 4 kB, aligned to a 4 kB boundary.
  *
  * (We could query an MSR to determine the exact size, but the obvious thing
- * to do here is to just allocate an entire 4 kB frame.) */
+ * to do here is to just allocate an entire 4 kB frame.)
+ */
 static const size_t VMCS_ALLOC_SIZE = 4096;
 
 /* Indicates whether sva_init_vmx() has yet been called by the OS. No SVA-VMX
- * intrinsics may be called until this has been done. */
+ * intrinsics may be called until this has been done.
+ */
 unsigned char sva_vmx_initialized = 0;
 
 /* Physical address of the VMXON region. This is a special region of memory
@@ -62,11 +64,13 @@ unsigned char sva_vmx_initialized = 0;
  * requirements as a VMCS. However, unlike the VMCS, there is only one VMXON
  * region per logical processor, not per virtual machine. It also does not
  * have any of the memory type (cacheability properties) restrictions that a
- * VMCS has. */
+ * VMCS has.
+ */
 uintptr_t VMXON_paddr = 0;
 
 /* Helper function to avoid having to clutter up all the code in this file
- * with #ifdef SVA_DMAP's. */
+ * with #ifdef SVA_DMAP's.
+ */
 static inline unsigned char *
 my_vtophys(uintptr_t physical) {
 #ifdef SVAVMX_DEBUG
@@ -287,7 +291,8 @@ sva_init_vmx(void) {
   /* Check to see if VMX is supported by the CPU, and if so, set the
    * IA32_FEATURE_CONTROL MSR to permit VMX operation. If this does not
    * succeed (e.g. because the BIOS or other kernel code has blocked the
-   * feature), return failure. */
+   * feature), return failure.
+   */
   if (!cpu_permit_vmx()) {
 #ifdef SVAVMX_DEBUG
     printf("CPU does not support VMX (or the feature is blocked); "
@@ -298,14 +303,16 @@ sva_init_vmx(void) {
 
   /* Sanity check: VMCS_ALLOC_SIZE should be exactly one frame (4 kB). If we
    * ever set VMCS_ALLOC_SIZE to something different, this code will need to
-   * be restructured. */
-  // FIXME: use a proper assertion
+   * be restructured.
+   */
+  /* FIXME: use a proper assertion */
   if (VMCS_ALLOC_SIZE != X86_PAGE_SIZE)
     panic("VMCS_ALLOC_SIZE is not the same as X86_PAGE_SIZE!\n");
 
   /* Allocate a frame of physical memory to use for the VMXON region.
    * This should only be accessible to SVA (and the hardware), so we will NOT
-   * map it into any kernel- or user-space page tables. */
+   * map it into any kernel- or user-space page tables.
+   */
   VMXON_paddr = alloc_frame();
 
   /* Initialize the VMXON region.
@@ -314,24 +321,23 @@ sva_init_vmx(void) {
    * identifier to bits 30:0 of the first 4 bytes of the VMXON region, and
    * that bit 31 should be cleared to 0. It says that we "need not initialize
    * the VMXON region in any other way." For good measure, though, we'll
-   * zero-fill the rest of it. */
+   * zero-fill the rest of it.
+   */
   unsigned char * VMXON_vaddr = my_vtophys(VMXON_paddr);
 
   printf("Zero-filling VMXON frame...\n");
   memset(VMXON_vaddr, 0, VMCS_ALLOC_SIZE);
-  //for (int i = 0; i < VMCS_ALLOC_SIZE; i++) {
-  //  VMXON_vaddr[i] = 0;
-  //}
 
   printf("Reading IA32_VMX_BASIC MSR...\n");
   uint64_t vmx_basic_data = rdmsr(VMX_BASIC_MSR);
   printf("IA32_VMX_BASIC MSR = %lx\n", vmx_basic_data);
 
-  // Write the VMCS revision identifier to bits 30:0 of the first 4 bytes of
-  // the VMXON region, and clear bit 31 to 0. The VMCS revision identifier is
-  // (conveniently) given in bits 30:0 of the IA32_VMX_BASIC MSR, and bit 31
-  // of that MSR is guaranteed to always be 0, so we can just copy those
-  // lower 4 bytes to the beginning of the VMXON region.
+  /* Write the VMCS revision identifier to bits 30:0 of the first 4 bytes of
+   * the VMXON region, and clear bit 31 to 0. The VMCS revision identifier is
+   * (conveniently) given in bits 30:0 of the IA32_VMX_BASIC MSR, and bit 31
+   * of that MSR is guaranteed to always be 0, so we can just copy those
+   * lower 4 bytes to the beginning of the VMXON region.
+   */
   uint32_t VMCS_rev_id = (uint32_t) vmx_basic_data;
   printf("VMCS revision identifier: %x\n", VMCS_rev_id);
   uint32_t * VMXON_id_field = (uint32_t *) VMXON_vaddr;
@@ -341,7 +347,8 @@ sva_init_vmx(void) {
   /* Set the "enable VMX" bit in CR4. This enables VMX operation, allowing us
    * to enter VMX operation by executing the VMXON instruction. Once we have
    * done so, we cannot unset the "enable VMX" bit in CR4 unless we have
-   * first exited VMX operation by executing the VMXOFF instruction. */
+   * first exited VMX operation by executing the VMXOFF instruction.
+   */
   uint64_t orig_cr4_value = _rcr4();
   printf("Original value of CR4: 0x%lx\n", orig_cr4_value);
   uint64_t new_cr4_value = orig_cr4_value | CR4_ENABLE_VMX_BIT;
@@ -361,15 +368,17 @@ sva_init_vmx(void) {
 
   printf("Physical address of VMXON: 0x%lx\n", VMXON_paddr);
   printf("Virtual address of VMXON pointer: 0x%lx\n", &VMXON_paddr);
-  // Enter VMX operation. This is done by executing the VMXON instruction,
-  // passing the physical address of the VMXON region as a memory operand.
+  /* Enter VMX operation. This is done by executing the VMXON instruction,
+   * passing the physical address of the VMXON region as a memory operand.
+   */
   printf("Entering VMX operation...\n");
   asm __volatile__ (
       "vmxon (%%rax)\n"
       : : "a" (&VMXON_paddr)
       );
-  // Read the RFLAGS register to confirm that VMXON succeeded. If it was
-  // successful, then CF, PF, AF, ZF, SF, and OF will all have been set to 0.
+  /* Read the RFLAGS register to confirm that VMXON succeeded. If it was
+   * successful, then CF, PF, AF, ZF, SF, and OF will all have been set to 0.
+   */
   uint64_t rflags;
   asm __volatile__ (
       "pushfq\n"
