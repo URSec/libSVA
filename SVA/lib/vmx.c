@@ -1,3 +1,18 @@
+/*===- vmx.c - SVA Execution Engine  =-------------------------------------===
+ * 
+ *                        Secure Virtual Architecture
+ *
+ * This file was developed by the SVA research group and is distributed under
+ * the University of Illinois Open Source License. See LICENSE.TXT for details.
+ * 
+ *===----------------------------------------------------------------------===
+ *
+ * This file implements SVA's support for hardware-accelerated virtualization
+ * (Intel VMX, and in the future AMD SVM).
+ *
+ *===----------------------------------------------------------------------===
+ */
+
 #include <sva/vmx.h>
 #include <sva/mmu.h>
 #include <sva/config.h>

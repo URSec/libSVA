@@ -1,3 +1,18 @@
+/*===- vmx.h - SVA Execution Engine  =-------------------------------------===
+ * 
+ *                        Secure Virtual Architecture
+ *
+ * This file was developed by the SVA research group and is distributed under
+ * the University of Illinois Open Source License. See LICENSE.TXT for details.
+ * 
+ *===----------------------------------------------------------------------===
+ *
+ * This header file defines functions and macros used by the SVA Execution
+ * Engine for supporting hardware-accelerated virtualization.
+ *
+ *===----------------------------------------------------------------------===
+ */
+
 #ifndef _SVA_VMX_H
 #define _SVA_VMX_H
 
