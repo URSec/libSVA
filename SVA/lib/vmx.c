@@ -65,16 +65,6 @@ unsigned char sva_vmx_initialized = 0;
  * VMCS has. */
 uintptr_t VMXON_paddr = 0;
 
-/* Helper function to write MSR's. Copied from mmu.c. */
-static __inline void
-wrmsr(u_int msr, uint64_t newval)
-{
-  uint32_t low, high;
-  low = newval;
-  high = newval >> 32;
-  __asm __volatile("wrmsr" : : "a" (low), "d" (high), "c" (msr));
-}
-
 /* Helper function to avoid having to clutter up all the code in this file
  * with #ifdef SVA_DMAP's. */
 static inline unsigned char *

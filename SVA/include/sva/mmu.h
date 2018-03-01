@@ -470,6 +470,15 @@ rdmsr(u_int msr)
     return (low | ((uint64_t)high << 32));
 }
 
+static __inline void
+wrmsr(u_int msr, uint64_t newval)
+{
+  uint32_t low, high;
+  low = newval;
+  high = newval >> 32;
+  __asm __volatile("wrmsr" : : "a" (low), "d" (high), "c" (msr));
+}
+
 /* 
  * Return the current value in cr0
  */
