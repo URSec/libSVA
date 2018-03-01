@@ -21,19 +21,19 @@
 
 #define SVAVMX_DEBUG
 
-#define VMX_BASIC_MSR 0x480
-#define FEATURE_CONTROL_MSR 0x3A
-#define VMX_CR0_FIXED0_MSR 0x486
-#define VMX_CR0_FIXED1_MSR 0x487
-#define VMX_CR4_FIXED0_MSR 0x488
-#define VMX_CR4_FIXED1_MSR 0x489
+static const u_int VMX_BASIC_MSR = 0x480;
+static const u_int FEATURE_CONTROL_MSR = 0x3A;
+static const u_int VMX_CR0_FIXED0_MSR = 0x486;
+static const u_int VMX_CR0_FIXED1_MSR = 0x487;
+static const u_int VMX_CR4_FIXED0_MSR = 0x488;
+static const u_int VMX_CR4_FIXED1_MSR = 0x489;
 
-#define CR4_ENABLE_VMX_BIT 0x2000
-#define FEATURE_CONTROL_LOCK_BIT 0x1 // bit 0
-#define FEATURE_CONTROL_ENABLE_VMXON_WITHIN_SMX_BIT 0x2 // bit 1
-#define FEATURE_CONTROL_ENABLE_VMXON_OUTSIDE_SMX_BIT 0x4 // bit 2
-#define CPUID_01H_ECX_VMX_BIT 0x20 // bit 5
-#define CPUID_01H_ECX_SMX_BIT 0x40 // bit 6
+static const uint64_t CR4_ENABLE_VMX_BIT = 0x2000;
+static const uint64_t FEATURE_CONTROL_LOCK_BIT = 0x1; // bit 0
+static const uint64_t FEATURE_CONTROL_ENABLE_VMXON_WITHIN_SMX_BIT = 0x2; // bit 1
+static const uint64_t FEATURE_CONTROL_ENABLE_VMXON_OUTSIDE_SMX_BIT = 0x4; // bit 2
+static const uint32_t CPUID_01H_ECX_VMX_BIT = 0x20; // bit 5
+static const uint32_t CPUID_01H_ECX_SMX_BIT = 0x40; // bit 6
 
 /* Each virtual machine in active operation requires a Virtual Machine
  * Control Structure (VMCS). Each VMCS requires a processor-dependent amount
@@ -41,7 +41,7 @@
  *
  * (We could query an MSR to determine the exact size, but the obvious thing
  * to do here is to just allocate an entire 4 kB frame.) */
-const size_t VMCS_ALLOC_SIZE = 4096;
+static const size_t VMCS_ALLOC_SIZE = 4096;
 
 /* Indicates whether sva_init_vmx() has yet been called by the OS. No SVA-VMX
  * intrinsics may be called until this has been done. */
