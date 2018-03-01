@@ -17,7 +17,7 @@
 #include <sva/mmu.h>
 #include <sva/config.h>
 
-#include <sys/libkern.h> // For memset()
+#include <string.h>
 
 #define SVAVMX_DEBUG
 
