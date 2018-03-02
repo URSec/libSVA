@@ -72,9 +72,9 @@ uintptr_t VMXON_paddr = 0;
  * with #ifdef SVA_DMAP's.
  */
 static inline unsigned char *
-my_vtophys(uintptr_t physical) {
+my_getVirtual(uintptr_t physical) {
 #ifdef SVAVMX_DEBUG
-  printf("Called my_vtophys() with physical address 0x%lx...\n", physical);
+  printf("Called my_getVirtual() with physical address 0x%lx...\n", physical);
 #ifdef SVA_DMAP
   printf("Using SVA's DMAP.\n");
 #else
@@ -90,7 +90,7 @@ my_vtophys(uintptr_t physical) {
 #endif
 
 #ifdef SVAVMX_DEBUG
-  printf("my_vtophys() returning 0x%lx...\n", r);
+  printf("my_getVirtual() returning 0x%lx...\n", r);
 #endif
   return r;
 }
@@ -323,7 +323,7 @@ sva_init_vmx(void) {
    * the VMXON region in any other way." For good measure, though, we'll
    * zero-fill the rest of it.
    */
-  unsigned char * VMXON_vaddr = my_vtophys(VMXON_paddr);
+  unsigned char * VMXON_vaddr = my_getVirtual(VMXON_paddr);
 
   printf("Zero-filling VMXON frame...\n");
   memset(VMXON_vaddr, 0, VMCS_ALLOC_SIZE);
