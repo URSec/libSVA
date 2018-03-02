@@ -19,7 +19,24 @@
 
 #include <string.h>
 
-#define SVAVMX_DEBUG
+/* Set this to 1/0 respectively to turn verbose printf's on or off. */
+#define SVAVMX_DEBUG 1
+
+/* Debug print macro to allow verbose printf's to be turned on/off with
+ * SVAVMX_DEBUG.
+ * 
+ * Use DBGPRNT((...)) in place of printf(...).
+ *
+ * Note that the double parentheses are necessary due to the fact that we
+ * aren't using C99 (and thus can't use variadic macros) in the FreeBSD 9.0
+ * kernel.
+ *
+ * For more information see:
+ *  https://stackoverflow.com/questions/1644868/
+ *    c-define-macro-for-debug-printing#1644898
+ */
+#define DBGPRNT(args) \
+  do { if (SVAVMX_DEBUG) printf args; } while (0)
 
 /**********
  * Constants
@@ -102,13 +119,11 @@ static uintptr_t VMXON_paddr = 0;
  */
 static inline unsigned char *
 my_getVirtual(uintptr_t physical) {
-#ifdef SVAVMX_DEBUG
-  printf("Called my_getVirtual() with physical address 0x%lx...\n", physical);
+  DBGPRNT(("Called my_getVirtual() with physical address 0x%lx...\n", physical));
 #ifdef SVA_DMAP
-  printf("Using SVA's DMAP.\n");
+  DBGPRNT(("Using SVA's DMAP.\n"));
 #else
-  printf("Using FreeBSD's DMAP.\n");
-#endif
+  DBGPRNT(("Using FreeBSD's DMAP.\n"));
 #endif
 
   unsigned char * r;
@@ -118,9 +133,7 @@ my_getVirtual(uintptr_t physical) {
   r = getVirtual(physical);
 #endif
 
-#ifdef SVAVMX_DEBUG
-  printf("my_getVirtual() returning 0x%lx...\n", r);
-#endif
+  DBGPRNT(("my_getVirtual() returning 0x%lx...\n", r));
   return r;
 }
 
@@ -137,18 +150,14 @@ my_getVirtual(uintptr_t physical) {
 static inline uint32_t
 cpuid_1_ecx(void) {
   uint32_t cpuid_ecx = 0xdeadbeef;
-#ifdef SVAVMX_DEBUG
-  printf("Executing CPUID with 1 in EAX...\n");
-#endif
+  DBGPRNT(("Executing CPUID with 1 in EAX...\n"));
   asm __volatile__ (
       "cpuid"
       : "=c" (cpuid_ecx)
       : "a" (1)
       : "eax", "ebx", "ecx", "edx"
       );
-#ifdef SVAVMX_DEBUG
-  printf("Value of ECX after CPUID:1 = 0x%x\n", cpuid_ecx);
-#endif
+  DBGPRNT(("Value of ECX after CPUID:1 = 0x%x\n", cpuid_ecx));
 
   return cpuid_ecx;
 }
@@ -217,13 +226,9 @@ cpu_permit_vmx(void) {
 
   unsigned char supports_smx = cpu_supports_smx();
 
-#ifdef SVAVMX_DEBUG
-  printf("Reading IA32_FEATURE_CONTROL MSR...\n");
-#endif
+  DBGPRNT(("Reading IA32_FEATURE_CONTROL MSR...\n"));
   uint64_t feature_control_data = rdmsr(FEATURE_CONTROL_MSR);
-#ifdef SVAVMX_DEBUG
-  printf("IA32_FEATURE_CONTROL MSR = 0x%lx\n", feature_control_data);
-#endif
+  DBGPRNT(("IA32_FEATURE_CONTROL MSR = 0x%lx\n", feature_control_data));
 
   uint64_t feature_control_locked =
     feature_control_data & FEATURE_CONTROL_LOCK_BIT;
@@ -244,25 +249,19 @@ cpu_permit_vmx(void) {
    */
   if (supports_smx) {
     if (feature_control_locked && !feature_control_vmxallowed_within_smx) {
-#ifdef SVAVMX_DEBUG
-      printf("CPU locked to disallow VMX in SMX mode "
-          "(and CPU supports SMX)!\n");
-#endif
+      DBGPRNT(("CPU locked to disallow VMX in SMX mode "
+          "(and CPU supports SMX)!\n"));
       return 0;
     }
   }
   if (feature_control_locked && !feature_control_vmxallowed_outside_smx) {
-#ifdef SVAVMX_DEBUG
-    printf("CPU locked to disallow VMX outside of SMX mode!\n");
-#endif
+    DBGPRNT(("CPU locked to disallow VMX outside of SMX mode!\n"));
     return 0;
   }
 
   /* If the lock bit is already set, but VMX is allowed, return success. */
   if (feature_control_locked) {
-#ifdef SVAVMX_DEBUG
-    printf("IA32_FEATURE_CONTROL was already locked, but allows VMX.\n");
-#endif
+    DBGPRNT(("IA32_FEATURE_CONTROL was already locked, but allows VMX.\n"));
     return 1;
   }
 
@@ -282,17 +281,13 @@ cpu_permit_vmx(void) {
   }
   feature_control_data |= FEATURE_CONTROL_LOCK_BIT;
 
-#ifdef SVAVMX_DEBUG
-  printf("Writing new value of IA32_FEATURE_CONTROL MSR to permit VMX: "
-      "0x%lx\n", feature_control_data);
-#endif
+  DBGPRNT(("Writing new value of IA32_FEATURE_CONTROL MSR to permit VMX: "
+      "0x%lx\n", feature_control_data));
   wrmsr(FEATURE_CONTROL_MSR, feature_control_data);
 
   /* Read back the MSR to confirm this worked. */
   if (rdmsr(FEATURE_CONTROL_MSR) != feature_control_data) {
-#ifdef SVAVMX_DEBUG
-    printf("Wrote new value to IA32_FEATURE_CONTROL MSR, but it didn't take.\n");
-#endif
+    DBGPRNT(("Wrote new value to IA32_FEATURE_CONTROL MSR, but it didn't take.\n"));
     return 0;
   }
 
@@ -315,16 +310,12 @@ cpu_permit_vmx(void) {
 static inline unsigned char
 check_cr0_fixed_bits(void) {
   uint64_t cr0_value = _rcr0();
-#ifdef SVAVMX_DEBUG
-  printf("Current value of CR0: 0x%lx\n", cr0_value);
-#endif
+  DBGPRNT(("Current value of CR0: 0x%lx\n", cr0_value));
 
   uint64_t fixed0_msr = rdmsr(VMX_CR0_FIXED0_MSR);
   uint64_t fixed1_msr = rdmsr(VMX_CR0_FIXED1_MSR);
-#ifdef SVAVMX_DEBUG
-  printf("IA32_VMX_CR0_FIXED0: 0x%lx\n", fixed0_msr);
-  printf("IA32_VMX_CR0_FIXED1: 0x%lx\n", fixed1_msr);
-#endif
+  DBGPRNT(("IA32_VMX_CR0_FIXED0: 0x%lx\n", fixed0_msr));
+  DBGPRNT(("IA32_VMX_CR0_FIXED1: 0x%lx\n", fixed1_msr));
 
   /* Check that the current value of CR0 confiorms to the fixed bits
    * specified by the MSRs.
@@ -357,9 +348,7 @@ check_cr0_fixed_bits(void) {
   if ((cr0_value & must_be_0) != cr0_value) {
     /* The AND will be different from CR0's value iff any of the bits
      * that must be 0 are not actually 0. */
-#ifdef SVAVMX_DEBUG
-    printf("CR0 value invalid for VMX: some bits need to be 0.\n");
-#endif
+    DBGPRNT(("CR0 value invalid for VMX: some bits need to be 0.\n"));
     value_ok = 0;
   }
 
@@ -367,9 +356,7 @@ check_cr0_fixed_bits(void) {
   if ((cr0_value | must_be_1) != cr0_value) {
     /* The OR will be different from CR0's value iff any of the bits
      * that must be 1 are not actually 1. */
-#ifdef SVAVMX_DEBUG
-    printf("CR0 value invalid for VMX: some bits need to be 1.\n");
-#endif
+    DBGPRNT(("CR0 value invalid for VMX: some bits need to be 1.\n"));
     value_ok = 0;
   }
 
@@ -391,16 +378,12 @@ check_cr0_fixed_bits(void) {
 static inline unsigned char
 check_cr4_fixed_bits(void) {
   uint64_t cr4_value = _rcr4();
-#ifdef SVAVMX_DEBUG
-  printf("Current value of CR4: 0x%lx\n", cr4_value);
-#endif
+  DBGPRNT(("Current value of CR4: 0x%lx\n", cr4_value));
 
   uint64_t fixed0_msr = rdmsr(VMX_CR4_FIXED0_MSR);
   uint64_t fixed1_msr = rdmsr(VMX_CR4_FIXED1_MSR);
-#ifdef SVAVMX_DEBUG
-  printf("IA32_VMX_CR4_FIXED0: 0x%lx\n", fixed0_msr);
-  printf("IA32_VMX_CR4_FIXED1: 0x%lx\n", fixed1_msr);
-#endif
+  DBGPRNT(("IA32_VMX_CR4_FIXED0: 0x%lx\n", fixed0_msr));
+  DBGPRNT(("IA32_VMX_CR4_FIXED1: 0x%lx\n", fixed1_msr));
 
   /* Check that the current value of CR4 confiorms to the fixed bits
    * specified by the MSRs.
@@ -433,9 +416,7 @@ check_cr4_fixed_bits(void) {
   if ((cr4_value & must_be_0) != cr4_value) {
     /* The AND will be different from CR4's value iff any of the bits
      * that must be 0 are not actually 0. */
-#ifdef SVAVMX_DEBUG
-    printf("CR4 value invalid for VMX: some bits need to be 0.\n");
-#endif
+    DBGPRNT(("CR4 value invalid for VMX: some bits need to be 0.\n"));
     value_ok = 0;
   }
 
@@ -443,9 +424,7 @@ check_cr4_fixed_bits(void) {
   if ((cr4_value | must_be_1) != cr4_value) {
     /* The OR will be different from CR4's value iff any of the bits
      * that must be 1 are not actually 1. */
-#ifdef SVAVMX_DEBUG
-    printf("CR4 value invalid for VMX: some bits need to be 1.\n");
-#endif
+    DBGPRNT(("CR4 value invalid for VMX: some bits need to be 1.\n"));
     value_ok = 0;
   }
 
@@ -479,9 +458,7 @@ check_cr4_fixed_bits(void) {
 unsigned char
 sva_init_vmx(void) {
   if (sva_vmx_initialized) {
-#ifdef SVAVMX_DEBUG
-    printf("Kernel called sva_init_vmx(), but it was already initialized.\n");
-#endif
+    DBGPRNT(("Kernel called sva_init_vmx(), but it was already initialized.\n"));
     return 1;
   }
 
@@ -491,10 +468,8 @@ sva_init_vmx(void) {
    * feature), return failure.
    */
   if (!cpu_permit_vmx()) {
-#ifdef SVAVMX_DEBUG
-    printf("CPU does not support VMX (or the feature is blocked); "
-        "cannot initialize SVA VMX support.\n");
-#endif
+    DBGPRNT(("CPU does not support VMX (or the feature is blocked); "
+        "cannot initialize SVA VMX support.\n"));
     return 0;
   }
 
@@ -512,11 +487,11 @@ sva_init_vmx(void) {
    * first exited VMX operation by executing the VMXOFF instruction.
    */
   uint64_t orig_cr4_value = _rcr4();
-  printf("Original value of CR4: 0x%lx\n", orig_cr4_value);
+  DBGPRNT(("Original value of CR4: 0x%lx\n", orig_cr4_value));
   uint64_t new_cr4_value = orig_cr4_value | CR4_ENABLE_VMX_BIT;
-  printf("Setting new value of CR4 to enable VMX: 0x%lx\n", new_cr4_value);
+  DBGPRNT(("Setting new value of CR4 to enable VMX: 0x%lx\n", new_cr4_value));
   load_cr4(new_cr4_value);
-  printf("Confirming new CR4 value: 0x%lx\n", _rcr4());
+  DBGPRNT(("Confirming new CR4 value: 0x%lx\n", _rcr4()));
 
   /* Confirm that the values of CR0 and CR4 are allowed for entry into VMX
    * operation (i.e., they comport with MSRs which specify bits that must be
@@ -527,19 +502,13 @@ sva_init_vmx(void) {
    */
   if (!check_cr0_fixed_bits() || !check_cr4_fixed_bits()) {
     /* The check failed; we cannot enter VMX mode. */
-#ifdef SVAVMX_DEBUG
-    printf("CR0 and/or CR4 not set correctly for VMX; "
-        "cannot initialize SVA VMX support.\n");
-#endif
+    DBGPRNT(("CR0 and/or CR4 not set correctly for VMX; "
+        "cannot initialize SVA VMX support.\n"));
 
     /* Restore CR4 to its original value. */
-#ifdef SVAVMX_DEBUG
-    printf("Restoring CR4 to its original value: 0x%lx\n", orig_cr4_value);
-#endif
+    DBGPRNT(("Restoring CR4 to its original value: 0x%lx\n", orig_cr4_value));
     load_cr4(orig_cr4_value);
-#ifdef SVAVMX_DEBUG
-    printf("Confirming CR4 restoration: 0x%lx\n", _rcr4());
-#endif
+    DBGPRNT(("Confirming CR4 restoration: 0x%lx\n", _rcr4()));
 
     return 0;
   }
@@ -560,12 +529,12 @@ sva_init_vmx(void) {
    */
   unsigned char * VMXON_vaddr = my_getVirtual(VMXON_paddr);
 
-  printf("Zero-filling VMXON frame...\n");
+  DBGPRNT(("Zero-filling VMXON frame...\n"));
   memset(VMXON_vaddr, 0, VMCS_ALLOC_SIZE);
 
-  printf("Reading IA32_VMX_BASIC MSR...\n");
+  DBGPRNT(("Reading IA32_VMX_BASIC MSR...\n"));
   uint64_t vmx_basic_data = rdmsr(VMX_BASIC_MSR);
-  printf("IA32_VMX_BASIC MSR = %lx\n", vmx_basic_data);
+  DBGPRNT(("IA32_VMX_BASIC MSR = %lx\n", vmx_basic_data));
 
   /* Write the VMCS revision identifier to bits 30:0 of the first 4 bytes of
    * the VMXON region, and clear bit 31 to 0. The VMCS revision identifier is
@@ -574,17 +543,17 @@ sva_init_vmx(void) {
    * lower 4 bytes to the beginning of the VMXON region.
    */
   uint32_t VMCS_rev_id = (uint32_t) vmx_basic_data;
-  printf("VMCS revision identifier: %x\n", VMCS_rev_id);
+  DBGPRNT(("VMCS revision identifier: %x\n", VMCS_rev_id));
   uint32_t * VMXON_id_field = (uint32_t *) VMXON_vaddr;
   *VMXON_id_field = VMCS_rev_id;
-  printf("VMCS revision identifier written to VMXON region.\n");
+  DBGPRNT(("VMCS revision identifier written to VMXON region.\n"));
 
-  printf("Physical address of VMXON: 0x%lx\n", VMXON_paddr);
-  printf("Virtual address of VMXON pointer: 0x%lx\n", &VMXON_paddr);
+  DBGPRNT(("Physical address of VMXON: 0x%lx\n", VMXON_paddr));
+  DBGPRNT(("Virtual address of VMXON pointer: 0x%lx\n", &VMXON_paddr));
   /* Enter VMX operation. This is done by executing the VMXON instruction,
    * passing the physical address of the VMXON region as a memory operand.
    */
-  printf("Entering VMX operation...\n");
+  DBGPRNT(("Entering VMX operation...\n"));
   asm __volatile__ (
       "vmxon (%%rax)\n"
       : : "a" (&VMXON_paddr)
@@ -598,7 +567,7 @@ sva_init_vmx(void) {
       "popq %%rax\n"
       : "=a" (rflags)
       );
-  printf("RFLAGS after executing VMXON: 0x%lx\n", rflags);
+  DBGPRNT(("RFLAGS after executing VMXON: 0x%lx\n", rflags));
 
   sva_vmx_initialized = 1;
 
