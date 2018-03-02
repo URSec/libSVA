@@ -21,6 +21,9 @@
 
 #define SVAVMX_DEBUG
 
+/**********
+ * Constants
+**********/
 static const u_int VMX_BASIC_MSR = 0x480;
 static const u_int FEATURE_CONTROL_MSR = 0x3A;
 static const u_int VMX_CR0_FIXED0_MSR = 0x486;
@@ -44,10 +47,30 @@ static const uint32_t CPUID_01H_ECX_SMX_BIT = 0x40; // bit 6
  */
 static const size_t VMCS_ALLOC_SIZE = 4096;
 
+/**********
+ * Forward declarations of helper functions local to this file (not
+ * declared in header).
+**********/
+static inline unsigned char * my_getVirtual(uintptr_t physical);
+static inline uint32_t cpuid_1_ecx(void);
+static inline unsigned char cpu_supports_vmx(void);
+static inline unsigned char cpu_supports_smx(void);
+static inline unsigned char cpu_permit_vmx(void);
+static inline unsigned char check_cr0_fixed_bits(void);
+static inline unsigned char check_cr4_fixed_bits(void);
+
+/**********
+ * "Global" static variables (local to this file)
+ * 
+ * (Eventually, we will need to ensure these are stored in SVA protected
+ * memory. Some of them may need to be handled in a more complex way once we
+ * add SMP support. For instance, we might want to store some of them on a
+ * per-CPU basis in some structure already used for that purpose.)
+**********/
 /* Indicates whether sva_init_vmx() has yet been called by the OS. No SVA-VMX
  * intrinsics may be called until this has been done.
  */
-unsigned char sva_vmx_initialized = 0;
+static unsigned char sva_vmx_initialized = 0;
 
 /* Physical address of the VMXON region. This is a special region of memory
  * that the active logical processor uses to "support VMX operation" (see
@@ -66,10 +89,16 @@ unsigned char sva_vmx_initialized = 0;
  * have any of the memory type (cacheability properties) restrictions that a
  * VMCS has.
  */
-uintptr_t VMXON_paddr = 0;
+static uintptr_t VMXON_paddr = 0;
 
-/* Helper function to avoid having to clutter up all the code in this file
- * with #ifdef SVA_DMAP's.
+/*
+ * Function: my_getVirtual
+ *
+ * Description:
+ *  A local helper function to abstract around whether SVA_DMAP is defined
+ *  (which determines which function should be called to convert a physical
+ *  address to a virtual one using the direct map). This function will always
+ *  call the correct one.
  */
 static inline unsigned char *
 my_getVirtual(uintptr_t physical) {
@@ -95,7 +124,16 @@ my_getVirtual(uintptr_t physical) {
   return r;
 }
 
-/* Helper function to query CPUID:1.ECX (Feature Information) */
+/*
+ * Function: cpuid_1_ecx
+ *
+ * Description:
+ *  Queries "leaf 1" of the CPUID pages, i.e. executes CPUID with 1 in EAX.
+ *  Returns the value of ECX (Feature Information) returned by CPUID.
+ *
+ * Return value:
+ *  The contents of the ECX register after executing CPUID:1.
+ */
 static inline uint32_t
 cpuid_1_ecx(void) {
   uint32_t cpuid_ecx = 0xdeadbeef;
@@ -115,8 +153,11 @@ cpuid_1_ecx(void) {
   return cpuid_ecx;
 }
 
-/* Helper function to check whether the processor supports VMX using the
- * CPUID instruction.
+/*
+ * Function: cpu_supports_vmx
+ *
+ * Description:
+ *  Checks whether the processor supports VMX using the CPUID instruction.
  *
  * Return value:
  *  True if the processor supports VMX, false otherwise.
@@ -129,8 +170,11 @@ cpu_supports_vmx(void) {
   return (supports_vmx ? 1 : 0);
 }
 
-/* Helper function to check whether the processor supports SMX using the
- * CPUID instruction.
+/*
+ * Function: cpu_supports_smx
+ *
+ * Description:
+ *  Checks whether the processor supports SMX using the CPUID instruction.
  *
  * Return value:
  *  True if the processor supports SMX, false otherwise.
@@ -143,7 +187,8 @@ cpu_supports_smx(void) {
   return (supports_smx ? 1 : 0);
 }
 
-/* Function: cpu_permit_vmx
+/*
+ * Function: cpu_permit_vmx
  *
  * Description:
  *  Sets the IA32_FEATURE_CONTROL MSR to permit VMX operation on the current
@@ -256,6 +301,158 @@ cpu_permit_vmx(void) {
 }
 
 /*
+ * Function: check_cr0_fixed_bits
+ *
+ * Description:
+ *  Checks that the value of Control Register 0 conforms to the bit settings
+ *  required for VMX operation. (These requiremenst are given by the MSRs
+ *  IA32_VMX_CR0_FIXED0 and IA32_VMX_CR0_FIXED1.)
+ *
+ * Return value:
+ *  True if the current setting of CR0 is acceptable for entry into VMX
+ *  operation; false otherwise.
+ */
+static inline unsigned char
+check_cr0_fixed_bits(void) {
+  uint64_t cr0_value = _rcr0();
+#ifdef SVAVMX_DEBUG
+  printf("Current value of CR0: 0x%lx\n", cr0_value);
+#endif
+
+  uint64_t fixed0_msr = rdmsr(VMX_CR0_FIXED0_MSR);
+  uint64_t fixed1_msr = rdmsr(VMX_CR0_FIXED1_MSR);
+#ifdef SVAVMX_DEBUG
+  printf("IA32_VMX_CR0_FIXED0: 0x%lx\n", fixed0_msr);
+  printf("IA32_VMX_CR0_FIXED1: 0x%lx\n", fixed1_msr);
+#endif
+
+  /* Check that the current value of CR0 confiorms to the fixed bits
+   * specified by the MSRs.
+   *
+   * If a bit is 0 in IA32_VMX_CR0_FIXED0, then it is allowed to be 0 in CR0
+   * during VMX operation.
+   *
+   * If a bit is 1 in IA32_VMX_CR0_FIXED1, then it is allowed to be 1 in CR0
+   * during VMX operation.
+   *
+   * If this feels "backwards" relative to the names of the MSRs, I thought
+   * so too. It's the way Intel defines it in the manual (section A.7, vol.
+   * 3D, October 2017 edition). The MSRs define which bits are *allowed* to
+   * be set a certain way, not which ones are *fixed* that way, as their
+   * names would imply.
+   *
+   * The Intel manual also gives an alternate explanation that (to me anyway)
+   * is easier to understand; this is how we perform the check below:
+   *  * If a bit is 0 in both registers, it must be 0 in CR0.
+   *  * If a bit is 1 in both registers, it must be 1 in CR0.
+   *  * If its value differs between the two registers, then either value is
+   *    permitted in CR0.
+   */
+  unsigned char value_ok = 1;
+
+  uint64_t must_be_0 = fixed0_msr | fixed1_msr; // 0 if 0 in both MSRs
+  uint64_t must_be_1 = fixed0_msr & fixed1_msr; // 1 if 1 in both MSRs
+
+  /* Check bits that must be 0 */
+  if ((cr0_value & must_be_0) != cr0_value) {
+    /* The AND will be different from CR0's value iff any of the bits
+     * that must be 0 are not actually 0. */
+#ifdef SVAVMX_DEBUG
+    printf("CR0 value invalid for VMX: some bits need to be 0.\n");
+#endif
+    value_ok = 0;
+  }
+
+  /* Check bits that must be 1 */
+  if ((cr0_value | must_be_1) != cr0_value) {
+    /* The OR will be different from CR0's value iff any of the bits
+     * that must be 1 are not actually 1. */
+#ifdef SVAVMX_DEBUG
+    printf("CR0 value invalid for VMX: some bits need to be 1.\n");
+#endif
+    value_ok = 0;
+  }
+
+  return value_ok;
+}
+
+/*
+ * Function: check_cr4_fixed_bits
+ *
+ * Description:
+ *  Checks that the value of Control Register 4 conforms to the bit settings
+ *  required for VMX operation. (These requiremenst are given by the MSRs
+ *  IA32_VMX_CR4_FIXED0 and IA32_VMX_CR4_FIXED1.)
+ *
+ * Return value:
+ *  True if the current setting of CR4 is acceptable for entry into VMX
+ *  operation; false otherwise.
+ */
+static inline unsigned char
+check_cr4_fixed_bits(void) {
+  uint64_t cr4_value = _rcr4();
+#ifdef SVAVMX_DEBUG
+  printf("Current value of CR4: 0x%lx\n", cr4_value);
+#endif
+
+  uint64_t fixed0_msr = rdmsr(VMX_CR4_FIXED0_MSR);
+  uint64_t fixed1_msr = rdmsr(VMX_CR4_FIXED1_MSR);
+#ifdef SVAVMX_DEBUG
+  printf("IA32_VMX_CR4_FIXED0: 0x%lx\n", fixed0_msr);
+  printf("IA32_VMX_CR4_FIXED1: 0x%lx\n", fixed1_msr);
+#endif
+
+  /* Check that the current value of CR4 confiorms to the fixed bits
+   * specified by the MSRs.
+   *
+   * If a bit is 0 in IA32_VMX_CR4_FIXED0, then it is allowed to be 0 in CR4
+   * during VMX operation.
+   *
+   * If a bit is 1 in IA32_VMX_CR4_FIXED1, then it is allowed to be 1 in CR4
+   * during VMX operation.
+   *
+   * If this feels "backwards" relative to the names of the MSRs, I thought
+   * so too. It's the way Intel defines it in the manual (section A.7, vol.
+   * 3D, October 2017 edition). The MSRs define which bits are *allowed* to
+   * be set a certain way, not which ones are *fixed* that way, as their
+   * names would imply.
+   *
+   * The Intel manual also gives an alternate explanation that (to me anyway)
+   * is easier to understand; this is how we perform the check below:
+   *  * If a bit is 0 in both registers, it must be 0 in CR4.
+   *  * If a bit is 1 in both registers, it must be 1 in CR4.
+   *  * If its value differs between the two registers, then either value is
+   *    permitted in CR4.
+   */
+  unsigned char value_ok = 1;
+
+  uint64_t must_be_0 = fixed0_msr | fixed1_msr; // 0 if 0 in both MSRs
+  uint64_t must_be_1 = fixed0_msr & fixed1_msr; // 1 if 1 in both MSRs
+
+  /* Check bits that must be 0 */
+  if ((cr4_value & must_be_0) != cr4_value) {
+    /* The AND will be different from CR4's value iff any of the bits
+     * that must be 0 are not actually 0. */
+#ifdef SVAVMX_DEBUG
+    printf("CR4 value invalid for VMX: some bits need to be 0.\n");
+#endif
+    value_ok = 0;
+  }
+
+  /* Check bits that must be 1 */
+  if ((cr4_value | must_be_1) != cr4_value) {
+    /* The OR will be different from CR4's value iff any of the bits
+     * that must be 1 are not actually 1. */
+#ifdef SVAVMX_DEBUG
+    printf("CR4 value invalid for VMX: some bits need to be 1.\n");
+#endif
+    value_ok = 0;
+  }
+
+  return value_ok;
+}
+
+/*
  * Intrinsic: sva_init_vmx
  *
  * Description:
@@ -309,6 +506,44 @@ sva_init_vmx(void) {
   if (VMCS_ALLOC_SIZE != X86_PAGE_SIZE)
     panic("VMCS_ALLOC_SIZE is not the same as X86_PAGE_SIZE!\n");
 
+  /* Set the "enable VMX" bit in CR4. This enables VMX operation, allowing us
+   * to enter VMX operation by executing the VMXON instruction. Once we have
+   * done so, we cannot unset the "enable VMX" bit in CR4 unless we have
+   * first exited VMX operation by executing the VMXOFF instruction.
+   */
+  uint64_t orig_cr4_value = _rcr4();
+  printf("Original value of CR4: 0x%lx\n", orig_cr4_value);
+  uint64_t new_cr4_value = orig_cr4_value | CR4_ENABLE_VMX_BIT;
+  printf("Setting new value of CR4 to enable VMX: 0x%lx\n", new_cr4_value);
+  load_cr4(new_cr4_value);
+  printf("Confirming new CR4 value: 0x%lx\n", _rcr4());
+
+  /* Confirm that the values of CR0 and CR4 are allowed for entry into VMX
+   * operation (i.e., they comport with MSRs which specify bits that must be
+   * 0 or 1 in these registers during VMX operation).
+   *
+   * We have to do this *after* setting CR4.VMXE above, since -
+   * unsurprisingly - that is one of the bits that is checked.
+   */
+  if (!check_cr0_fixed_bits() || !check_cr4_fixed_bits()) {
+    /* The check failed; we cannot enter VMX mode. */
+#ifdef SVAVMX_DEBUG
+    printf("CR0 and/or CR4 not set correctly for VMX; "
+        "cannot initialize SVA VMX support.\n");
+#endif
+
+    /* Restore CR4 to its original value. */
+#ifdef SVAVMX_DEBUG
+    printf("Restoring CR4 to its original value: 0x%lx\n", orig_cr4_value);
+#endif
+    load_cr4(orig_cr4_value);
+#ifdef SVAVMX_DEBUG
+    printf("Confirming CR4 restoration: 0x%lx\n", _rcr4());
+#endif
+
+    return 0;
+  }
+
   /* Allocate a frame of physical memory to use for the VMXON region.
    * This should only be accessible to SVA (and the hardware), so we will NOT
    * map it into any kernel- or user-space page tables.
@@ -343,28 +578,6 @@ sva_init_vmx(void) {
   uint32_t * VMXON_id_field = (uint32_t *) VMXON_vaddr;
   *VMXON_id_field = VMCS_rev_id;
   printf("VMCS revision identifier written to VMXON region.\n");
-
-  /* Set the "enable VMX" bit in CR4. This enables VMX operation, allowing us
-   * to enter VMX operation by executing the VMXON instruction. Once we have
-   * done so, we cannot unset the "enable VMX" bit in CR4 unless we have
-   * first exited VMX operation by executing the VMXOFF instruction.
-   */
-  uint64_t orig_cr4_value = _rcr4();
-  printf("Original value of CR4: 0x%lx\n", orig_cr4_value);
-  uint64_t new_cr4_value = orig_cr4_value | CR4_ENABLE_VMX_BIT;
-  printf("Setting new value of CR4 to enable VMX: 0x%lx\n", new_cr4_value);
-  load_cr4(new_cr4_value);
-  printf("Confirming new CR4 value: 0x%lx\n", _rcr4());
-  uint64_t fixed0_cr4 = rdmsr(VMX_CR4_FIXED0_MSR);
-  uint64_t fixed1_cr4 = rdmsr(VMX_CR4_FIXED1_MSR);
-  printf("Fixed-0 bits: 0x%lx\n", fixed0_cr4);
-  printf("Fixed-1 bits: 0x%lx\n", fixed1_cr4);
-
-  uint64_t fixed0 = rdmsr(VMX_CR0_FIXED0_MSR);
-  uint64_t fixed1 = rdmsr(VMX_CR0_FIXED1_MSR);
-  printf("CR0 value: 0x%lx\n", _rcr0());
-  printf("Fixed-0 bits: 0x%lx\n", fixed0);
-  printf("Fixed-1 bits: 0x%lx\n", fixed1);
 
   printf("Physical address of VMXON: 0x%lx\n", VMXON_paddr);
   printf("Virtual address of VMXON pointer: 0x%lx\n", &VMXON_paddr);
