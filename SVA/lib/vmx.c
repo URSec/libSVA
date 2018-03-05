@@ -55,6 +55,37 @@ static const uint64_t FEATURE_CONTROL_ENABLE_VMXON_OUTSIDE_SMX_BIT = 0x4; // bit
 static const uint32_t CPUID_01H_ECX_VMX_BIT = 0x20; // bit 5
 static const uint32_t CPUID_01H_ECX_SMX_BIT = 0x40; // bit 6
 
+/* Bit mask indicating the zero settings of CF (carry flag), PF (parity
+ * flag), AF (auxiliary carry flag), ZF (zero flag), SF (sign flag), and OF
+ * (overflow flag) in the RFLAGS register.
+ *
+ * If all of these are zero after executing a VMX instruction, the VMsucceed
+ * condition is indicated by the processor (corresponding to our enum value
+ * VM_SUCCEED).
+ *
+ * To check if RFLAGS == VMsucceed, test that:
+ *  (RFLAGS & RFLAGS_VM_SUCCEED) == RFLAGS
+ */
+static const uint64_t RFLAGS_VM_SUCCEED = 0xFFFFFFFFFFFFF73A;
+/* The condition VMfailInvalid is indicated by CF = 1, and all other flags
+ * the same as in VMsucceed.
+ *
+ * Test with:
+ *  (RFLAGS & RFLAGS_VM_FAIL_INVALID_0) == RFLAGS, and
+ *  (RFLAGS & RFLAGS_VM_FAIL_INVALID_1).
+ */
+static const uint64_t RFLAGS_VM_FAIL_INVALID_0 = 0xFFFFFFFFFFFFF73B;
+static const uint64_t RFLAGS_VM_FAIL_INVALID_1 = 0x1;
+/* The condition VMfailValid is indicated by ZF = 1, and all other flags the
+ * same as in VMsucceed.
+ *
+ * Test with:
+ *  (RFLAGS & RFLAGS_VM_FAIL_VALID_0) == RFLSGS, and
+ *  (RFLAGS & RFLAGS_VM_FAIL_VALID_1).
+ */
+static const uint64_t RFLAGS_VM_FAIL_VALID_0 = 0xFFFFFFFFFFFFF77A;
+static const uint64_t RFLAGS_VM_FAIL_VALID_1 = 0x40;
+
 /* Each virtual machine in active operation requires a Virtual Machine
  * Control Structure (VMCS). Each VMCS requires a processor-dependent amount
  * of space up to 4 kB, aligned to a 4 kB boundary.
@@ -63,6 +94,27 @@ static const uint32_t CPUID_01H_ECX_SMX_BIT = 0x40; // bit 6
  * to do here is to just allocate an entire 4 kB frame.)
  */
 static const size_t VMCS_ALLOC_SIZE = 4096;
+
+/*
+ * Enumeration of status codes indicating the success or failure of VMX
+ * instructions.
+ *
+ * These are indicated by the processor by setting/clearing particular
+ * combinations of bits in RFLAGS. To query this status, use the helper
+ * function query_vmx_result() (defined in this file).
+ *
+ * See section 30.2 of the Intel SDM for a description of these status codes.
+ */
+enum VMXStatusCode {
+  /* VM_UNKNOWN is a default value which does not correspond to a real status
+   * code returned by the processor. It is used to represent the situation
+   * where the combination of bits set in RFLAGS does not decode to any valid
+   * VMX status code. */
+  VM_UNKNOWN = 0,
+  VM_SUCCEED,
+  VM_FAIL_INVALID,
+  VM_FAIL_VALID
+};
 
 /**********
  * Forward declarations of helper functions local to this file (not
@@ -75,6 +127,7 @@ static inline unsigned char cpu_supports_smx(void);
 static inline unsigned char cpu_permit_vmx(void);
 static inline unsigned char check_cr0_fixed_bits(void);
 static inline unsigned char check_cr4_fixed_bits(void);
+static inline enum VMXStatusCode query_vmx_result(void);
 
 /**********
  * "Global" static variables (local to this file)
@@ -432,6 +485,59 @@ check_cr4_fixed_bits(void) {
 }
 
 /*
+ * Function: query_vmx_result
+ *
+ * Description:
+ *  Examines the value of RFLAGS to determine the success or failure of a
+ *  previously issued VMX instruction.
+ *
+ *  The various status codes that can be set by a VMX instruction are
+ *  described in section 30.2 of the Intel SDM. Here, we represent them with
+ *  the enumerated type VMXStatusCode.
+ *
+ * Return value:
+ *  A member of the enumerated type VMXStatusCode corresponding to the
+ *  condition indicated by the processor.
+ *
+ *  If the bits in RFLAGS do not correspond to a valid VMX status condition
+ *  described in the Intel SDM, we return the value VM_UNKNOWN.
+ */
+static inline enum VMXStatusCode
+query_vmx_result(void) {
+  /* Read the RFLAGS register. */
+  uint64_t rflags;
+  asm __volatile__ (
+      "pushfq\n"
+      "popq %%rax\n"
+      : "=a" (rflags)
+      );
+  DBGPRNT(("Contents of RFLAGS: 0x%lx\n", rflags));
+
+  /* Test for VMsucceed. */
+  if ((rflags & RFLAGS_VM_SUCCEED) == rflags) {
+    DBGPRNT(("RFLAGS matches VMsucceed condition.\n"));
+    return VM_SUCCEED;
+  }
+
+  /* Test for VMfailInvalid. */
+  if (((rflags & RFLAGS_VM_FAIL_INVALID_0) == rflags)
+      && (rflags & RFLAGS_VM_FAIL_INVALID_1)) {
+    DBGPRNT(("RFLAGS matches VMfailInvalid condition.\n"));
+    return VM_FAIL_INVALID;
+  }
+
+  /* Test for VMfailValid. */
+  if (((rflags & RFLAGS_VM_FAIL_VALID_0) == rflags)
+      && (rflags & RFLAGS_VM_FAIL_VALID_1)) {
+    DBGPRNT(("RFLAGS matches VMfailValid condition.\n"));
+    return VM_FAIL_VALID;
+  }
+
+  /* If none of these conditions matched, return an unknown value. */
+  return VM_UNKNOWN;
+}
+
+/*
  * Intrinsic: sva_init_vmx
  *
  * Description:
@@ -558,20 +664,28 @@ sva_init_vmx(void) {
       "vmxon (%%rax)\n"
       : : "a" (&VMXON_paddr)
       );
-  /* Read the RFLAGS register to confirm that VMXON succeeded. If it was
-   * successful, then CF, PF, AF, ZF, SF, and OF will all have been set to 0.
-   */
-  uint64_t rflags;
-  asm __volatile__ (
-      "pushfq\n"
-      "popq %%rax\n"
-      : "=a" (rflags)
-      );
-  DBGPRNT(("RFLAGS after executing VMXON: 0x%lx\n", rflags));
+  /* Confirm that the operation succeeded. */
+  if (query_vmx_result() == VM_SUCCEED) {
+    DBGPRNT(("SVA VMX support successfully initialized.\n"));
 
-  sva_vmx_initialized = 1;
+    sva_vmx_initialized = 1;
+    return 1;
+  } else {
+    DBGPRNT(("Could not enter VMX host mode. "
+          "SVA VMX support not initialized.\n"));
 
-  return 1;
+    /* Restore CR4 to its original value. */
+    DBGPRNT(("Restoring CR4 to its original value: 0x%lx\n", orig_cr4_value));
+    load_cr4(orig_cr4_value);
+    DBGPRNT(("Confirming CR4 restoration: 0x%lx\n", _rcr4()));
+
+    /* Free the frame of SVA secure memory we allocated for the VMXON region.
+     */
+    DBGPRNT(("Returning VMXON frame to SVA.\n"));
+    free_frame(VMXON_paddr);
+
+    return 0;
+  }
 }
 
 
