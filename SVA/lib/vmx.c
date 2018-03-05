@@ -105,7 +105,7 @@ static const size_t VMCS_ALLOC_SIZE = 4096;
  *
  * See section 30.2 of the Intel SDM for a description of these status codes.
  */
-enum VMXStatusCode {
+enum vmx_statuscode_t {
   /* VM_UNKNOWN is a default value which does not correspond to a real status
    * code returned by the processor. It is used to represent the situation
    * where the combination of bits set in RFLAGS does not decode to any valid
@@ -127,7 +127,7 @@ static inline unsigned char cpu_supports_smx(void);
 static inline unsigned char cpu_permit_vmx(void);
 static inline unsigned char check_cr0_fixed_bits(void);
 static inline unsigned char check_cr4_fixed_bits(void);
-static inline enum VMXStatusCode query_vmx_result(void);
+static inline enum vmx_statuscode_t query_vmx_result(void);
 
 /**********
  * "Global" static variables (local to this file)
@@ -493,16 +493,16 @@ check_cr4_fixed_bits(void) {
  *
  *  The various status codes that can be set by a VMX instruction are
  *  described in section 30.2 of the Intel SDM. Here, we represent them with
- *  the enumerated type VMXStatusCode.
+ *  the enumerated type vmx_statuscode_t.
  *
  * Return value:
- *  A member of the enumerated type VMXStatusCode corresponding to the
+ *  A member of the enumerated type vmx_statuscode_t corresponding to the
  *  condition indicated by the processor.
  *
  *  If the bits in RFLAGS do not correspond to a valid VMX status condition
  *  described in the Intel SDM, we return the value VM_UNKNOWN.
  */
-static inline enum VMXStatusCode
+static inline enum vmx_statuscode_t
 query_vmx_result(void) {
   /* Read the RFLAGS register. */
   uint64_t rflags;
