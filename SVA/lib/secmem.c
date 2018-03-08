@@ -1,4 +1,4 @@
-/*===- secmem.h - SVA Execution Engine  =------------------------------------===
+/*===- secmem.c - SVA Execution Engine  =------------------------------------===
  * 
  *                        Secure Virtual Architecture
  *
@@ -47,6 +47,8 @@ static inline int frame_cache_full(void);
 static inline int frame_cache_empty(void);
 static inline void frame_enqueue(uintptr_t paddr);
 static inline uintptr_t frame_dequeue(void);
+static inline uintptr_t get_frame_from_os(void);
+static inline void return_frame_to_os(uintptr_t paddr);
 static inline void fill_in_frames(void);
 static inline void release_frames(void);
 
@@ -126,6 +128,122 @@ frame_dequeue(void) {
 }
 
 /*
+ * Function: get_frame_from_os()
+ *
+ * Description:
+ *  Use a kernel callback function to ask the operating system for a frame of
+ *  physical memory, and verify that the OS has cleared all mappings that
+ *  would allow it to access the frame.
+ *
+ *  This function will panic if it determines that the OS has *not* cleared
+ *  all mappings to the frame. In this situation, the OS is "lying" to us,
+ *  and is refusing to let us allocate secure memory.
+ *
+ *  The frame will be marked in SVA's page_desc structure as having type
+ *  PG_SVA, so that SVA's MMU checks will preclude the OS from establishing
+ *  any other mappings to it in the future.
+ *
+ *  Frames returned by this function are suitable for use as ghost memory
+ *  backing or SVA internal memory. If they are to be used for ghost memory,
+ *  their page_desc type should be set to PG_GHOST.
+ *
+ * Return value:
+ *  The physical address of the frame acquired.
+ */
+static inline uintptr_t
+get_frame_from_os(void) {
+  /* Ask the OS to give us a physical frame. */
+  uintptr_t paddr = provideSVAMemory(X86_PAGE_SIZE);
+
+  /*
+   * In provideSVAMemory(), the OS *should* have unmapped the frame from its
+   * own direct map, and not have any other existing mappings to it. However,
+   * we should not take its word for this, because it might have been
+   * compromised.
+   */
+
+  /* Verify that the frame is unmapped in the kernel's direct map. */
+  uintptr_t kerndmap_vaddr = (uintptr_t)getVirtual(paddr);
+  pml4e_t * pml4e_ptr = get_pml4eVaddr(get_pagetable(), kerndmap_vaddr);
+  if (isPresent(pml4e_ptr)) {
+    pdpte_t * pdpte_ptr = get_pdpteVaddr(pml4e_ptr, kerndmap_vaddr);
+    if (isPresent(pdpte_ptr)) {
+      pde_t * pde_ptr = get_pdeVaddr(pdpte_ptr, kerndmap_vaddr);
+      if (isPresent(pde_ptr)) {
+        pte_t * pte_ptr = get_pteVaddr(pde_ptr, kerndmap_vaddr);
+        if (isPresent(pte_ptr)) {
+          /* The frame is still present in the kernel's direct map. */
+          panic("SVA: OS gave us a frame for secure memory which it didn't "
+              "remove from its direct map. The OS is lying to us and has "
+              "been terminated with extreme prejudice. "
+              "Frame physical address: 0x%lx\n", paddr);
+        }
+      }
+    }
+  }
+
+  /* Verify that there are no other mappings to the frame (except SVA's
+   * direct map).
+   *
+   * We can use SVA's refcount for this because all non-direct mappings are
+   * established through intrinsics that update it.
+   */
+  page_desc_t * page = getPageDescPtr(paddr);
+  if (page->count > 0) {
+    panic("SVA: OS gave us a frame for secure memory which is still mapped "
+        "somewhere else. The OS is lying to us and has been terminated with "
+        "extreme prejudice. Frame physical address: 0x%lx\n", paddr);
+  }
+
+  /* Set the page_desc entry for this frame to type PG_SVA. */
+  page->type = PG_SVA;
+
+  /* Flush the TLB to make sure the OS can't exploit latent previous mappings
+   * to this frame.
+   *
+   * (NOTE: this may have a significant negative performance impact on
+   * applications that call ghostMalloc() a lot! But I'm not sure there's a
+   * way we can avoid this; we have to flush the *whole* TLB since we have no
+   * way of knowing where the OS might have put a prior mapping.
+   *
+   * We can amortize the performance impact by increasing the size of SVA's
+   * frame cache, if necessary.)
+   *
+   * TODO: allow multiple frames to be gotten from the OS at once, so we only
+   * need to flush the TLB once per frame-cache-fill.
+   */
+  /* Disable interrupts. */
+  uintptr_t rflags = sva_enter_critical();
+  /* Flush all TLB entries, including global entries */
+  invltlb_all();
+  /* Re-enable interrupts. */
+  sva_exit_critical(rflags);
+
+  /* Finally, return the physical address of the frame we have now vetted. */
+  return paddr;
+}
+
+/*
+ * Function: return_frame_to_os()
+ *
+ * Description:
+ *  Return a frame acquired with get_frame_from_os().
+ *
+ *  The frame's page type in SVA's page_desc structure will be returned to
+ *  PG_UNUSED, so that the OS is once again free to establish its own
+ *  mappings to it.
+ *
+ * Argument:
+ *  paddr - the physical address of the frame being returned.
+ */
+static inline void return_frame_to_os(uintptr_t paddr) {
+  page_desc_t * page = getPageDescPtr(paddr);
+  page->type = PG_UNUSED;
+
+  releaseSVAMemory(paddr, X86_PAGE_SIZE);
+}
+
+/*
  * Function: fill_in_frames()
  *
  * Description:
@@ -151,7 +269,7 @@ fill_in_frames(void) {
   }
 
   for (i = 0; i < nframe; ++i) {
-    paddr = provideSVAMemory(X86_PAGE_SIZE);
+    paddr = get_frame_from_os();
     frame_enqueue(paddr);
   }
 }
@@ -182,9 +300,11 @@ release_frames(void) {
 
   for (i = 0; i < nframe; ++i) {
     paddr = frame_dequeue();
-    releaseSVAMemory(paddr, X86_PAGE_SIZE);
+    return_frame_to_os(paddr);
   }
 }
+
+
 
 /*
  * Function: alloc_frame()
@@ -202,9 +322,27 @@ alloc_frame(void) {
  *
  * Description:
  *  The front end function for freeing a physical frame.
+ *
+ *  This will set the frame's type in SVA's page_desc structure back to
+ *  PG_SVA. This is needed in case it was being used as ghost memory, in
+ *  which case ghostFree()'s call to unmapSecurePage() will have set it to
+ *  PG_UNUSED; if we leave it that way when putting it back in SVA's frame
+ *  cache, there is nothing to stop the OS from establishing its own mapping
+ *  to the memory in the future.
+ *
+ *  TODO: this is clumsy, and might be vulnerable to race conditions since
+ *  I don't think interrupts are disabled when unmapSecurePage() calls this.
+ *  unmapSecurePage() probably shouldn't be setting the type at all, leaving
+ *  it to this function instead. (It formerly made sense for
+ *  unmapSecurePage() to return it to PG_UNUSED because we weren't, at the
+ *  time, protecting pages from non-SVA mappings while they sat in the frame
+ *  cache.)
  */
 void
 free_frame(uintptr_t paddr) {
+  page_desc_t * page = getPageDescPtr(paddr);
+  page->type = PG_SVA;
+
   frame_enqueue(paddr);
 }
 
