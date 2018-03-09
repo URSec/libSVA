@@ -19,6 +19,7 @@
 #include "sva/config.h"
 #include "sva/callbacks.h"
 #include "sva/mmu.h"
+#include "sva/mmu_intrinsics.h"
 #include "sva/state.h"
 #include "sva/util.h"
 
@@ -182,6 +183,9 @@ get_frame_from_os(void) {
     }
   }
 
+  /* Flush the frame's (former) kernel direct mapping from the TLB. */
+  sva_mm_flush_tlb((void*)kerndmap_vaddr);
+
   /* Verify that there are no other mappings to the frame (except SVA's
    * direct map).
    *
@@ -197,27 +201,6 @@ get_frame_from_os(void) {
 
   /* Set the page_desc entry for this frame to type PG_SVA. */
   page->type = PG_SVA;
-
-  /* Flush the TLB to make sure the OS can't exploit latent previous mappings
-   * to this frame.
-   *
-   * (NOTE: this may have a significant negative performance impact on
-   * applications that call ghostMalloc() a lot! But I'm not sure there's a
-   * way we can avoid this; we have to flush the *whole* TLB since we have no
-   * way of knowing where the OS might have put a prior mapping.
-   *
-   * We can amortize the performance impact by increasing the size of SVA's
-   * frame cache, if necessary.)
-   *
-   * TODO: allow multiple frames to be gotten from the OS at once, so we only
-   * need to flush the TLB once per frame-cache-fill.
-   */
-  /* Disable interrupts. */
-  uintptr_t rflags = sva_enter_critical();
-  /* Flush all TLB entries, including global entries */
-  invltlb_all();
-  /* Re-enable interrupts. */
-  sva_exit_critical(rflags);
 
   /* Finally, return the physical address of the frame we have now vetted. */
   return paddr;
