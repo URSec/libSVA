@@ -287,13 +287,37 @@ release_frames(void) {
   }
 }
 
-
-
 /*
  * Function: alloc_frame()
  *
  * Description:
  *  The front end function for allocating a physical frame.
+ *
+ * Postconditions:
+ *  1. The frame returned will have its type set to PG_SVA in SVA's page_desc
+ *  structure, i.e., it is protected by the MMU checks to ensure taht hte OS
+ *  cannot establish its own mapping to access the frame. Only SVA can add a
+ *  mapping to it.
+ *
+ *  2. If the preconditions of free_frame() are always upheld, then this
+ *  function is guaranteed to return a frame to which no mapping currently
+ *  exists except in SVA's direct map.
+ *
+ * NOTE FOR SAFE USAGE:
+ *  If the caller of this function is planning to use the frame as SVA
+ *  internal memory, it should leave the type set to PG_SVA. This allows SVA
+ *  to protect it against unauthorized mappings.
+ *
+ *  If the frame is to be used for any other purpose, the caller is
+ *  responsible for ensuring that any mappings to it (except SVA's DMAP) are
+ *  cleared before calling free_frame(). If this is not done, the security of
+ *  the system may be compromised if said mapping(s) continue to exist and
+ *  the frame is later used for a sensitive purpose.
+ *
+ *  As an example, if a frame is allocated for use as ghost memory, its type
+ *  will be changed to PG_GHOST, which is also protected by the MMU checks.
+ *  Before it calls free_frame(), ghostFree() will call unmapSecurePage(),
+ *  which removes the ghost mapping and sets the type back to PG_SVA.
  */
 uintptr_t
 alloc_frame(void) {
@@ -306,26 +330,26 @@ alloc_frame(void) {
  * Description:
  *  The front end function for freeing a physical frame.
  *
- *  This will set the frame's type in SVA's page_desc structure back to
- *  PG_SVA. This is needed in case it was being used as ghost memory, in
- *  which case ghostFree()'s call to unmapSecurePage() will have set it to
- *  PG_UNUSED; if we leave it that way when putting it back in SVA's frame
- *  cache, there is nothing to stop the OS from establishing its own mapping
- *  to the memory in the future.
+ * Preconditions:
+ *  1. The frame's type should be set to PG_SVA in SVA's page_desc structure.
  *
- *  TODO: this is clumsy, and might be vulnerable to race conditions since
- *  I don't think interrupts are disabled when unmapSecurePage() calls this.
- *  unmapSecurePage() probably shouldn't be setting the type at all, leaving
- *  it to this function instead. (It formerly made sense for
- *  unmapSecurePage() to return it to PG_UNUSED because we weren't, at the
- *  time, protecting pages from non-SVA mappings while they sat in the frame
- *  cache.)
+ *  2. No mappings to the frame should exist except in SVA's direct map.
+ *     
+ *     If the frame was only used as SVA internal memory, and no mappings
+ *     were created, this condition is trivially upheld.
+ *
+ *     If the frame was used for any other purpose, it is the caller's
+ *     responsibility to ensure that any non-SVA mappings either could never
+ *     have been created (e.g., because the frame type was set to PG_GHOST,
+ *     which, like PG_SVA, prevents the OS from mapping it), and/or that
+ *     other mappings have been removed or confirmed to not exist.
+ *
+ *  If these preconditions are not always upheld, insecure mappings could
+ *  slip through the cracks and compromise the security of the system when
+ *  the frame is later reused.
  */
 void
 free_frame(uintptr_t paddr) {
-  page_desc_t * page = getPageDescPtr(paddr);
-  page->type = PG_SVA;
-
   frame_enqueue(paddr);
 }
 

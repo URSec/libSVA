@@ -1445,10 +1445,16 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
   page_desc_t * pageDesc = getPageDescPtr (*pte & PG_FRAME);
   pageDesc->count --;
   /*
-   * Mark the physical page is a regular type page now.
+   * Mark the physical frame's type as regular internal SVA memory, so it can
+   * be safely returned to the frame cache.
+   *
+   * This is what the frame's type was when we first obtained it from the
+   * frame cache (assuming that the preconditions on free_frame() have always
+   * been upheld). Now that we are done using it as ghost memory, we return
+   * it to this type.
    */
   if(pageDesc->count == 0)
-    pageDesc->type = PG_UNUSED;
+    pageDesc->type = PG_SVA;
 
   /*
    * Modify the PTE so that the page is not present.
