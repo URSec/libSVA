@@ -295,7 +295,7 @@ release_frames(void) {
  *
  * Postconditions:
  *  1. The frame returned will have its type set to PG_SVA in SVA's page_desc
- *  structure, i.e., it is protected by the MMU checks to ensure taht hte OS
+ *  structure, i.e., it is protected by the MMU checks to ensure that the OS
  *  cannot establish its own mapping to access the frame. Only SVA can add a
  *  mapping to it.
  *
