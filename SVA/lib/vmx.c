@@ -1100,7 +1100,7 @@ unloadvm(void) {
       "vmclear (%%rax)\n"
       : : "a" (&(active_vm->vmcs_paddr))
       );
-  /* COnfirm that the operation succeeded. */
+  /* Confirm that the operation succeeded. */
   if (query_vmx_result() == VM_SUCCEED) {
     DBGPRNT(("SUccessfully unloaded VMCS from the processor.\n"));
 
