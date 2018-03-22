@@ -158,11 +158,96 @@ static unsigned char sva_vmx_initialized = 0;
  * region per logical processor, not per virtual machine. It also does not
  * have any of the memory type (cacheability properties) restrictions that a
  * VMCS has.
+ *
+ * TODO: ensure this global pointer is in an SVA protected region
  */
 static uintptr_t VMXON_paddr = 0;
 
 /*
- * Function: my_getVirtual
+ * Structure: vm_desc_t
+ *
+ * Description:
+ *  A descriptor for a virtual machine.
+ *
+ *  Summarizes the state of the VM (e.g., is it active on a processor) and
+ *  contains pointers to its Virtual Machine Control Structure (VMCS) frame
+ *  and related structures.
+ *
+ *  This structure can be safely zero-initialized. When all its fields are
+ *  zero, it is interpreted as not being assigned to any virtual machine.
+ */
+typedef struct vm_desc_t {
+  /* Physical-address pointer to the VM's Virtual Machine Control Structure
+   * (VMCS) frame.
+   *
+   * The VMCS contains numerous fields for controlling various aspects of the
+   * processor's VMX features and saving host/guest state across transitions
+   * in and out of guest operation for this VM.
+   *
+   * The layout and format of these fields is implementation-dependent to the
+   * processor, and when the VM is active on the processor, it may freely
+   * cache them in internal registers. Therefore, these fields *must not*,
+   * under any circumstances, be read or written using normal memory loads
+   * and stores, or undefined behavior may result. Instead, the processor
+   * provides the VMREAD/VMWRITE instructions to read/write these fields
+   * indirectly by "name" (i.e., by a logical numeric index which refers to
+   * the field abstractly).
+   *
+   * Because of the potential for undefined behavior if the VMCS is used
+   * incorrectly, and because many of its fields are sensitive to system
+   * security, the VMCS must be allocated in SVA protected memory, forcing
+   * the OS to use SVA intrinsics to access it. A suitable frame will be
+   * obtained from the frame cache by the allocvm() intrinsic.
+   */
+  uintptr_t vmcs_paddr;
+
+  /* Has the VMCS been initialized with the VMCLEAR instruction? (true/false)
+   *
+   * (This must be done *before* reading/writing any fields with
+   * VMREAD/VMWRITE.)
+   */
+  unsigned char vmcs_initialized;
+
+  /* Is this VM active on the processor? (true/false)
+   *
+   * (i.e., has it been loaded with VMLOAD)
+   */
+  unsigned char is_active;
+
+  /* Has the VM been launched since it was last made active (loaded) onto the
+   * processor? (true/false)
+   *
+   * (If and only if so, we should use the VMRESUME instruction for VM entry
+   * instead of VMLAUNCH.)
+   */
+  unsigned char is_launched;
+} vm_desc_t;
+
+/*
+ * Array of vm_desc_t structures for each VM allocated on the system.
+ *
+ * To keep things simple, we pre-allocate this as a statically sized array of
+ * length MAX_VMS. This means there is a finite number of VMs that can be
+ * operated simultaneously. This is an artificial limitation; if it ever
+ * becomes an issue in practice, we can go through the trouble of making this
+ * a dynamically-resizable array. But that's a royal pain in C, and these
+ * structures are small, so it's probably better to just increase the limit.
+ *
+ * A VM's index within this array is used as its VM ID, i.e. the handle which
+ * is returned by the allocvm() intrinsic and used to refer to the VM in
+ * future intrinsic calls.
+ *
+ * This array is zero-initialized in sva_init_vmx(), which effectively marks
+ * all entries as unused (and the corresponding VM IDs as free to be
+ * assigned).
+ *
+ * TODO: ensure this is located in an SVA protected region
+ */
+static const size_t MAX_VMS = 128;
+static struct vm_desc_t vm_descs[MAX_VMS];
+
+/*
+ * Function: my_getVirtual()
  *
  * Description:
  *  A local helper function to abstract around whether SVA_DMAP is defined
@@ -191,7 +276,7 @@ my_getVirtual(uintptr_t physical) {
 }
 
 /*
- * Function: cpuid_1_ecx
+ * Function: cpuid_1_ecx()
  *
  * Description:
  *  Queries "leaf 1" of the CPUID pages, i.e. executes CPUID with 1 in EAX.
@@ -202,6 +287,16 @@ my_getVirtual(uintptr_t physical) {
  */
 static inline uint32_t
 cpuid_1_ecx(void) {
+  /* Note: normally, before using CPUID, one is supposed to execute it with
+   * EAX = 0 first, which will return (in EAX) the highest leaf number that
+   * this CPU supports. This prevents querying unsupported leaves.
+   *
+   * However, in this case it is safe to query leaf 1 unconditionally,
+   * because it is supported on all processors that implement the CPUID
+   * instruction. (Since we are in 64-bit mode, we know the CPUID instruction
+   * is implemented.)
+   */
+
   uint32_t cpuid_ecx = 0xdeadbeef;
   DBGPRNT(("Executing CPUID with 1 in EAX...\n"));
   asm __volatile__ (
@@ -216,7 +311,7 @@ cpuid_1_ecx(void) {
 }
 
 /*
- * Function: cpu_supports_vmx
+ * Function: cpu_supports_vmx()
  *
  * Description:
  *  Checks whether the processor supports VMX using the CPUID instruction.
@@ -233,7 +328,7 @@ cpu_supports_vmx(void) {
 }
 
 /*
- * Function: cpu_supports_smx
+ * Function: cpu_supports_smx()
  *
  * Description:
  *  Checks whether the processor supports SMX using the CPUID instruction.
@@ -250,7 +345,7 @@ cpu_supports_smx(void) {
 }
 
 /*
- * Function: cpu_permit_vmx
+ * Function: cpu_permit_vmx()
  *
  * Description:
  *  Sets the IA32_FEATURE_CONTROL MSR to permit VMX operation on the current
@@ -349,7 +444,7 @@ cpu_permit_vmx(void) {
 }
 
 /*
- * Function: check_cr0_fixed_bits
+ * Function: check_cr0_fixed_bits()
  *
  * Description:
  *  Checks that the value of Control Register 0 conforms to the bit settings
@@ -417,7 +512,7 @@ check_cr0_fixed_bits(void) {
 }
 
 /*
- * Function: check_cr4_fixed_bits
+ * Function: check_cr4_fixed_bits()
  *
  * Description:
  *  Checks that the value of Control Register 4 conforms to the bit settings
@@ -485,7 +580,7 @@ check_cr4_fixed_bits(void) {
 }
 
 /*
- * Function: query_vmx_result
+ * Function: query_vmx_result()
  *
  * Description:
  *  Examines the value of RFLAGS to determine the success or failure of a
@@ -538,7 +633,7 @@ query_vmx_result(void) {
 }
 
 /*
- * Intrinsic: sva_init_vmx
+ * Intrinsic: sva_init_vmx()
  *
  * Description:
  *  Prepares the SVA Execution Engine to support VMX operations.  (This may
@@ -566,6 +661,14 @@ sva_init_vmx(void) {
   if (sva_vmx_initialized) {
     DBGPRNT(("Kernel called sva_init_vmx(), but it was already initialized.\n"));
     return 1;
+  }
+
+  /* Zero-initialize the array of virtual machine descriptors.
+   *
+   * This has the effect of marking all VM IDs as free to be assigned.
+   */
+  for (size_t i = 0; i < MAX_VMS; i++) {
+    memset(&vm_descs[i], 0, sizeof(vm_desc_t));
   }
 
   /* Check to see if VMX is supported by the CPU, and if so, set the
@@ -635,6 +738,18 @@ sva_init_vmx(void) {
    */
   unsigned char * VMXON_vaddr = my_getVirtual(VMXON_paddr);
 
+  /***** TEMPORARY CODE */
+  // This works because physical addresses have the frame address in the same
+  // bit location as a page table entry pointing to them. (This is surely
+  // intentional on Intel's part to enable tricks exactly like this...)
+  page_desc_t * vmxon_pg = getPageDescPtr(VMXON_paddr);
+  printf("VMXON page type (enum page_type_t): %d\n", vmxon_pg->type);
+  printf("VMXON page vaddr: 0x%lx\n", vmxon_pg->pgVaddr);
+  printf("VMXON page is active: %u\n", vmxon_pg->active);
+  printf("VMXON page reference count: %u\n", vmxon_pg->count);
+  printf("VMXON page other_pgPaddr: 0x%lx\n", vmxon_pg->other_pgPaddr);
+  /***** END TEMPORARY CODE */
+
   DBGPRNT(("Zero-filling VMXON frame...\n"));
   memset(VMXON_vaddr, 0, VMCS_ALLOC_SIZE);
 
@@ -690,18 +805,169 @@ sva_init_vmx(void) {
 
 
 /*
- * Intrinsic: allocvm
+ * Intrinsic: allocvm()
  *
  * Description:
- *  Allocates a Virtual Machine Control Structure in SVA protected memory for
- *  a virtual machine.
+ *  Allocates a virtual machine descriptor and numeric ID for a new virtual
+ *  machine. Creates and initializes any auxiliary structures (such as the
+ *  Virtual Machine Control Structure) necessary to load this VM onto the
+ *  processor.
  *
  * Return value:
  *  A non-negative integer which will be used to identify this virtual
  *  machine in future invocations of VMX intrinsics. If the return value is
- *  negative, an error occurred and the VMCS was not allocated.
+ *  negative, an error occurred and nothing was allocated.
  */
 size_t
 allocvm(void) {
+  DBGPRNT(("allocvm() intrinsic called.\n"));
+
+  if (!sva_vmx_initialized) {
+    /* sva_init_vmx() is responsible for zero-initializing the vm_descs array
+     * and thus marking its slots as free for use. */
+    DBGPRNT(("Error: must call sva_init_vmx() before any other SVA-VMX "
+          "intrinsic.\n"));
     return -1;
+  }
+
+  /* Scan the vm_descs array for the first free slot, i.e., the first entry
+   * containing a null vmcs_paddr pointer. This indicates an unused VM ID.
+   * (All fields in vm_desc_t should be 0 if it is not assigned to a VM.)
+   *
+   * Although this is in theory inefficient (we may potentially need to scan
+   * through the entire array), it is simple and we never have to worry about
+   * fragmentation, since the first free ID is always chosen. Creating a new
+   * VM is an infrequent operation and the number of active VMs will likely
+   * be small in practice, rendering this moot.
+   */
+  size_t vmid = -1;
+  for (size_t i = 0; i < MAX_VMS; i++) {
+    if (vm_descs[i].vmcs_paddr == 0) {
+      DBGPRNT(("First free VM ID found: %lu\n", i));
+
+      vmid = i;
+      break;
+    }
+  }
+
+  /* If there were no free slots, return failure. */
+  if (vmid == -1) {
+    DBGPRNT(("Error: all %lu VM IDs are in use; cannot create a new VM.\n",
+          MAX_VMS));
+    return -1;
+  }
+
+  /* Allocate a physical frame of SVA secure memory from the frame cache to
+   * serve as this VM's Virtual Machine Control Structure.
+   *
+   * This frame is not mapped anywhere except in SVA's DMAP, ensuring that
+   * the OS cannot touch it without going through an SVA intrinsic.
+   */
+  vm_descs[vmid].vmcs_paddr = alloc_frame();
+
+  /* Zero-fill the VMCS frame, for good measure. */
+  unsigned char * vmcs_vaddr = my_getVirtual(vm_descs[vmid].vmcs_paddr);
+  memset(vmcs_vaddr, 0, VMCS_ALLOC_SIZE);
+
+  /* Write the processor's VMCS revision identifier to the first 31 bits of
+   * the VMCS frame, and clear the 32nd bit.
+   *
+   * This value is given in the lower 31 bits of the IA32_VMX_BASIC MSR.
+   * Conveniently, the 32nd bit of that MSR is always guaranteed to be 0, so
+   * we can just copy the lower 4 bytes.
+   */
+  uint64_t vmx_basic_data = rdmsr(VMX_BASIC_MSR);
+  uint32_t vmcs_rev_id = (uint32_t) vmx_basic_data;
+  *vmcs_vaddr = vmcs_rev_id;
+
+  /* Use the VMCLEAR instruction to initialize any processor
+   * implementation-dependent fields in the VMCS.
+   */
+  DBGPRNT(("Using VMCLEAR to initialize VMCS with paddr 0x%lx...\n",
+        vm_descs[vmid].vmcs_paddr));
+  asm __volatile__ (
+      "vmclear (%%rax)\n"
+      : : "a" (&vm_descs[vmid].vmcs_paddr)
+      );
+  /* Confirm that the operation succeeded. */
+  if (query_vmx_result() == VM_SUCCEED) {
+    DBGPRNT(("Successfully initialized VMCS.\n"));
+
+    vm_descs[vmid].vmcs_initialized = 1;
+  } else {
+    DBGPRNT(("Error: failed to initialize VMCS with VMCLEAR.\n"));
+
+    /* Return the VMCS frame to the frame cache. */
+    DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));
+    free_frame(vm_descs[vmid].vmcs_paddr);
+
+    /* Restore the VM descriptor to a clear state so that it is interpreted
+     * as a free slot.
+     */
+    memset(&vm_descs[vmid], 0, sizeof(vm_desc_t));
+
+    /* Return failure. */
+    return -1;
+  }
+
+  /* Success: return the VM ID. */
+  return vmid;
+}
+
+/*
+ * Intrinsic: freevm()
+ *
+ * Description:
+ *  Deallocates a virtual machine descriptor and its associated VMCS.
+ *
+ *  The VMCS frame will be returned to the frame cache, and the VM's
+ *  descriptor structure will be zero-filled. This marks its numeric ID and
+ *  slot in the vm_descs array as unused so they can be recycled.
+ *
+ * Arguments:
+ *  - vmid: the numeric handle of the virtual machine to be deallocated.
+ *
+ * Return value:
+ *  An error code indicating the result of this operation. 0 indicates
+ *  success, and a negative value indicates failure.
+ */
+int
+freevm(size_t vmid) {
+  DBGPRNT(("freevm() intrinsic called for VM ID: %lu\n", vmid));
+
+  if (!sva_vmx_initialized) {
+    DBGPRNT(("Error: must call sva_init_vmx() before any other SVA-VMX "
+          "intrinsic.\n"));
+    return -1;
+  }
+
+  /* Bounds check on vmid.
+   *
+   * (vmid is unsigned, so this also checks for negative values.)
+   */
+  if (vmid >= MAX_VMS) {
+    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  }
+
+  /* If this VM's VMCS pointer is already null, this is a double free (or
+   * freeing a VM ID which was never allocated). */
+  if (!vm_descs[vmid].vmcs_paddr) {
+    panic("Fatal error: tried to free a VM which was already unallocated!\n");
+  }
+
+  /* Don't free a VM which is still active on the processor. */
+  if (vm_descs[vmid].is_active) {
+    panic("Fatal error: tried to free a VM which is active on the "
+        "processor!\n");
+  }
+
+  /* Return the VMCS frame to the frame cache. */
+  DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));
+  free_frame(vm_descs[vmid].vmcs_paddr);
+
+  /* Zero-fill this slot in the vm_descs struct to mark it as unused. */
+  memset(&vm_descs[vmid], 0, sizeof(vm_desc_t));
+
+  /* Return success. */
+  return 0;
 }
