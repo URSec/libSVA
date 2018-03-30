@@ -30,7 +30,7 @@ enum sva_vmcs_field {
 
 /* Prototypes for VMX intrinsics */
 size_t allocvm(void);
-int freevm(size_t vmid);
+void freevm(size_t vmid);
 int loadvm(size_t vmid);
 int unloadvm(void);
 int readvmcs(enum sva_vmcs_field field, void * data);

@@ -139,6 +139,8 @@ static inline enum vmx_statuscode_t query_vmx_result(void);
 **********/
 /* Indicates whether sva_init_vmx() has yet been called by the OS. No SVA-VMX
  * intrinsics may be called until this has been done.
+ *
+ * TODO: ensure this global variable is in an SVA protected region
  */
 static unsigned char sva_vmx_initialized = 0;
 
@@ -208,12 +210,6 @@ typedef struct vm_desc_t {
    */
   unsigned char vmcs_initialized;
 
-  /* Is this VM active on the processor? (true/false)
-   *
-   * (i.e., has it been loaded with VMLOAD)
-   */
-  unsigned char is_active;
-
   /* Has the VM been launched since it was last made active (loaded) onto the
    * processor? (true/false)
    *
@@ -245,6 +241,14 @@ typedef struct vm_desc_t {
  */
 static const size_t MAX_VMS = 128;
 static struct vm_desc_t vm_descs[MAX_VMS];
+
+/*
+ * Pointer to the virtual machine descriptor structure for the VM currently
+ * loaded on the processor.
+ *
+ * If no VM is loaded on the processor, this pointer is null.
+ */
+static vm_desc_t * active_vm = 0;
 
 /*
  * Function: my_getVirtual()
@@ -817,6 +821,9 @@ sva_init_vmx(void) {
  *  A non-negative integer which will be used to identify this virtual
  *  machine in future invocations of VMX intrinsics. If the return value is
  *  negative, an error occurred and nothing was allocated.
+ *
+ *  FIXME: You're returning negative error codes, but the return type is
+ *  size_t, an unsigned type...
  */
 size_t
 allocvm(void) {
@@ -825,9 +832,8 @@ allocvm(void) {
   if (!sva_vmx_initialized) {
     /* sva_init_vmx() is responsible for zero-initializing the vm_descs array
      * and thus marking its slots as free for use. */
-    DBGPRNT(("Error: must call sva_init_vmx() before any other SVA-VMX "
-          "intrinsic.\n"));
-    return -1;
+    panic("Fatal error: must call sva_init_vmx() before any other "
+          "SVA-VMX intrinsic.\n");
   }
 
   /* Scan the vm_descs array for the first free slot, i.e., the first entry
@@ -878,10 +884,20 @@ allocvm(void) {
    */
   uint64_t vmx_basic_data = rdmsr(VMX_BASIC_MSR);
   uint32_t vmcs_rev_id = (uint32_t) vmx_basic_data;
-  *vmcs_vaddr = vmcs_rev_id;
+  *((uint32_t*)vmcs_vaddr) = vmcs_rev_id;
 
   /* Use the VMCLEAR instruction to initialize any processor
    * implementation-dependent fields in the VMCS.
+   *
+   * The VMCLEAR instruction is used both for initializing a new VMCS, and
+   * for unloading an active VM from the processor. If I am interpreting the
+   * Intel manual correctly, it *is* safe to use this instruction to
+   * initialize a VMCS while a *different* VMCS is active on the processor.
+   * That is, if the VMCS with address X is active on the processor,
+   * executing "VMCLEAR Y" should not affect X's active status.
+   *
+   * I should note that the Intel manual is not exceptionally clear on this
+   * point, and my interpretation may be wrong.
    */
   DBGPRNT(("Using VMCLEAR to initialize VMCS with paddr 0x%lx...\n",
         vm_descs[vmid].vmcs_paddr));
@@ -926,19 +942,14 @@ allocvm(void) {
  *
  * Arguments:
  *  - vmid: the numeric handle of the virtual machine to be deallocated.
- *
- * Return value:
- *  An error code indicating the result of this operation. 0 indicates
- *  success, and a negative value indicates failure.
  */
-int
+void
 freevm(size_t vmid) {
   DBGPRNT(("freevm() intrinsic called for VM ID: %lu\n", vmid));
 
   if (!sva_vmx_initialized) {
-    DBGPRNT(("Error: must call sva_init_vmx() before any other SVA-VMX "
-          "intrinsic.\n"));
-    return -1;
+    panic("Fatal error: must call sva_init_vmx() before any other "
+          "SVA-VMX intrinsic.\n");
   }
 
   /* Bounds check on vmid.
@@ -950,13 +961,14 @@ freevm(size_t vmid) {
   }
 
   /* If this VM's VMCS pointer is already null, this is a double free (or
-   * freeing a VM ID which was never allocated). */
+   * freeing a VM ID which was never allocated).
+   */
   if (!vm_descs[vmid].vmcs_paddr) {
     panic("Fatal error: tried to free a VM which was already unallocated!\n");
   }
 
   /* Don't free a VM which is still active on the processor. */
-  if (vm_descs[vmid].is_active) {
+  if (active_vm == &vm_descs[vmid]) {
     panic("Fatal error: tried to free a VM which is active on the "
         "processor!\n");
   }
@@ -967,6 +979,139 @@ freevm(size_t vmid) {
 
   /* Zero-fill this slot in the vm_descs struct to mark it as unused. */
   memset(&vm_descs[vmid], 0, sizeof(vm_desc_t));
+}
+
+/*
+ * Intrinsic: loadvm()
+ *
+ * Description:
+ *  Makes the specified virtual machine active on the processor.
+ *
+ *  Fails if another VM is already active on the processor. If that is the
+ *  case, you should call unloadvm() first to make it inactive.
+ *
+ * Arguments:
+ *  - vmid: the numeric handle of the virtual machine to be made active.
+ *
+ * Return value:
+ *  An error code indicating the result of this operation. 0 indicates
+ *  success, and a negative value indicates failure.
+ */
+int
+loadvm(size_t vmid) {
+  DBGPRNT(("loadvm() intrinsic called for VM ID: %lu\n", vmid));
+
+  if (!sva_vmx_initialized) {
+    panic("Fatal error: must call sva_init_vmx() before any other "
+          "SVA-VMX intrinsic.\n");
+  }
+
+  /* Bounds check on vmid.
+   *
+   * (vmid is unsigned, so this also checks for negative values.)
+   */
+  if (vmid >= MAX_VMS) {
+    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  }
+
+  /* If this VM descriptor indicated by this ID has a null VMCS pointer, it
+   * is not a valid descriptor. (i.e., it is an empty slot not assigned to
+   * any VM)
+   */
+  if (!vm_descs[vmid].vmcs_paddr) {
+    panic("Fatal error: tried to load an unallocated VM!\n");
+  }
+
+  /* If there is currently a VM active on the processor, it must be unloaded
+   * before we can load a new one. Return an error.
+   *
+   * A non-null active_vm pointer indicates there is an active VM.
+   */
+  if (active_vm) {
+    DBGPRNT(("Error: there is already a VM active on the processor. "
+          "Cannot load a different VM until it is unloaded.\n"));
+    return -1;
+  }
+
+  /* Set the indicated VM as the active one. */
+  active_vm = &vm_descs[vmid];
+
+  /* Use the VMPTRLD instruction to make the indicated VM's VMCS active on
+   * the processor.
+   */
+  DBGPRNT(("Using VMPTRLD to make active the VMCS at paddr 0x%lx...\n",
+        active_vm->vmcs_paddr));
+  asm __volatile__ (
+      "vmptrld (%%rax)\n"
+      : : "a" (&(active_vm->vmcs_paddr))
+      );
+  /* Confirm that the operation succeeded. */
+  if (query_vmx_result() == VM_SUCCEED) {
+    DBGPRNT(("Successfully loaded VMCS onto the processor.\n"));
+  } else {
+    DBGPRNT(("Error: failed to load VMCS onto the processor.\n"));
+
+    /* Unset the active_vm pointer. */
+    active_vm = 0;
+
+    /* Return failure. */
+    return -1;
+  }
+
+  /* Return success. */
+  return 0;
+}
+
+/*
+ * Intrinsic: unloadvm()
+ *
+ * Description:
+ *  Unload the current virtual machine from the processor.
+ *
+ *  Fails if no VM is currently active on the processor.
+ *
+ * Return value:
+ *  An error code indicating the result of this operation. 0 indicates
+ *  success, and a negative value indicates failure.
+ */
+int
+unloadvm(void) {
+  DBGPRNT(("unloadvm() intrinsic called.\n"));
+
+  if (!sva_vmx_initialized) {
+    panic("Fatal error: must call sva_init_vmx() before any other "
+          "SVA-VMX intrinsic.\n");
+  }
+
+  /* If there is no VM currently active on the processor, return failure.
+   *
+   * A null active_vm pointer indicates there is no active VM.
+   */
+  if (!active_vm) {
+    DBGPRNT(("Error: there is no VM active on the processor to unload.\n"));
+    return -1;
+  }
+
+  /* Use the VMCLEAR instruction to unload the current VM from the processor.
+   */
+  DBGPRNT(("Using VMCLEAR to unload VMCS with address 0x%lx from the "
+        "processor...\n", active_vm->vmcs_paddr));
+  asm __volatile__ (
+      "vmclear (%%rax)\n"
+      : : "a" (&(active_vm->vmcs_paddr))
+      );
+  /* COnfirm that the operation succeeded. */
+  if (query_vmx_result() == VM_SUCCEED) {
+    DBGPRNT(("SUccessfully unloaded VMCS from the processor.\n"));
+
+    /* Set the active_vm pointer to indicate no VM is active. */
+    active_vm = 0;
+  } else {
+    DBGPRNT(("Error: failed to unload VMCS from the processor.\n"));
+
+    /* Return failure. */
+    return -1;
+  }
 
   /* Return success. */
   return 0;
