@@ -137,7 +137,7 @@ static inline enum vmx_statuscode_t query_vmx_result(void);
  * add SMP support. For instance, we might want to store some of them on a
  * per-CPU basis in some structure already used for that purpose.)
 **********/
-/* Indicates whether sva_init_vmx() has yet been called by the OS. No SVA-VMX
+/* Indicates whether sva_initvmx() has yet been called by the OS. No SVA-VMX
  * intrinsics may be called until this has been done.
  *
  * TODO: ensure this global variable is in an SVA protected region
@@ -199,7 +199,7 @@ typedef struct vm_desc_t {
    * incorrectly, and because many of its fields are sensitive to system
    * security, the VMCS must be allocated in SVA protected memory, forcing
    * the OS to use SVA intrinsics to access it. A suitable frame will be
-   * obtained from the frame cache by the allocvm() intrinsic.
+   * obtained from the frame cache by the sva_allocvm() intrinsic.
    */
   uintptr_t vmcs_paddr;
 
@@ -230,10 +230,10 @@ typedef struct vm_desc_t {
  * structures are small, so it's probably better to just increase the limit.
  *
  * A VM's index within this array is used as its VM ID, i.e. the handle which
- * is returned by the allocvm() intrinsic and used to refer to the VM in
+ * is returned by the sva_allocvm() intrinsic and used to refer to the VM in
  * future intrinsic calls.
  *
- * This array is zero-initialized in sva_init_vmx(), which effectively marks
+ * This array is zero-initialized in sva_initvmx(), which effectively marks
  * all entries as unused (and the corresponding VM IDs as free to be
  * assigned).
  *
@@ -637,7 +637,7 @@ query_vmx_result(void) {
 }
 
 /*
- * Intrinsic: sva_init_vmx()
+ * Intrinsic: sva_initvmx()
  *
  * Description:
  *  Prepares the SVA Execution Engine to support VMX operations.  (This may
@@ -661,9 +661,9 @@ query_vmx_result(void) {
  *  protected memory.)
  */
 unsigned char
-sva_init_vmx(void) {
+sva_initvmx(void) {
   if (sva_vmx_initialized) {
-    DBGPRNT(("Kernel called sva_init_vmx(), but it was already initialized.\n"));
+    DBGPRNT(("Kernel called sva_initvmx(), but it was already initialized.\n"));
     return 1;
   }
 
@@ -809,7 +809,7 @@ sva_init_vmx(void) {
 
 
 /*
- * Intrinsic: allocvm()
+ * Intrinsic: sva_allocvm()
  *
  * Description:
  *  Allocates a virtual machine descriptor and numeric ID for a new virtual
@@ -826,13 +826,13 @@ sva_init_vmx(void) {
  *  size_t, an unsigned type...
  */
 size_t
-allocvm(void) {
-  DBGPRNT(("allocvm() intrinsic called.\n"));
+sva_allocvm(void) {
+  DBGPRNT(("sva_allocvm() intrinsic called.\n"));
 
   if (!sva_vmx_initialized) {
-    /* sva_init_vmx() is responsible for zero-initializing the vm_descs array
+    /* sva_initvmx() is responsible for zero-initializing the vm_descs array
      * and thus marking its slots as free for use. */
-    panic("Fatal error: must call sva_init_vmx() before any other "
+    panic("Fatal error: must call sva_initvmx() before any other "
           "SVA-VMX intrinsic.\n");
   }
 
@@ -931,7 +931,7 @@ allocvm(void) {
 }
 
 /*
- * Intrinsic: freevm()
+ * Intrinsic: sva_freevm()
  *
  * Description:
  *  Deallocates a virtual machine descriptor and its associated VMCS.
@@ -944,11 +944,11 @@ allocvm(void) {
  *  - vmid: the numeric handle of the virtual machine to be deallocated.
  */
 void
-freevm(size_t vmid) {
-  DBGPRNT(("freevm() intrinsic called for VM ID: %lu\n", vmid));
+sva_freevm(size_t vmid) {
+  DBGPRNT(("sva_freevm() intrinsic called for VM ID: %lu\n", vmid));
 
   if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_init_vmx() before any other "
+    panic("Fatal error: must call sva_initvmx() before any other "
           "SVA-VMX intrinsic.\n");
   }
 
@@ -982,13 +982,13 @@ freevm(size_t vmid) {
 }
 
 /*
- * Intrinsic: loadvm()
+ * Intrinsic: sva_loadvm()
  *
  * Description:
  *  Makes the specified virtual machine active on the processor.
  *
  *  Fails if another VM is already active on the processor. If that is the
- *  case, you should call unloadvm() first to make it inactive.
+ *  case, you should call sva_unloadvm() first to make it inactive.
  *
  * Arguments:
  *  - vmid: the numeric handle of the virtual machine to be made active.
@@ -998,11 +998,11 @@ freevm(size_t vmid) {
  *  success, and a negative value indicates failure.
  */
 int
-loadvm(size_t vmid) {
-  DBGPRNT(("loadvm() intrinsic called for VM ID: %lu\n", vmid));
+sva_loadvm(size_t vmid) {
+  DBGPRNT(("sva_loadvm() intrinsic called for VM ID: %lu\n", vmid));
 
   if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_init_vmx() before any other "
+    panic("Fatal error: must call sva_initvmx() before any other "
           "SVA-VMX intrinsic.\n");
   }
 
@@ -1063,7 +1063,7 @@ loadvm(size_t vmid) {
 }
 
 /*
- * Intrinsic: unloadvm()
+ * Intrinsic: sva_unloadvm()
  *
  * Description:
  *  Unload the current virtual machine from the processor.
@@ -1075,11 +1075,11 @@ loadvm(size_t vmid) {
  *  success, and a negative value indicates failure.
  */
 int
-unloadvm(void) {
-  DBGPRNT(("unloadvm() intrinsic called.\n"));
+sva_unloadvm(void) {
+  DBGPRNT(("sva_unloadvm() intrinsic called.\n"));
 
   if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_init_vmx() before any other "
+    panic("Fatal error: must call sva_initvmx() before any other "
           "SVA-VMX intrinsic.\n");
   }
 
@@ -1102,7 +1102,7 @@ unloadvm(void) {
       );
   /* COnfirm that the operation succeeded. */
   if (query_vmx_result() == VM_SUCCEED) {
-    DBGPRNT(("SUccessfully unloaded VMCS from the processor.\n"));
+    DBGPRNT(("Successfully unloaded VMCS from the processor.\n"));
 
     /* Set the active_vm pointer to indicate no VM is active. */
     active_vm = 0;

@@ -29,16 +29,16 @@ enum sva_vmcs_field {
 };
 
 /* Prototypes for VMX intrinsics */
-size_t allocvm(void);
-void freevm(size_t vmid);
-int loadvm(size_t vmid);
-int unloadvm(void);
-int readvmcs(enum sva_vmcs_field field, void * data);
-int writevmcs(enum sva_vmcs_field field, void * data);
+size_t sva_allocvm(void);
+void sva_freevm(size_t vmid);
+int sva_loadvm(size_t vmid);
+int sva_unloadvm(void);
+int sva_readvmcs(enum sva_vmcs_field field, void * data);
+int sva_writevmcs(enum sva_vmcs_field field, void * data);
 /* FIXME: launchvm and resumevm should return an exit info structure, not int. */
-int launchvm(size_t vmid);
-int resumevm(size_t vmid);
+int sva_launchvm(size_t vmid);
+int sva_resumevm(size_t vmid);
 
-unsigned char sva_init_vmx(void);
+unsigned char sva_initvmx(void);
 
 #endif /* _SVA_VMX_H */
