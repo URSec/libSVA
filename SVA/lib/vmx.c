@@ -241,7 +241,7 @@ static struct vm_desc_t __attribute__((section("svamem"))) vm_descs[MAX_VMS];
  *
  * If no VM is loaded on the processor, this pointer is null.
  */
-static vm_desc_t * active_vm = 0;
+static vm_desc_t * __attribute__((section("svamem"))) active_vm = 0;
 
 /*
  * Function: my_getVirtual()
@@ -1107,4 +1107,143 @@ sva_unloadvm(void) {
 
   /* Return success. */
   return 0;
+}
+
+/*
+ * Intrinsic: sva_readvmcs()
+ *
+ * Description:
+ *  Read a field from the Virtual Machine Control Structure for the virtual
+ *  machine currently active on the processor.
+ *
+ *  Note: the VMCS fields can *only* be read/written for an *active* VM
+ *  currently loaded on the processor. This is a design choice on Intel's
+ *  part: we must use special instructions to do this, which only operate on
+ *  an active VMCS.
+ *
+ * Arguments:
+ *  - field: The field to be read.
+ *
+ *  - data: A pointer to a 64-bit integer location in which to store the
+ *    value read from the VMCS field. (This is an "out-parameter".) A value
+ *    may or may not be written to this field in the case that an error code
+ *    indicating failure is returned (and if this does occur, the value
+ *    written is undefined).
+ *
+ *    Note: different VMCS fields have different widths. They can be 16 bits,
+ *    32 bits, 64 bits, or "natural width" (width of the host platform, which
+ *    in our case always means 64 bits since this version of SVA does not run
+ *    on 32-bit x86). If we are reading a field narrower than 64 bits, the
+ *    value returned is zero-extended, i.e., the higher bits will be 0.
+ *
+ * Return value:
+ *  An error code indicating the result of this operation. 0 indicates
+ *  success, and a negative value indicates failure.
+ */
+int
+sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
+  DBGPRNT(("sva_readvmcs() intrinsic called with field=0x%lx, data=%p\n",
+        field, data));
+
+  if (!sva_vmx_initialized) {
+    panic("Fatal error: must call sva_initvmx() before any other "
+          "SVA-VMX intrinsic.\n");
+  }
+
+  /* If there is no VM currently active on the processor, return failure.
+   *
+   * A null active_vm pointer indicates there is no active VM.
+   */
+  if (!active_vm) {
+    DBGPRNT(("Error: there is no VM active on the processor. "
+          "Cannot read from VMCS.\n"));
+    return -1;
+  }
+
+  DBGPRNT(("Executing VMREAD instruction...\n"));
+  asm __volatile__ (
+      "vmread %%rax, %%rbx\n"
+      : "=b" (*data)
+      : "a" (field)
+      );
+  /* Confirm that the operation succeeded. */
+  if (query_vmx_result() == VM_SUCCEED) {
+    DBGPRNT(("Successfully read VMCS field.\n"));
+
+    /* The specified field has been successfully read into the location
+     * pointed to by "data". Return success.
+     */
+    return 0;
+  } else {
+    DBGPRNT(("Error: failed to read VMCS field.\n"));
+
+    /* Return failure. */
+    return -1;
+  }
+}
+
+/*
+ * Intrinsic: sva_writevmcs()
+ *
+ * Description:
+ *  Write to a field in the Virtual Machine Control Structure for the virtual
+ *  machine currently active on the processor.
+ *
+ *  Note: the VMCS fields can *only* be read/written for an *active* VM
+ *  currently loaded on the processor. This is a design choice on Intel's
+ *  part: we must use special instructions to do this, which only operate on
+ *  an active VMCS.
+ *
+ * Arguments:
+ *  - field: The field to be written.
+ *
+ *  - data: The value to be written to the field.
+ *
+ *    Note: different VMCS fields have different widths. They can be 16 bits,
+ *    32 bits, 64 bits, or "natural width" (width of the host platform, which
+ *    in our case always means 64 bits since this version of SVA does not run
+ *    on 32-bit x86). If we are writing a field narrower than 64 bits, the
+ *    higher bits will be ignored.
+ *
+ * Return value:
+ *  An error code indicating the result of this operation. 0 indicates
+ *  success, and a negative value indicates failure.
+ */
+int
+sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
+  DBGPRNT(("sva_writevmcs() intrinsic called with field=0x%lx, data=0x%lx\n",
+        field, data));
+
+  if (!sva_vmx_initialized) {
+    panic("Fatal error: must call sva_initvmx() before any other "
+          "SVA-VMX intrinsic.\n");
+  }
+
+  /* If there is no VM currently active on the processor, return failure.
+   *
+   * A null active_vm pointer indicates there is no active VM.
+   */
+  if (!active_vm) {
+    DBGPRNT(("Error: there is no VM active on the processor. "
+          "Cannot write to VMCS.\n"));
+    return -1;
+  }
+
+  DBGPRNT(("Executing VMWRITE instruction...\n"));
+  asm __volatile__ (
+      "vmwrite %%rax, %%rbx\n"
+      : : "a" (data), "b" (field)
+      );
+  /* Confirm that the operation succeeded. */
+  if (query_vmx_result() == VM_SUCCEED) {
+    DBGPRNT(("Successfully wrote VMCS field.\n"));
+
+    /* Return success. */
+    return 0;
+  } else {
+    DBGPRNT(("Error: failed to write VMCS field.\n"));
+
+    /* Return failure. */
+    return -1;
+  }
 }

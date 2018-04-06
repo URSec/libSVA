@@ -23,8 +23,14 @@
  *
  * Identifies a Virtual Machine Control Structure field to be read or
  * written by the readvmcs()/writevmcs() intrinsics.
+ *
+ * The values of the enum entries are explicitly chosen so that they are
+ * exactly the same as their corresponding 16-bit field encodings specified
+ * in the Intel manual. This allows us to directly pass an enum value to the
+ * VMREAD/VMWRITE instructions.
  */
 enum sva_vmcs_field {
+  VMCS_GUEST_RIP = 0x0000681e,
   REPLACE_ME // placeholder so enum isn't empty
 };
 
@@ -33,8 +39,8 @@ size_t sva_allocvm(void);
 void sva_freevm(size_t vmid);
 int sva_loadvm(size_t vmid);
 int sva_unloadvm(void);
-int sva_readvmcs(enum sva_vmcs_field field, void * data);
-int sva_writevmcs(enum sva_vmcs_field field, void * data);
+int sva_readvmcs(enum sva_vmcs_field field, uint64_t *data);
+int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 /* FIXME: launchvm and resumevm should return an exit info structure, not int. */
 int sva_launchvm(size_t vmid);
 int sva_resumevm(size_t vmid);
