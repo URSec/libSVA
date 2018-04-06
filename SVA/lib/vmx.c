@@ -131,18 +131,15 @@ static inline enum vmx_statuscode_t query_vmx_result(void);
 
 /**********
  * "Global" static variables (local to this file)
- * 
- * (Eventually, we will need to ensure these are stored in SVA protected
- * memory. Some of them may need to be handled in a more complex way once we
- * add SMP support. For instance, we might want to store some of them on a
+ *
+ * (Eventually, some of these may need to be handled in a more complex way to
+ * support SMP. For instance, we might want to store some of them on a
  * per-CPU basis in some structure already used for that purpose.)
 **********/
 /* Indicates whether sva_initvmx() has yet been called by the OS. No SVA-VMX
  * intrinsics may be called until this has been done.
- *
- * TODO: ensure this global variable is in an SVA protected region
  */
-static unsigned char sva_vmx_initialized = 0;
+static unsigned char __attribute__((section("svamem"))) sva_vmx_initialized = 0;
 
 /* Physical address of the VMXON region. This is a special region of memory
  * that the active logical processor uses to "support VMX operation" (see
@@ -160,10 +157,8 @@ static unsigned char sva_vmx_initialized = 0;
  * region per logical processor, not per virtual machine. It also does not
  * have any of the memory type (cacheability properties) restrictions that a
  * VMCS has.
- *
- * TODO: ensure this global pointer is in an SVA protected region
  */
-static uintptr_t VMXON_paddr = 0;
+static uintptr_t __attribute__((section("svamem"))) VMXON_paddr = 0;
 
 /*
  * Structure: vm_desc_t
@@ -236,11 +231,9 @@ typedef struct vm_desc_t {
  * This array is zero-initialized in sva_initvmx(), which effectively marks
  * all entries as unused (and the corresponding VM IDs as free to be
  * assigned).
- *
- * TODO: ensure this is located in an SVA protected region
  */
 static const size_t MAX_VMS = 128;
-static struct vm_desc_t vm_descs[MAX_VMS];
+static struct vm_desc_t __attribute__((section("svamem"))) vm_descs[MAX_VMS];
 
 /*
  * Pointer to the virtual machine descriptor structure for the VM currently
@@ -657,8 +650,7 @@ query_vmx_result(void) {
  *  intrinsic.)
  *  (If we do decide to keep this as an intrinsic, all the other SVA_VMX
  *  intrinsics will need to check if sva_vmx_initialized is true before doing
- *  anything...and we will need to make sure that variable is stored in
- *  protected memory.)
+ *  anything.)
  */
 unsigned char
 sva_initvmx(void) {
