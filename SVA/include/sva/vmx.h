@@ -30,7 +30,42 @@
  * VMREAD/VMWRITE instructions.
  */
 enum sva_vmcs_field {
-  VMCS_GUEST_RIP = 0x0000681e,
+  VMCS_VM_INST_ERR = 0x4400,
+  VMCS_EXIT_REASON = 0x4402,
+
+  VMCS_GUEST_RIP = 0x681e,
+
+  /* 16-bit host-state fields */
+  VMCS_HOST_ES_SEL = 0xc00,
+  VMCS_HOST_CS_SEL = 0xc02,
+  VMCS_HOST_SS_SEL = 0xc04,
+  VMCS_HOST_DS_SEL = 0xc06,
+  VMCS_HOST_FS_SEL = 0xc08,
+  VMCS_HOST_GS_SEL = 0xc0a,
+  VMCS_HOST_TR_SEL = 0xc0c,
+
+  /* 64-bit host-state fields */
+  VMCS_HOST_IA32_PAT = 0x2c00,
+  VMCS_HOST_IA32_EFER = 0x2c02,
+  VMCS_HOST_IA32_PERF_GLOBAL_CTRL = 0x2c04,
+
+  /* 32-bit host-state field (there's only one) */
+  VMCS_HOST_IA32_SYSENTER_CS = 0x4c00,
+
+  /* Natural-width host-state fields */
+  VMCS_HOST_CR0 = 0x6c00,
+  VMCS_HOST_CR3 = 0x6c02,
+  VMCS_HOST_CR4 = 0x6c04,
+  VMCS_HOST_FS_BASE = 0x6c06,
+  VMCS_HOST_GS_BASE = 0x6c08,
+  VMCS_HOST_TR_BASE = 0x6c0a,
+  VMCS_HOST_GDTR_BASE = 0x6c0c,
+  VMCS_HOST_IDTR_BASE = 0x6c0e,
+  VMCS_HOST_IA32_SYSENTER_ESP = 0x6c10,
+  VMCS_HOST_IA32_SYSENTER_EIP = 0x6c12,
+  VMCS_HOST_RSP = 0x6c14,
+  VMCS_HOST_RIP = 0x6c16,
+
   REPLACE_ME // placeholder so enum isn't empty
 };
 
@@ -41,9 +76,8 @@ int sva_loadvm(size_t vmid);
 int sva_unloadvm(void);
 int sva_readvmcs(enum sva_vmcs_field field, uint64_t *data);
 int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
-/* FIXME: launchvm and resumevm should return an exit info structure, not int. */
-int sva_launchvm(size_t vmid);
-int sva_resumevm(size_t vmid);
+int sva_launchvm(void);
+int sva_resumevm(void);
 
 unsigned char sva_initvmx(void);
 

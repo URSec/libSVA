@@ -41,13 +41,22 @@
 /**********
  * Constants
 **********/
+/* MSRs (non-VMX-related) */
+static const u_int FEATURE_CONTROL_MSR = 0x3a;
+static const u_int MSR_SYSENTER_CS = 0x174;
+static const u_int MSR_SYSENTER_ESP = 0x175;
+static const u_int MSR_SYSENTER_EIP = 0x176;
+static const u_int MSR_FS_BASE = 0xc0000100;
+static const u_int MSR_GS_BASE = 0xc0000101;
+
+/* MSRs (VMX-related) */
 static const u_int VMX_BASIC_MSR = 0x480;
-static const u_int FEATURE_CONTROL_MSR = 0x3A;
 static const u_int VMX_CR0_FIXED0_MSR = 0x486;
 static const u_int VMX_CR0_FIXED1_MSR = 0x487;
 static const u_int VMX_CR4_FIXED0_MSR = 0x488;
 static const u_int VMX_CR4_FIXED1_MSR = 0x489;
 
+/* VMX-related bitmasks */
 static const uint64_t CR4_ENABLE_VMX_BIT = 0x2000;
 static const uint64_t FEATURE_CONTROL_LOCK_BIT = 0x1; // bit 0
 static const uint64_t FEATURE_CONTROL_ENABLE_VMXON_WITHIN_SMX_BIT = 0x2; // bit 1
@@ -128,6 +137,7 @@ static inline unsigned char cpu_permit_vmx(void);
 static inline unsigned char check_cr0_fixed_bits(void);
 static inline unsigned char check_cr4_fixed_bits(void);
 static inline enum vmx_statuscode_t query_vmx_result(void);
+static int run_vm(unsigned char use_vmresume);
 
 /**********
  * "Global" static variables (local to this file)
@@ -198,13 +208,6 @@ typedef struct vm_desc_t {
    */
   uintptr_t vmcs_paddr;
 
-  /* Has the VMCS been initialized with the VMCLEAR instruction? (true/false)
-   *
-   * (This must be done *before* reading/writing any fields with
-   * VMREAD/VMWRITE.)
-   */
-  unsigned char vmcs_initialized;
-
   /* Has the VM been launched since it was last made active (loaded) onto the
    * processor? (true/false)
    *
@@ -240,8 +243,52 @@ static struct vm_desc_t __attribute__((section("svamem"))) vm_descs[MAX_VMS];
  * loaded on the processor.
  *
  * If no VM is loaded on the processor, this pointer is null.
+ *
+ * TODO: make this a per-CPU array so it's multiprocessor-ready.
  */
 static vm_desc_t * __attribute__((section("svamem"))) active_vm = 0;
+
+/*
+ * Structure: vmx_host_state_t
+ *
+ * Description:
+ *  Describes the layout of the object we will use to store saved host state
+ *  (registers, stack pointer, etc.) before a VM entry so we can restore it
+ *  after VM exit.
+ *
+ *  The actual saving/restoring will be done by assembly code; the field
+ *  names in C are for informational/reference purposes to those reading the
+ *  code (and for debug code that e.g. needs to print these fields). This
+ *  is declared as a "packed" struct so that we can know the exact
+ *  arrangement of the fields when we need to access them in the assembly.
+ */
+typedef struct __attribute__((packed)) vmx_host_state_t {
+  uint64_t rsp;
+
+  uint64_t rax, rbx, rcx, rdx;
+  uint64_t rbp, rsi, rdi;
+  uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
+
+  /* A small scratch space that we can use as a stack immediately after VM
+   * exit.
+   *
+   * We don't need much - just enough to write down the current contents of
+   * RFLAGS, then load the old stack pointer from this structure and restore
+   * it.
+   *
+   * For this purpose, we allocate a more than generous 64 bytes (8 64-bit
+   * quadwords).
+   */
+  uint64_t scratch_stack[8];
+} vmx_host_state_t;
+
+/*
+ * The object we will use to store saved host state (registers, stack
+ * pointer, etc.) before a VM entry so we can restore it after VM exit.
+ *
+ * TODO: make this a per-CPU array so it's multiprocessor-ready.
+ */
+static vmx_host_state_t __attribute__((section("svamem"))) host_state;
 
 /*
  * Function: my_getVirtual()
@@ -900,8 +947,6 @@ sva_allocvm(void) {
   /* Confirm that the operation succeeded. */
   if (query_vmx_result() == VM_SUCCEED) {
     DBGPRNT(("Successfully initialized VMCS.\n"));
-
-    vm_descs[vmid].vmcs_initialized = 1;
   } else {
     DBGPRNT(("Error: failed to initialize VMCS with VMCLEAR.\n"));
 
@@ -1096,6 +1141,12 @@ sva_unloadvm(void) {
   if (query_vmx_result() == VM_SUCCEED) {
     DBGPRNT(("Successfully unloaded VMCS from the processor.\n"));
 
+    /* Mark the VM as "not launched". If we load it back onto the processor
+     * in the future, we will need to use sva_launchvm() instead of
+     * sva_resumevm() to resume its guest-mode operation.
+     */
+    active_vm->is_launched = 0;
+
     /* Set the active_vm pointer to indicate no VM is active. */
     active_vm = 0;
   } else {
@@ -1246,4 +1297,251 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
     /* Return failure. */
     return -1;
   }
+}
+
+/*
+ * Intrinsic: sva_launchvm()
+ *
+ * Description:
+ *  Run the currently-loaded virtual machine in guest mode for the first time
+ *  since it was loaded onto the processor.
+ *
+ *  NOTE: This intrinsic should only be used the *first* time a VM is run
+ *  after it is loaded onto the processor. For subsequent re-entries to guest
+ *  mode where the VM was not unloaded (with the sva_loadvm() intrinsic)
+ *  since its last exit back to host mode, the sva_resumevm() intrinsic must
+ *  be used instead.
+ *
+ *  sva_launchvm() will fail if it is called when sva_resumevm() should be
+ *  used instead.
+ *
+ * Return value:
+ *  An error code indicating the result of this operation. 0 indicates
+ *  control has returned to host mode due to a VM exit. A negative value
+ *  indicates that VM entry failed.
+ */
+int
+sva_launchvm(void) {
+  DBGPRNT(("sva_launchvm() intrinsic called.\n"));
+
+  if (!sva_vmx_initialized) {
+    panic("Fatal error: must call sva_initvmx() before any other "
+          "SVA-VMX intrinsic.\n");
+  }
+
+  /* If there is no VM currently active on the processor, return failure.
+   *
+   * A null active_vm pointer indicates there is no active VM.
+   */
+  if (!active_vm) {
+    DBGPRNT(("Error: there is no VM active on the processor. "
+          "Cannot launch VM.\n"));
+    return -1;
+  }
+
+  /* If the VM has been launched before since being loaded onto the
+   * processor, the sva_resumevm() intrinsic must be used instead of this
+   * one.
+   */
+  if (active_vm->is_launched) {
+    DBGPRNT(("Error: Must use sva_resumevm() to enter a VM which "
+          "was previously run since being loaded on the processor.\n"));
+    return -1;
+  }
+
+  /* Mark the VM as launched. Until this VM is unloaded from the processor,
+   * future entries to it must be performed using the sva_resumevm()
+   * intrinsic.
+   */
+  active_vm->is_launched = 1;
+
+  /* Perform the context switch into guest mode (which will ultimately exit
+   * back into host mode and return us here).
+   *
+   * This involves a lot of detailed assembly code to save/restore host
+   * state, and all of it is the same as for sva_resumevm() (except that we
+   * use the VMRESUME instruction instead of VMLAUNCH), so we perform this in
+   * a common helper function.
+   */
+  return run_vm(0 /* use_vmresume */);
+}
+
+/*
+ * Function: run_vm()
+ *
+ * Description:
+ *  Common helper function for sva_launchvm() and sva_resumevm().
+ *
+ *  Does the heavy lifting for the context switch into and back out of guest
+ *  mode (VM entry/exit).
+ *
+ *  This entails:
+ *  - Setting various VMCS fields containing host state to be restored on VM
+ *    exit. These include the control registers, segment registers, the
+ *    kernel program counter and stack pointer, and the MSRs that control
+ *    fast system calls.
+ *
+ *  - Saving additional host state that will not automatically be restored by
+ *    the processor on VM exit. This includes all the general purpose
+ *    registers (TODO: and probably the floating point and other specialized
+ *    computation registers).
+ *
+ *  - Entering guest execution by executing the VMLAUNCH or VMRESUME
+ *    instruction, as appropriate.
+ *
+ *  - Noting the state of RFLAGS after we come back from VMLAUNCH/VMRESUME so
+ *    we can pass it to query_vmx_result().
+ *
+ *  - Restoring all saved host state.
+ *
+ *  - Finally, returning a result code to sva_launchvm/resumevm() which will
+ *    be passed back to its caller.
+ *
+ * Preconditions:
+ *  This should ONLY be called at the end of sva_launchvm/resumevm(),
+ *  respectively. It assumes that all checks have already been done to ensure
+ *  it is safe to do VM entry.
+ *
+ * Arguments:
+ *  - use_vmresume: A boolean indicating whether we should perform the VM
+ *  entry using the VMRESUME instruction instead of VMLAUNCH.
+ *
+ * Return value:
+ *  An error code to be passed through to the respective intrinsic
+ *  (sva_launchvm/resumevm()) which called this helper function.
+ *
+ *  0 indicates control has returned to host mode due to a VM exit. A
+ *  negative value indicates that VM entry failed.
+ */
+static int
+run_vm(unsigned char use_vmresume) {
+  /*
+   * Set the host-state-object fields to recognizable nonsense values so that
+   * we can spot them easily in the debugger if we mess up and fail to
+   * restore state correctly.
+   *
+   * (We can remove this code when we're confident this is working well.)
+   */
+  host_state.rsp = 0xf00f00f0f00f00f0;
+  host_state.rax = 0xf00f00f0f00f00f0;
+  host_state.rbx = 0xf00f00f0f00f00f0;
+  host_state.rcx = 0xf00f00f0f00f00f0;
+  host_state.rdx = 0xf00f00f0f00f00f0;
+  host_state.rbp = 0xf00f00f0f00f00f0;
+  host_state.rsi = 0xf00f00f0f00f00f0;
+  host_state.rdi = 0xf00f00f0f00f00f0;
+  host_state.r8  = 0xf00f00f0f00f00f0;
+  host_state.r9  = 0xf00f00f0f00f00f0;
+  host_state.r10 = 0xf00f00f0f00f00f0;
+  host_state.r11 = 0xf00f00f0f00f00f0;
+  host_state.r12 = 0xf00f00f0f00f00f0;
+  host_state.r13 = 0xf00f00f0f00f00f0;
+  host_state.r14 = 0xf00f00f0f00f00f0;
+  host_state.r15 = 0xf00f00f0f00f00f0;
+  for (int i = 0; i < sizeof(host_state.scratch_stack) / sizeof(uint64_t); i++) {
+    host_state.scratch_stack[i] = 0xd00d00d0d00d00d0;
+  }
+
+  /*
+   * Save host state in the VMCS that will be restored automatically by the
+   * processor on VM exit.
+   *
+   * NOTE: we call our own sva_writevmcs() intrinsic for this.
+   */
+  /* Control registers */
+  uint64_t host_cr0 = _rcr0();
+  sva_writevmcs(VMCS_HOST_CR0, host_cr0);
+  uint64_t host_cr3 = _rcr3();
+  sva_writevmcs(VMCS_HOST_CR3, host_cr3);
+  uint64_t host_cr4 = _rcr4();
+  sva_writevmcs(VMCS_HOST_CR4, host_cr4);
+
+  /* Segment selectors */
+  uint16_t es_sel, cs_sel, ss_sel, ds_sel, fs_sel, gs_sel, tr_sel;
+  asm __volatile__ (
+      "mov %%es, %0\n"
+      "mov %%cs, %1\n"
+      "mov %%ss, %2\n"
+      "mov %%ds, %3\n"
+      "mov %%fs, %4\n"
+      "mov %%gs, %5\n"
+      "str %6\n"
+      : "=m" (es_sel), "=m" (cs_sel), "=m" (ss_sel), "=m" (ds_sel),
+        "=m" (fs_sel), "=m" (gs_sel), "=m" (tr_sel)
+      );
+  sva_writevmcs(VMCS_HOST_ES_SEL, es_sel);
+  sva_writevmcs(VMCS_HOST_CS_SEL, cs_sel);
+  sva_writevmcs(VMCS_HOST_SS_SEL, ss_sel);
+  sva_writevmcs(VMCS_HOST_DS_SEL, ds_sel);
+  sva_writevmcs(VMCS_HOST_FS_SEL, fs_sel);
+  sva_writevmcs(VMCS_HOST_GS_SEL, gs_sel);
+  sva_writevmcs(VMCS_HOST_TR_SEL, tr_sel);
+
+  /*
+   * Segment and descriptor table base-address registers
+   */
+
+  uint64_t fs_base = rdmsr(MSR_FS_BASE);
+  sva_writevmcs(VMCS_HOST_FS_BASE, fs_base);
+  uint64_t gs_base = rdmsr(MSR_GS_BASE);
+  sva_writevmcs(VMCS_HOST_GS_BASE, gs_base);
+
+  uint64_t gdtr[2], idtr[2];
+  /* The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
+   * memory. The first 8 bytes are the base-address field and the last two
+   * bytes are the limit field.
+   *
+   * This code stores the base-address field into the first element of the
+   * respective array, and the limit field into the lower (i.e. first, since
+   * x86 is little-endian) two bytes of the second element. We're only
+   * interested in the base-address field.
+   */
+  asm __volatile__ (
+      "sgdt (%0)\n"
+      "sidt (%1)\n"
+      : : "r" (gdtr), "r" (idtr)
+      );
+  sva_writevmcs(VMCS_HOST_GDTR_BASE, gdtr[0]);
+  sva_writevmcs(VMCS_HOST_IDTR_BASE, idtr[0]);
+
+  /* Get the TR base address from the GDT */
+  uint16_t tr_gdt_index = (tr_sel >> 3);
+  uint32_t * gdt = (uint32_t*)gdtr[0]; /* GDT base address */
+  uint32_t * tr_gdt_entry = gdt + (tr_gdt_index * 8);
+
+  static const uint32_t SEGDESC_BASEADDR_31_24_MASK = 0xff000000;
+  static const uint32_t SEGDESC_BASEADDR_23_16_MASK = 0xff;
+
+  /* This marvelous bit-shifting exposition brought to you by Intel's
+   * steadfast commitment to backwards compatibility in the x86 architecture!
+   *
+   * (At least, I'm guessing that's why this otherwise perfectly normal
+   * 64-bit address is split up into four noncontiguous chunks placed at the
+   * most inconvenient offsets possible within a 16-byte descriptor...)
+   */
+  uint32_t tr_baseaddr_15_0 = (tr_gdt_entry[0] >> 16);
+  uint32_t tr_baseaddr_23_16 =
+    ((tr_gdt_entry[1] & SEGDESC_BASEADDR_23_16_MASK) << 16);
+  uint32_t tr_baseaddr_31_24 = tr_gdt_entry[1] & SEGDESC_BASEADDR_31_24_MASK;
+  uint32_t tr_baseaddr_31_16 = tr_baseaddr_31_24 | tr_baseaddr_23_16;
+  uint32_t tr_baseaddr_31_0 = tr_baseaddr_31_16 | tr_baseaddr_15_0;
+  uint64_t tr_baseaddr_63_32 = ((uint64_t)tr_gdt_entry[2] << 32);
+  uint64_t tr_baseaddr = tr_baseaddr_63_32 | ((uint64_t)tr_baseaddr_31_0);
+  /* Write our hard-earned TR base address to the VMCS... */
+  sva_writevmcs(VMCS_HOST_TR_BASE, tr_baseaddr);
+
+  /* Various MSRs */
+  uint64_t ia32_sysenter_cs = rdmsr(MSR_SYSENTER_CS);
+  sva_writevmcs(VMCS_HOST_IA32_SYSENTER_CS, ia32_sysenter_cs);
+  uint64_t ia32_sysenter_esp = rdmsr(MSR_SYSENTER_ESP);
+  sva_writevmcs(VMCS_HOST_IA32_SYSENTER_ESP, ia32_sysenter_esp);
+  uint64_t ia32_sysenter_eip = rdmsr(MSR_SYSENTER_EIP);
+  sva_writevmcs(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
+
+vmexit_landing_pad:
+  asm __volatile__ (
+      "hlt\n" /* placeholder */
+      );
+
+  return -1; /* FIXME: placeholder so this compiles */
 }
