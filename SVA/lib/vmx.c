@@ -253,8 +253,7 @@ static vm_desc_t * __attribute__((section("svamem"))) active_vm = 0;
  *
  * Description:
  *  Describes the layout of the object we will use to store saved host state
- *  (registers, stack pointer, etc.) before a VM entry so we can restore it
- *  after VM exit.
+ *  (registers, etc.) before a VM entry so we can restore it after VM exit.
  *
  *  The actual saving/restoring will be done by assembly code; the field
  *  names in C are for informational/reference purposes to those reading the
@@ -263,23 +262,8 @@ static vm_desc_t * __attribute__((section("svamem"))) active_vm = 0;
  *  arrangement of the fields when we need to access them in the assembly.
  */
 typedef struct __attribute__((packed)) vmx_host_state_t {
-  uint64_t rsp;
-
-  uint64_t rax, rbx, rcx, rdx;
   uint64_t rbp, rsi, rdi;
   uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
-
-  /* A small scratch space that we can use as a stack immediately after VM
-   * exit.
-   *
-   * We don't need much - just enough to write down the current contents of
-   * RFLAGS, then load the old stack pointer from this structure and restore
-   * it.
-   *
-   * For this purpose, we allocate a more than generous 64 bytes (8 64-bit
-   * quadwords).
-   */
-  uint64_t scratch_stack[8];
 } vmx_host_state_t;
 
 /*
@@ -1422,11 +1406,6 @@ run_vm(unsigned char use_vmresume) {
    *
    * (We can remove this code when we're confident this is working well.)
    */
-  host_state.rsp = 0xf00f00f0f00f00f0;
-  host_state.rax = 0xf00f00f0f00f00f0;
-  host_state.rbx = 0xf00f00f0f00f00f0;
-  host_state.rcx = 0xf00f00f0f00f00f0;
-  host_state.rdx = 0xf00f00f0f00f00f0;
   host_state.rbp = 0xf00f00f0f00f00f0;
   host_state.rsi = 0xf00f00f0f00f00f0;
   host_state.rdi = 0xf00f00f0f00f00f0;
@@ -1438,9 +1417,6 @@ run_vm(unsigned char use_vmresume) {
   host_state.r13 = 0xf00f00f0f00f00f0;
   host_state.r14 = 0xf00f00f0f00f00f0;
   host_state.r15 = 0xf00f00f0f00f00f0;
-  for (int i = 0; i < sizeof(host_state.scratch_stack) / sizeof(uint64_t); i++) {
-    host_state.scratch_stack[i] = 0xd00d00d0d00d00d0;
-  }
 
   /*
    * Save host state in the VMCS that will be restored automatically by the
@@ -1538,10 +1514,108 @@ run_vm(unsigned char use_vmresume) {
   uint64_t ia32_sysenter_eip = rdmsr(MSR_SYSENTER_EIP);
   sva_writevmcs(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
 
-vmexit_landing_pad:
+  /*
+   * This is where the magic happens.
+   *
+   * In this assembly section, we:
+   *  - Save the general purpose registers to the host_state structure.
+   *
+   *  - Use the VMWRITE instruction to set the RIP and RSP values that will
+   *    be loaded by the processor on the next VM exit.
+   *
+   *  - Execute VMLAUNCH/VMRESUME (as appropriate). This enters guest mode
+   *    and runs the VM until an event occurs that triggers a VM exit.
+   *
+   *  - Return from VM exit. When we set the RIP value to be loaded earlier,
+   *    we pointed it to the vmexit_landing_pad label, which is on the next
+   *    instruction following VMLAUNCH/VMRESUME. This maintains a
+   *    straight-line continuity of control flow, as if VMLAUNCH/VMRESUME
+   *    fell through to the next instruction after VM exit instead of loading
+   *    an arbitrary value into RIP. (This seems the most sane way to stitch
+   *    things together, since it avoids breaking the control flow of the
+   *    surrounding C function in a confusing way.)
+   *
+   *  - Save the current value of RFLAGS so we can pass it to
+   *    query_vmx_result() to determine whether the VM entry succeeded (and
+   *    thence a VM exit actually occurred).
+   *
+   *  - Restore the general purpose registers.
+   */
+  uint64_t rflags;
   asm __volatile__ (
-      "hlt\n" /* placeholder */
+      "# RAX contains a pointer to the host_state structure.\n"
+      "# Push it so that we can get it back after VM exit.\n"
+      "pushq %%rax\n"
+
+      "### Save GPRs\n"
+      "# We don't need to save RAX, RBX, RCX, or RDX because we've used them\n"
+      "# as input/output registers for this inline assembly block.\n"
+      "movq %%rbp,  (%%rax)\n"
+      "movq %%rsi,  8(%%rax)\n"
+      "movq %%rdi,  16(%%rax)\n"
+      "movq %%r8,   24(%%rax)\n"
+      "movq %%r9,   32(%%rax)\n"
+      "movq %%r10,  40(%%rax)\n"
+      "movq %%r11,  48(%%rax)\n"
+      "movq %%r12,  56(%%rax)\n"
+      "movq %%r13,  64(%%rax)\n"
+      "movq %%r14,  72(%%rax)\n"
+      "movq %%r15,  80(%%rax)\n"
+
+      "# (Now all the GPRs are free for our own use in this code.)\n"
+
+      "### Use VMWRITE to set RIP and RSP to be loaded on VM exit\n"
+      "vmwrite %%rsp, %%rbx # Write RSP to VMCS_HOST_RSP\n"
+      "movq $vmexit_landing_pad, %%rbp\n"
+      "vmwrite %%rbp, %%rcx # Write vmexit_landing_pad to VMCS_HOST_RIP\n"
+
+      "### Execute the appropriate VM entry instruction based on the value\n"
+      "### of use_vmresume.\n"
+      "# Note that we need to place an explicit jump to vmexit_landing_pad\n"
+      "# after the launch/resume instructions to ensure correct behavior if\n"
+      "# the VM entry fails (and thus execution falls through to the next\n"
+      "# instruction).\n"
+      "addq $0, %%rdx\n"
+      "jnz do_vmresume\n"
+      "vmlaunch\n"
+      "jmp vmexit_landing_pad\n"
+
+      "do_vmresume:\n"
+      "vmresume\n"
+      "# Here the fall-through is OK since vmexit_landing_pad is next.\n"
+
+      "### VM exits return here!!!\n"
+      "vmexit_landing_pad:\n"
+
+      "### Save RFLAGS to RDX (output register for asm block)\n"
+      "pushfq\n"
+      "popq %%rdx\n"
+
+      "### Get pointer to host_state structure which we saved on the stack\n"
+      "### prior to VM entry\n"
+      "popq %%rax\n"
+
+      "### Restore GPRs\n"
+      "movq (%%rax),   %%rbp\n"
+      "movq 8(%%rax),  %%rsi\n"
+      "movq 16(%%rax), %%rdi\n"
+      "movq 24(%%rax), %%r8\n"
+      "movq 32(%%rax), %%r9\n"
+      "movq 40(%%rax), %%r10\n"
+      "movq 48(%%rax), %%r11\n"
+      "movq 56(%%rax), %%r12\n"
+      "movq 64(%%rax), %%r13\n"
+      "movq 72(%%rax), %%r14\n"
+      "movq 80(%%rax), %%r15\n"
+
+      : "=d" (rflags)
+      : "a" (&host_state), "b" (VMCS_HOST_RSP), "c" (VMCS_HOST_RIP),
+        "d" (use_vmresume)
+      : "memory", "cc"
       );
+
+  // TODO: finish this. Check saved RFLAGS (refactor query_vmx_result()) and
+  // return appropriate error code.
 
   return -1; /* FIXME: placeholder so this compiles */
 }
