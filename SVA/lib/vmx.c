@@ -136,7 +136,7 @@ static inline unsigned char cpu_supports_smx(void);
 static inline unsigned char cpu_permit_vmx(void);
 static inline unsigned char check_cr0_fixed_bits(void);
 static inline unsigned char check_cr4_fixed_bits(void);
-static inline enum vmx_statuscode_t query_vmx_result(void);
+static inline enum vmx_statuscode_t query_vmx_result(uint64_t rflags);
 static int run_vm(unsigned char use_vmresume);
 
 /**********
@@ -611,12 +611,17 @@ check_cr4_fixed_bits(void) {
  * Function: query_vmx_result()
  *
  * Description:
- *  Examines the value of RFLAGS to determine the success or failure of a
+ *  Examines an RFLAGS value to determine the success or failure of a
  *  previously issued VMX instruction.
  *
  *  The various status codes that can be set by a VMX instruction are
  *  described in section 30.2 of the Intel SDM. Here, we represent them with
  *  the enumerated type vmx_statuscode_t.
+ *
+ * Arguments:
+ *  - rflags: an RFLAGS value to be interpreted. Inline assembly issuing VMX
+ *    instructions should save the contents of RFLAGS immediately after doing
+ *    so, so that they can be passed to this function later.
  *
  * Return value:
  *  A member of the enumerated type vmx_statuscode_t corresponding to the
@@ -626,15 +631,8 @@ check_cr4_fixed_bits(void) {
  *  described in the Intel SDM, we return the value VM_UNKNOWN.
  */
 static inline enum vmx_statuscode_t
-query_vmx_result(void) {
-  /* Read the RFLAGS register. */
-  uint64_t rflags;
-  asm __volatile__ (
-      "pushfq\n"
-      "popq %%rax\n"
-      : "=a" (rflags)
-      );
-  DBGPRNT(("Contents of RFLAGS: 0x%lx\n", rflags));
+query_vmx_result(uint64_t rflags) {
+  DBGPRNT(("RFLAGS value passed to query_vmx_result(): 0x%lx\n", rflags));
 
   /* Test for VMsucceed. */
   if ((rflags & RFLAGS_VM_SUCCEED) == rflags) {
@@ -802,12 +800,16 @@ sva_initvmx(void) {
    * passing the physical address of the VMXON region as a memory operand.
    */
   DBGPRNT(("Entering VMX operation...\n"));
+  uint64_t rflags;
   asm __volatile__ (
-      "vmxon (%%rax)\n"
-      : : "a" (&VMXON_paddr)
+      "vmxon (%1)\n"
+      "pushfq\n"
+      "popq %0\n"
+      : "=r" (rflags)
+      : "r" (&VMXON_paddr)
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result() == VM_SUCCEED) {
+  if (query_vmx_result(rflags) == VM_SUCCEED) {
     DBGPRNT(("SVA VMX support successfully initialized.\n"));
 
     sva_vmx_initialized = 1;
@@ -924,12 +926,16 @@ sva_allocvm(void) {
    */
   DBGPRNT(("Using VMCLEAR to initialize VMCS with paddr 0x%lx...\n",
         vm_descs[vmid].vmcs_paddr));
+  uint64_t rflags;
   asm __volatile__ (
-      "vmclear (%%rax)\n"
-      : : "a" (&vm_descs[vmid].vmcs_paddr)
+      "vmclear (%1)\n"
+      "pushfq\n"
+      "popq %0\n"
+      : "=r" (rflags)
+      : "r" (&vm_descs[vmid].vmcs_paddr)
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result() == VM_SUCCEED) {
+  if (query_vmx_result(rflags) == VM_SUCCEED) {
     DBGPRNT(("Successfully initialized VMCS.\n"));
   } else {
     DBGPRNT(("Error: failed to initialize VMCS with VMCLEAR.\n"));
@@ -1062,12 +1068,16 @@ sva_loadvm(size_t vmid) {
    */
   DBGPRNT(("Using VMPTRLD to make active the VMCS at paddr 0x%lx...\n",
         active_vm->vmcs_paddr));
+  uint64_t rflags;
   asm __volatile__ (
-      "vmptrld (%%rax)\n"
-      : : "a" (&(active_vm->vmcs_paddr))
+      "vmptrld (%1)\n"
+      "pushfq\n"
+      "popq %0\n"
+      : "=r" (rflags)
+      : "r" (&(active_vm->vmcs_paddr))
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result() == VM_SUCCEED) {
+  if (query_vmx_result(rflags) == VM_SUCCEED) {
     DBGPRNT(("Successfully loaded VMCS onto the processor.\n"));
   } else {
     DBGPRNT(("Error: failed to load VMCS onto the processor.\n"));
@@ -1117,12 +1127,16 @@ sva_unloadvm(void) {
    */
   DBGPRNT(("Using VMCLEAR to unload VMCS with address 0x%lx from the "
         "processor...\n", active_vm->vmcs_paddr));
+  uint64_t rflags;
   asm __volatile__ (
-      "vmclear (%%rax)\n"
-      : : "a" (&(active_vm->vmcs_paddr))
+      "vmclear (%1)\n"
+      "pushfq\n"
+      "popq %0\n"
+      : "=r" (rflags)
+      : "r" (&(active_vm->vmcs_paddr))
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result() == VM_SUCCEED) {
+  if (query_vmx_result(rflags) == VM_SUCCEED) {
     DBGPRNT(("Successfully unloaded VMCS from the processor.\n"));
 
     /* Mark the VM as "not launched". If we load it back onto the processor
@@ -1196,13 +1210,16 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
   }
 
   DBGPRNT(("Executing VMREAD instruction...\n"));
+  uint64_t rflags;
   asm __volatile__ (
       "vmread %%rax, %%rbx\n"
-      : "=b" (*data)
+      "pushfq\n"
+      "popq %0\n"
+      : "=r" (rflags), "=b" (*data)
       : "a" (field)
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result() == VM_SUCCEED) {
+  if (query_vmx_result(rflags) == VM_SUCCEED) {
     DBGPRNT(("Successfully read VMCS field.\n"));
 
     /* The specified field has been successfully read into the location
@@ -1265,12 +1282,16 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
   }
 
   DBGPRNT(("Executing VMWRITE instruction...\n"));
+  uint64_t rflags;
   asm __volatile__ (
       "vmwrite %%rax, %%rbx\n"
-      : : "a" (data), "b" (field)
+      "pushfq\n"
+      "popq %0\n"
+      : "=r" (rflags)
+      : "a" (data), "b" (field)
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result() == VM_SUCCEED) {
+  if (query_vmx_result(rflags) == VM_SUCCEED) {
     DBGPRNT(("Successfully wrote VMCS field.\n"));
 
     /* Return success. */
@@ -1575,7 +1596,7 @@ run_vm(unsigned char use_vmresume) {
       "# after the launch/resume instructions to ensure correct behavior if\n"
       "# the VM entry fails (and thus execution falls through to the next\n"
       "# instruction).\n"
-      "addq $0, %%rdx\n"
+      "addb $0, %%dl\n"
       "jnz do_vmresume\n"
       "vmlaunch\n"
       "jmp vmexit_landing_pad\n"
