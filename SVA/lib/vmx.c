@@ -1568,6 +1568,7 @@ run_vm(unsigned char use_vmresume) {
    *
    *  - Restore the general purpose registers.
    */
+  DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
   uint64_t rflags;
   asm __volatile__ (
       "# RAX contains a pointer to the host_state structure.\n"
@@ -1641,8 +1642,40 @@ run_vm(unsigned char use_vmresume) {
       : "memory", "cc"
       );
 
-  // TODO: finish this. Check saved RFLAGS (refactor query_vmx_result()) and
-  // return appropriate error code.
+  /* Confirm that the operation succeeded. */
+  enum vmx_statuscode_t result = query_vmx_result(rflags);
+  if (result == VM_SUCCEED) {
+    DBGPRNT(("VM EXIT: returned to host mode.\n"));
 
-  return -1; /* FIXME: placeholder so this compiles */
+    /* Return success. */
+    return 0;
+  } else if (result == VM_FAIL_VALID) {
+    DBGPRNT(("Error: VM entry failed! See VM-instruction error field in "
+          "VMCS for more details.\n"));
+
+    /* Return failure. */
+    return -1;
+  } else if (result == VM_FAIL_INVALID) {
+    /* This should not happen. VM_FAIL_INVALID means we tried to execute
+     * "vmlaunch" or "vmresume" without a valid VMCS loaded on the processor.
+     * Since we checked that there was an active VM above, this indicates a
+     * flaw in the implementation of our intrinsics.
+     */
+    panic("Fatal error: SVA thought a VM was loaded on the processor, but "
+        "the 'vmlaunch'/'vmresume' instruction returned the VM_FAIL_INVALID "
+        "status, which means there is not a valid VM loaded. Something has "
+        "gone terribly wrong.\n");
+
+    return -1; /* Will never execute, but the compiler will warn without it. */
+  } else {
+    /* This should be another impossible case. It means that the value of
+     * RFLAGS after executing "vmlaunch" doesn't correspond to any of the VMX
+     * result codes listed in the Intel manual.
+     */
+    panic("Fatal error: the 'vmlaunch'/'vmresume' instruction left RFLAGS "
+        "in a configuration that doesn't match any of the VMX result codes "
+        "documented by Intel. Something has gone terribly wrong.\n");
+
+    return -1; /* Will never execute, but the compiler will warn without it. */
+  }
 }
