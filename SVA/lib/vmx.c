@@ -1329,7 +1329,7 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
  * Return value:
  *  An error code indicating the result of this operation. 0 indicates
  *  control has returned to host mode due to a VM exit. A negative value
- *  indicates that VM entry failed.
+ *  indicates that VM entry failed (i.e., we never left host mode).
  */
 int
 sva_launchvm(void) {
@@ -1366,8 +1366,8 @@ sva_launchvm(void) {
    */
   active_vm->is_launched = 1;
 
-  /* Perform the context switch into guest mode (which will ultimately exit
-   * back into host mode and return us here).
+  /* Enter guest-mode execution (which will ultimately exit back into host
+   * mode and return us here).
    *
    * This involves a lot of detailed assembly code to save/restore host
    * state, and all of it is the same as for sva_resumevm() (except that we
@@ -1375,6 +1375,81 @@ sva_launchvm(void) {
    * a common helper function.
    */
   return run_vm(0 /* use_vmresume */);
+}
+
+/*
+ * Intrinsic: sva_resumevm()
+ *
+ * Description:
+ *  Run the currently-loaded virtual machine in guest mode, given the
+ *  assumption that it has done so once before since it was loaded onto the
+ *  processor.
+ *
+ *  NOTE: This intrinsic should only be used for VM "re-entries", i.e., to
+ *  enter guest mode after having previously done so (and subsequently
+ *  exited) using sva_launchvm().
+ *
+ *  If you want to run a VM for the first time since loading it, you must use
+ *  sva_launchvm() instead. This includes the case where a VM was previously
+ *  loaded and run, but was since unloaded and reloaded from the processor;
+ *  from the processor's perspective, it might as well be a new VM.
+ *
+ *  sva_resumevm() wil fail if it is called when sva_launchvm() should be
+ *  used instead.
+ *
+ *  TODO: investigate whether it's possible to unify the launch/resumevm
+ *  intrinsics without unduly complicating porting of existing hypervisors. I
+ *  don't think this will be a problem, since the two separate interfaces
+ *  appears to just be the processor exposing the fact that one is an
+ *  optimized version of the other that keeps more cached state valid. We
+ *  (SVA) have to keep track of whether the VM's been "launched" yet anyway,
+ *  to check that the wrong intrinsic wasn't called, so we can just as easily
+ *  make it one intrinsic that automatically does the right thing. (The code
+ *  is basically unified already since they call the common helper run_vm().)
+ *
+ * Return value:
+ *  An error code indicating the result of this operation. 0 indicates
+ *  control has returned to host mode due to a VM exit. A negative value
+ *  indicates that VM entry failed (i.e., we never left host mode).
+ */
+int
+sva_resumevm(void) {
+  DBGPRNT(("sva_resumevm() intrinsic called.\n"));
+
+  if (!sva_vmx_initialized) {
+    panic("Fatal error: must call sva_initvmx() before any other "
+          "SVA-VMX intrinsic.\n");
+  }
+
+  /* If there is no VM currently active on the processor, return failure.
+   *
+   * A null active_vm pointer indicates there is no active VM.
+   */
+  if (!active_vm) {
+    DBGPRNT(("Error: there is no VM active on the processor. "
+          "Cannot resume VM.\n"));
+    return -1;
+  }
+
+  /* If the VM has not previously been launched at least once since being
+   * loaded onto the processor, the sva_launchvm() intrinsic must be used
+   * instead of this one.
+   */
+  if (!active_vm->is_launched) {
+    DBGPRNT(("Error: Must use sva_launchvm() to enter a VM which hasn't "
+          "previously been run since being loaded on the processor.\n"));
+    return -1;
+  }
+
+  /* Enter guest-mode execution (which will ultimately exit back into host
+   * mode and return us here).
+   *
+   * This involves a lot of detailed assembly code to save/restore host
+   * state, and all of it is the same as for sva_launchvm() (except that we
+   * use the VMLAUNCH instruction instead of VMRESUME), so we perform this in
+   * a common helper function.
+   */
+  return run_vm(1 /* use_vmresume */);
 }
 
 /*
