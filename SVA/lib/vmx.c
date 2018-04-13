@@ -807,6 +807,7 @@ sva_initvmx(void) {
       "popq %0\n"
       : "=r" (rflags)
       : "r" (&VMXON_paddr)
+      : "cc"
       );
   /* Confirm that the operation succeeded. */
   if (query_vmx_result(rflags) == VM_SUCCEED) {
@@ -933,6 +934,7 @@ sva_allocvm(void) {
       "popq %0\n"
       : "=r" (rflags)
       : "r" (&vm_descs[vmid].vmcs_paddr)
+      : "cc"
       );
   /* Confirm that the operation succeeded. */
   if (query_vmx_result(rflags) == VM_SUCCEED) {
@@ -1075,6 +1077,7 @@ sva_loadvm(size_t vmid) {
       "popq %0\n"
       : "=r" (rflags)
       : "r" (&(active_vm->vmcs_paddr))
+      : "cc"
       );
   /* Confirm that the operation succeeded. */
   if (query_vmx_result(rflags) == VM_SUCCEED) {
@@ -1134,6 +1137,7 @@ sva_unloadvm(void) {
       "popq %0\n"
       : "=r" (rflags)
       : "r" (&(active_vm->vmcs_paddr))
+      : "cc"
       );
   /* Confirm that the operation succeeded. */
   if (query_vmx_result(rflags) == VM_SUCCEED) {
@@ -1217,6 +1221,7 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
       "popq %0\n"
       : "=r" (rflags), "=b" (*data)
       : "a" (field)
+      : "cc"
       );
   /* Confirm that the operation succeeded. */
   if (query_vmx_result(rflags) == VM_SUCCEED) {
@@ -1289,6 +1294,7 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
       "popq %0\n"
       : "=r" (rflags)
       : "a" (data), "b" (field)
+      : "cc"
       );
   /* Confirm that the operation succeeded. */
   if (query_vmx_result(rflags) == VM_SUCCEED) {
