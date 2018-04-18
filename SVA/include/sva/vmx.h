@@ -28,13 +28,101 @@
  * exactly the same as their corresponding 16-bit field encodings specified
  * in the Intel manual. This allows us to directly pass an enum value to the
  * VMREAD/VMWRITE instructions.
+ *
+ * NOTE: Some of the fields listed in this enumeration are not (yet)
+ * recognized or used by SVA. They are listed here for consistency with the
+ * Intel manual (currently, the October 2017 revision). Note especially that
+ * some of these fields may not even *exist* on the particular Intel hardware
+ * we are using for development; some of them correspond to features added in
+ * newer hardware.
+ *
+ * (This is not to say all of the fields listed in the Intel manual are here.
+ * I tried to get all of them, but I might have missed some we don't care
+ * about yet.)
+ *
  */
 enum sva_vmcs_field {
   VMCS_VM_INST_ERR = 0x4400,
   VMCS_EXIT_REASON = 0x4402,
 
-  VMCS_GUEST_RIP = 0x681e,
+  /*
+   * GUEST_STATE FIELDS
+   */
+  /* 16-bit guest-state fields */
+  VMCS_GUEST_ES_SEL = 0x800,
+  VMCS_GUEST_CS_SEL = 0x802,
+  VMCS_GUEST_SS_SEL = 0X804,
+  VMCS_GUEST_DS_SEL = 0x806,
+  VMCS_GUEST_FS_SEL = 0x808,
+  VMCS_GUEST_GS_SEL = 0x80a,
+  VMCS_GUEST_LDTR_SEL = 0x80c,
+  VMCS_GUEST_TR_SEL = 0x80e,
+  VMCS_GUEST_INTERRUPT_STATUS = 0x810,
+  VMCS_GUEST_PML_INDEX = 0x812,
 
+  /* 64-bit guest-state fields */
+  /* Not a typo, the field is called "VMCS link pointer". */
+  VMCS_VMCS_LINK_PTR = 0x2800,
+  VMCS_GUEST_IA32_DEBUGCTL = 0x2802,
+  VMCS_GUEST_IA32_PAT = 0x2804,
+  VMCS_GUEST_IA32_EFER = 0x2806,
+  VMCS_GUEST_IA32_PERF_GLOBAL_CTRL = 0x2808,
+  VMCS_GUEST_PDPTE0 = 0x280a,
+  VMCS_GUEST_PDPTE1 = 0x280c,
+  VMCS_GUEST_PDPTE2 = 0x280e,
+  VMCS_GUEST_PDPTE3 = 0x2810,
+  VMCS_GUEST_IA32_BNDCFGS = 0x2812,
+
+  /* 32-bit guest-state fields */
+  VMCS_GUEST_ES_LIMIT = 0x4800,
+  VMCS_GUEST_CS_LIMIT = 0x4802,
+  VMCS_GUEST_SS_LIMIT = 0x4804,
+  VMCS_GUEST_DS_LIMIT = 0x4806,
+  VMCS_GUEST_FS_LIMIT = 0x4808,
+  VMCS_GUEST_GS_LIMIT = 0x480a,
+  VMCS_GUEST_LDTR_LIMIT = 0x480c,
+  VMCS_GUEST_TR_LIMIT = 0x480e,
+  VMCS_GUEST_GDTR_LIMIT = 0x4810,
+  VMCS_GUEST_IDTR_LIMIT = 0x4812,
+  VMCS_GUEST_ES_ACCESS_RIGHTS = 0x4814,
+  VMCS_GUEST_CS_ACCESS_RIGHTS = 0x4816,
+  VMCS_GUEST_SS_ACCESS_RIGHTS = 0x4818,
+  VMCS_GUEST_DS_ACCESS_RIGHTS = 0x481a,
+  VMCS_GUEST_FS_ACCESS_RIGHTS = 0x481c,
+  VMCS_GUEST_GS_ACCESS_RIGHTS = 0x481e,
+  VMCS_GUEST_LDTR_ACCESS_RIGHTS = 0x4820,
+  VMCS_GUEST_TR_ACCESS_RIGHTS = 0x4822,
+  VMCS_GUEST_INTERRUPTIBILITY_STATE = 0x4824,
+  VMCS_GUEST_ACTIVITY_STATE = 0x4826,
+  VMCS_GUEST_SMBASE = 0x4828,
+  VMCS_GUEST_IA32_SYSENTER_CS = 0x482a,
+  VMCS_VMX_PREEMPT_TIMER_VAL = 0x482e,
+
+  /* Natural-width guest-state fields */
+  VMCS_GUEST_CR0 = 0x6800,
+  VMCS_GUEST_CR3 = 0x6802,
+  VMCS_GUEST_CR4 = 0x6804,
+  VMCS_GUEST_ES_BASE = 0x6806,
+  VMCS_GUEST_CS_BASE = 0x6808,
+  VMCS_GUEST_SS_BASE = 0x680a,
+  VMCS_GUEST_DS_BASE = 0x680c,
+  VMCS_GUEST_FS_BASE = 0x680e,
+  VMCS_GUEST_GS_BASE = 0x6810,
+  VMCS_GUEST_LDTR_BASE = 0x6812,
+  VMCS_GUEST_TR_BASE = 0x6814,
+  VMCS_GUEST_GDTR_BASE = 0x6816,
+  VMCS_GUEST_IDTR_BASE = 0x6818,
+  VMCS_GUEST_DR7 = 0x681a,
+  VMCS_GUEST_RSP = 0x681c,
+  VMCS_GUEST_RIP = 0x681e,
+  VMCS_GUEST_RFLAGS = 0x6820,
+  VMCS_GUEST_PENDING_DBG_EXCEPTIONS = 0x6822,
+  VMCS_GUEST_IA32_SYSENTER_ESP = 0x6824,
+  VMCS_GUEST_IA32_SYSENTER_EIP = 0x6826,
+
+  /*
+   * HOST-STATE FIELDS
+   */
   /* 16-bit host-state fields */
   VMCS_HOST_ES_SEL = 0xc00,
   VMCS_HOST_CS_SEL = 0xc02,
@@ -66,7 +154,100 @@ enum sva_vmcs_field {
   VMCS_HOST_RSP = 0x6c14,
   VMCS_HOST_RIP = 0x6c16,
 
-  REPLACE_ME // placeholder so enum isn't empty
+  /*
+   * CONTROL FIELDS
+   */
+  /* 16-bit control fields */
+  VMCS_VPID = 0x0,
+  VMCS_POSTED_INTERRUPT_NOTIFICATION_VECTOR = 0x2,
+  VMCS_EPTP_INDEX = 0x4,
+
+  /* 64-bit control fields */
+  VMCS_IOBITMAP_A_ADDR = 0x2000,
+  VMCS_IOBITMAP_B_ADDR = 0x2002,
+  VMCS_MSR_BITMAPS_ADDR = 0x2004,
+  VMCS_VMEXIT_MSR_STORE_ADDR = 0x2006,
+  VMCS_VMEXIT_MSR_LOAD_ADDR = 0x2008,
+  VMCS_VMENTRY_MSR_LOAD_ADDR = 0x200a,
+  VMCS_EXECUTIVE_VMCS_PTR = 0x200c,
+  VMCS_PML_ADDR = 0x200e,
+  VMCS_TSC_OFFSET = 0x2010,
+  VMCS_VIRTUAL_APIC_ADDR = 0x2012,
+  VMCS_APIC_ACCESS_ADDR = 0x2014,
+  VMCS_POSTED_INTERRUPT_DESC_ADDR = 0x2016,
+  VMCS_VM_FUNC_CTRLS = 0x2018,
+  VMCS_EPT_PTR = 0x201a,
+  VMCS_EOI_EXIT_BITMAP_0 = 0x201c,
+  VMCS_EOI_EXIT_BITMAP_1 = 0x201e,
+  VMCS_EOI_EXIT_BITMAP_2 = 0x2020,
+  VMCS_EOI_EXIT_BITMAP_3 = 0x2022,
+  VMCS_EPTP_LIST_ADDR = 0x2024,
+  VMCS_VMREAD_BITMAP_ADDR = 0x2026,
+  VMCS_VMWRITE_BITMAP_ADDR = 0x2028,
+  VMCS_VIRT_EXCEPTION_INFO_ADDR = 0x202a,
+  VMCS_XSS_EXITING_BITMAP = 0x202c,
+  VMCS_ENCLS_EXITING_BITMAP = 0x202e,
+  /* No, this isn't a mistake - the Intel manual doesn't list anything for
+   * 0x2030, it goes straight from 0x202e to 0x2032. I don't know why. Maybe
+   * a feature they haven't announced yet? */
+  VMCS_TSC_MULTIPLIER = 0x2032,
+
+  /* 32-bit control fields */
+  VMCS_PINBASED_VM_EXEC_CTRLS = 0x4000,
+  VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS = 0x4002,
+  VMCS_EXCEPTION_BITMAP = 0x4004,
+  VMCS_PAGE_FAULT_ERROR_CODE_MASK = 0x4006,
+  VMCS_PAGE_FAULT_ERROR_CODE_MATCH = 0x4008,
+  VMCS_CR3_TARGET_COUNT = 0x400a,
+  VMCS_VM_EXIT_CTRLS = 0x400c,
+  VMCS_VM_EXIT_MSR_STORE_COUNT = 0x400e,
+  VMCS_VM_EXIT_MSR_LOAD_COUNT = 0x4010,
+  VMCS_VM_ENTRY_CTRLS = 0x4012,
+  VMCS_VM_ENTRY_MSR_LOAD_COUNT = 0x4014,
+  VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD = 0x4016,
+  VMCS_VM_ENTRY_EXCEPTION_ERROR_CODE = 0x4018,
+  VMCS_VM_ENTRY_INSTR_LENGTH = 0x401a,
+  VMCS_TPR_THRESHOLD = 0x401c,
+  VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS = 0x401e,
+  VMCS_PLE_GAP = 0x4020,
+  VMCS_PLE_WINDOW = 0x4022,
+
+  /* Natural-width control fields */
+  VMCS_CR0_GUESTHOST_MASK = 0x6000,
+  VMCS_CR4_GUESTHOST_MASK = 0x6002,
+  VMCS_CR0_READ_SHADOW = 0x6004,
+  VMCS_CR4_READ_SHADOW = 0x6006,
+  VMCS_CR3_TARGET_VAL0 = 0x6008,
+  VMCS_CR3_TARGET_VAL1 = 0x600a,
+  VMCS_CR3_TARGET_VAL2 = 0x600c,
+  VMCS_CR3_TARGET_VAL3 = 0x600e,
+
+  /*
+   * READ-ONLY DATA FIELDS
+   */
+  /* There are no 16-bit read-only data fields. */
+
+  /* 64-bit read-only data field (there's only one) */
+  VMCS_GUEST_PHYS_ADDR = 0x2400,
+
+  /* 32-bit read-only data fields */
+  VMCS_VM_INSTR_ERROR = 0x4400,
+  VMCS_VM_EXIT_REASON = 0x4402,
+  VMCS_VM_EXIT_INTERRUPTION_INFO = 0x4404,
+  VMCS_VM_EXIT_INTERRUPTION_ERROR_CODE = 0x4406,
+  VMCS_IDT_VECTORING_INFO_FIELD = 0x4408,
+  VMCS_IDT_VECTORING_ERROR_CODE = 0x440a,
+  VMCS_VM_EXIT_INSTR_LENGTH = 0x440c,
+  VMCS_VM_EXIT_INSTR_INFO = 0x440e,
+
+  /* Natural-width read-only data fields */
+  VMCS_EXIT_QUAL = 0x6400,
+  VMCS_IO_RCX = 0x6402,
+  VMCS_IO_RSI = 0x6404,
+  VMCS_IO_RDI = 0x6406,
+  VMCS_IO_RIP = 0x6408,
+  VMCS_GUEST_LINEAR_ADDR = 0x640a
+  /* THE END */
 };
 
 /* Prototypes for VMX intrinsics */
