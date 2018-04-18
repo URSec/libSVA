@@ -50,11 +50,31 @@ static const u_int MSR_FS_BASE = 0xc0000100;
 static const u_int MSR_GS_BASE = 0xc0000101;
 
 /* MSRs (VMX-related) */
-static const u_int VMX_BASIC_MSR = 0x480;
-static const u_int VMX_CR0_FIXED0_MSR = 0x486;
-static const u_int VMX_CR0_FIXED1_MSR = 0x487;
-static const u_int VMX_CR4_FIXED0_MSR = 0x488;
-static const u_int VMX_CR4_FIXED1_MSR = 0x489;
+/* We are not necessarily using all of these (yet); they're defined here so
+ * that we don't have to go hunting in the Intel manual if we turn out to
+ * need them later.
+ *
+ * These *appear* to be all of the VMX-related architectural MSRs listed in
+ * the October 2017 version of the Intel manual.
+ */
+static const u_int MSR_VMX_BASIC = 0x480;
+static const u_int MSR_VMX_PINBASED_CTLS = 0x481;
+static const u_int MSR_VMX_PROCBASED_CTLS = 0x482;
+static const u_int MSR_VMX_EXIT_CTLS = 0x483;
+static const u_int MSR_VMX_ENTRY_CTLS = 0x484;
+static const u_int MSR_VMX_MISC = 0x485;
+static const u_int MSR_VMX_CR0_FIXED0 = 0x486;
+static const u_int MSR_VMX_CR0_FIXED1 = 0x487;
+static const u_int MSR_VMX_CR4_FIXED0 = 0x488;
+static const u_int MSR_VMX_CR4_FIXED1 = 0x489;
+static const u_int MSR_VMX_VMCS_ENUM = 0x48a;
+static const u_int MSR_VMX_PROCBASED_CTLS2 = 0x48b;
+static const u_int MSR_VMX_EPT_VPID_CAP = 0x48c;
+static const u_int MSR_VMX_TRUE_PINBASED_CTLS = 0x48d;
+static const u_int MSR_VMX_TRUE_PROCBASED_CTLS = 0x48e;
+static const u_int MSR_VMX_TRUE_EXIT_CTLS = 0x48f;
+static const u_int MSR_VMX_TRUE_ENTRY_CTLS = 0x490;
+static const u_int MSR_VMX_VMFUNC = 0x491;
 
 /* VMX-related bitmasks */
 static const uint64_t CR4_ENABLE_VMX_BIT = 0x2000;
@@ -488,8 +508,8 @@ check_cr0_fixed_bits(void) {
   uint64_t cr0_value = _rcr0();
   DBGPRNT(("Current value of CR0: 0x%lx\n", cr0_value));
 
-  uint64_t fixed0_msr = rdmsr(VMX_CR0_FIXED0_MSR);
-  uint64_t fixed1_msr = rdmsr(VMX_CR0_FIXED1_MSR);
+  uint64_t fixed0_msr = rdmsr(MSR_VMX_CR0_FIXED0);
+  uint64_t fixed1_msr = rdmsr(MSR_VMX_CR0_FIXED1);
   DBGPRNT(("IA32_VMX_CR0_FIXED0: 0x%lx\n", fixed0_msr));
   DBGPRNT(("IA32_VMX_CR0_FIXED1: 0x%lx\n", fixed1_msr));
 
@@ -556,8 +576,8 @@ check_cr4_fixed_bits(void) {
   uint64_t cr4_value = _rcr4();
   DBGPRNT(("Current value of CR4: 0x%lx\n", cr4_value));
 
-  uint64_t fixed0_msr = rdmsr(VMX_CR4_FIXED0_MSR);
-  uint64_t fixed1_msr = rdmsr(VMX_CR4_FIXED1_MSR);
+  uint64_t fixed0_msr = rdmsr(MSR_VMX_CR4_FIXED0);
+  uint64_t fixed1_msr = rdmsr(MSR_VMX_CR4_FIXED1);
   DBGPRNT(("IA32_VMX_CR4_FIXED0: 0x%lx\n", fixed0_msr));
   DBGPRNT(("IA32_VMX_CR4_FIXED1: 0x%lx\n", fixed1_msr));
 
@@ -779,7 +799,7 @@ sva_initvmx(void) {
   memset(VMXON_vaddr, 0, VMCS_ALLOC_SIZE);
 
   DBGPRNT(("Reading IA32_VMX_BASIC MSR...\n"));
-  uint64_t vmx_basic_data = rdmsr(VMX_BASIC_MSR);
+  uint64_t vmx_basic_data = rdmsr(MSR_VMX_BASIC);
   DBGPRNT(("IA32_VMX_BASIC MSR = %lx\n", vmx_basic_data));
 
   /* Write the VMCS revision identifier to bits 30:0 of the first 4 bytes of
@@ -908,7 +928,7 @@ sva_allocvm(void) {
    * Conveniently, the 32nd bit of that MSR is always guaranteed to be 0, so
    * we can just copy the lower 4 bytes.
    */
-  uint64_t vmx_basic_data = rdmsr(VMX_BASIC_MSR);
+  uint64_t vmx_basic_data = rdmsr(MSR_VMX_BASIC);
   uint32_t vmcs_rev_id = (uint32_t) vmx_basic_data;
   *((uint32_t*)vmcs_vaddr) = vmcs_rev_id;
 
@@ -1753,4 +1773,41 @@ run_vm(unsigned char use_vmresume) {
 
     return -1; /* Will never execute, but the compiler will warn without it. */
   }
+}
+
+/*
+ * Intrinsic: print_vmx_msrs()
+ *
+ * Description:
+ *  Print the values of various VMX-related MSRs to the kernel console.
+ *
+ *  This is for use during early development. It is not part of the designed
+ *  SVA-VMX interface and will be removed.
+ */
+void
+print_vmx_msrs(void) {
+  printf("\n------------------------------\n");
+  printf("VMX-related MSRs\n");
+  printf("\n------------------------------\n");
+
+  printf("VMX_BASIC: 0x%lx\n", rdmsr(MSR_VMX_BASIC));
+  printf("VMX_PINBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_PINBASED_CTLS));
+  printf("VMX_PROCBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_PROCBASED_CTLS));
+  printf("VMX_EXIT_CTLS: 0x%lx\n", rdmsr(MSR_VMX_EXIT_CTLS));
+  printf("VMX_ENTRY_CTLS: 0x%lx\n", rdmsr(MSR_VMX_ENTRY_CTLS));
+  printf("VMX_MISC: 0x%lx\n", rdmsr(MSR_VMX_MISC));
+  printf("VMX_CR0_FIXED0: 0x%lx\n", rdmsr(MSR_VMX_CR0_FIXED0));
+  printf("VMX_CR0_FIXED1: 0x%lx\n", rdmsr(MSR_VMX_CR0_FIXED1));
+  printf("VMX_CR4_FIXED0: 0x%lx\n", rdmsr(MSR_VMX_CR4_FIXED0));
+  printf("VMX_CR4_FIXED1: 0x%lx\n", rdmsr(MSR_VMX_CR4_FIXED1));
+  printf("VMX_VMCS_ENUM: 0x%lx\n", rdmsr(MSR_VMX_VMCS_ENUM));
+  printf("VMX_PROCBASED_CTLS2: 0x%lx\n", rdmsr(MSR_VMX_PROCBASED_CTLS2));
+  printf("VMX_EPT_VPID_CAP: 0x%lx\n", rdmsr(MSR_VMX_EPT_VPID_CAP));
+  printf("VMX_TRUE_PINBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_PINBASED_CTLS));
+  printf("VMX_TRUE_PROCBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_PROCBASED_CTLS));
+  printf("VMX_TRUE_EXIT_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_EXIT_CTLS));
+  printf("VMX_TRUE_ENTRY_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_ENTRY_CTLS));
+  printf("VMX_VMFUNC: 0x%lx\n", rdmsr(MSR_VMX_VMCS_ENUM));
+
+  printf("\n------------------------------\n");
 }

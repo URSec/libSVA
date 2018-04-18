@@ -79,6 +79,11 @@ int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 int sva_launchvm(void);
 int sva_resumevm(void);
 
+/* These intrinsics are for use during development.
+ * They will be removed "soon" and are not part of the designed SVA-VMX
+ * interface.
+ */
 unsigned char sva_initvmx(void);
+void print_vmx_msrs(void);
 
 #endif /* _SVA_VMX_H */
