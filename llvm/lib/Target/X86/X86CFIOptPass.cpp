@@ -691,7 +691,7 @@ void X86CFIOptPass::insertCheckJmp64m(MachineBasicBlock& MBB, MachineInstr* MI,
   unsigned killed = 0;
 #endif
 
-  // if the JMP32m kills a register, use it for check
+  // if the JMP64m kills a register, use it for check
   if(killed != 0){
     // MOV64rm, %killed, mem_loc
     BuildMI(MBB,MI,dl,TII->get(X86::MOV64rm),killed)
@@ -753,16 +753,29 @@ void X86CFIOptPass::insertCheckJmp64m(MachineBasicBlock& MBB, MachineInstr* MI,
     else
       abort();
 
-  // pushl %reg
-  BuildMI (MBB,MI,dl,TII->get(X86::PUSH64r)).addReg(reg);
+    //
+    // Save the register on the stack.
+    // pushl %reg
+    //
+    BuildMI (MBB,MI,dl,TII->get(X86::PUSH64r)).addReg(reg);
 
-  // MOV64rm  mem_loc, %reg
-  BuildMI(MBB,MI,dl,TII->get(X86::MOV64rm),reg)
-    .addReg(MI->getOperand(0).getReg())  // base
-    .addImm(MI->getOperand(1).getImm())  // scale
-    .addReg(MI->getOperand(2).getReg())  // index
-    .addOperand(MI->getOperand(3))       // displacement
-    .addReg(MI->getOperand(4).getReg()); //segment register
+    //
+    // Load the bitmask into the register.
+    //
+    BuildMI(MBB,MI,dl,TII->get(X86::MOV32ri),reg).addImm(0x7fffff80);
+    BuildMI(MBB,MI,dl,TII->get(X86::SHL64ri),reg).addReg(reg).addImm(32);
+
+    //
+    // Use a bitwise OR to mask the target (stored in memory) with the mask and
+    // place the result into the register.
+    //
+    BuildMI(MBB,MI,dl,TII->get(X86::OR64rm),reg)
+      .addReg(reg)                         // target register operand
+      .addReg(MI->getOperand(0).getReg())  // base
+      .addImm(MI->getOperand(1).getImm())  // scale
+      .addReg(MI->getOperand(2).getReg())  // index
+      .addOperand(MI->getOperand(3))       // displacement
+      .addReg(MI->getOperand(4).getReg()); //segment register
 
     //
     // Add an instruction to perform the label check.
@@ -774,7 +787,7 @@ void X86CFIOptPass::insertCheckJmp64m(MachineBasicBlock& MBB, MachineInstr* MI,
 
     // JNE_4 EMBB
     BuildMI(MBB,MI,dl,TII->get(X86::JNE_4)).addMBB(EMBB);
-  } 
+  }
 }
 
 //
