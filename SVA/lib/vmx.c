@@ -1656,16 +1656,17 @@ sva_set_up_ept(void) {
   memset(guestpage_vaddr, 0, X86_PAGE_SIZE);
 
   /*
-   * TODO:
-   *  - Write machine code for the guest 'hello world' program to the frame
-   *  that will be mapped into the guest. The program should be:
-   *      orq %rax, %rbx
-   *      hlt
-   *  ...which will OR together two values that we will pre-load into RAX and
-   *  RBX before VM entry, and then issue HLT to force a VM exit. We can
-   *  confirm that the guest code actually ran by examining the saved state
-   *  of the guest's RBX register in the VMCS after exit.
+   * Write the following program to the guest-mapped frame:
+   *    09 c3       orl %eax, %ebx
+   *    f4          hlt
+   * This will OR together two values that we will pre-load into EAX and EBX
+   * before VM entry, and then issue HLT to force a VM exit. We can confirm
+   * that the guest code actually ran by examining the saved state of the
+   * guest's EBX register in the VMCs after exit.
    */
+  /* This will also write a trailing null byte, which doesn't change
+   * anything since we already zeroed the page. */
+  strcpy((char*)guestpage_vaddr, "\x09\xc3\xf4");
 
   return hier;
 }
