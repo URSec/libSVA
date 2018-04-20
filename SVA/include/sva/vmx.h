@@ -265,6 +265,39 @@ int sva_resumevm(void);
  * interface.
  */
 unsigned char sva_initvmx(void);
-void print_vmx_msrs(void);
+void sva_print_vmx_msrs(void);
+
+typedef struct sva_vmx_ept_hier {
+  /* Physical address of the top (fourth)-level EPT page table page, i.e.,
+   * the EPT PML4 table.
+   */
+  uintptr_t epml4t_paddr;
+
+  /* Physical address of the third-level EPT page table page, i.e., the EPT
+   * Page Directory Pointer Table (PDPT).
+   */
+  uintptr_t epdpt_paddr;
+
+  /* Physical address of the second-level EPT page table page, i.e., the EPT
+   * Page Directory (PD).
+   */
+  uintptr_t epd_paddr;
+
+  /* Physical address of the lowest (first)-level EPT page table page, i.e.,
+   * the EPT Page Table (PT).
+   */
+  uintptr_t ept_paddr;
+
+  /* Host-physical address of the single page which is mapped into the
+   * guest's physical address space.
+   */
+  uintptr_t guestpage_host_paddr;
+
+  /* Guest-physical address of the single page mapped into the guest's
+   * physical address space.
+   */
+  uintptr_t guestpage_guest_paddr;
+} sva_vmx_ept_hier;
+sva_vmx_ept_hier sva_set_up_ept(void);
 
 #endif /* _SVA_VMX_H */

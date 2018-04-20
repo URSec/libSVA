@@ -1776,7 +1776,7 @@ run_vm(unsigned char use_vmresume) {
 }
 
 /*
- * Intrinsic: print_vmx_msrs()
+ * Intrinsic: sva_print_vmx_msrs()
  *
  * Description:
  *  Print the values of various VMX-related MSRs to the kernel console.
@@ -1785,7 +1785,7 @@ run_vm(unsigned char use_vmresume) {
  *  SVA-VMX interface and will be removed.
  */
 void
-print_vmx_msrs(void) {
+sva_print_vmx_msrs(void) {
   printf("\n------------------------------\n");
   printf("VMX-related MSRs\n");
   printf("\n------------------------------\n");
@@ -1810,4 +1810,103 @@ print_vmx_msrs(void) {
   printf("VMX_VMFUNC: 0x%lx\n", rdmsr(MSR_VMX_VMCS_ENUM));
 
   printf("\n------------------------------\n");
+}
+
+/*
+ * Intrinsic: sva_set_up_ept()
+ *
+ * Description:
+ *  Set up a simple EPT page table hierarchy for a "hello world" VM.
+ *
+ *  This is for use during early development. It is not part of the designed
+ *  SVA-VMX interface and will be removed.
+ *
+ * Return value:
+ *  A structure describing the created EPT hierarchy.
+ */
+sva_vmx_ept_hier
+sva_set_up_ept(void) {
+  sva_vmx_ept_hier hier;
+
+  /*
+   * We will map a single frame into the guest-physical address:
+   *  0x 0000 DEAD BEEF 0000    (chosen arbitrarily)
+   *    (through address 0x DEAD BEEF 0FFF)
+   *
+   * This address indexes into the four table levels as follows:
+   *  - Bits 47-39: offset 0x1BD into the EPT PML4 table
+   *  - Bits 38-30: offset 0xB6 into the EPT PDPT
+   *  - Bits 29-21: offset 0x1F7 into the EPT PD
+   *  - BIts 20-12: offset 0xF0 into the EPT PT
+   */
+  hier.guestpage_guest_paddr = 0xdeadbeef0000;
+
+  /* Get frames from the frame cache to serve as page-table pages for each of
+   * the four levels of the EPT table hierarchy.
+   */
+  hier.epml4t_paddr = alloc_frame();
+  DBGPRNT(("EPML4T paddr: 0x%lx\n", hier.epml4t_paddr));
+  uint64_t * epml4t_vaddr = (uint64_t*)my_getVirtual(hier.epml4t_paddr);
+  hier.epdpt_paddr = alloc_frame();
+  DBGPRNT(("EPDPT paddr: 0x%lx\n", hier.epdpt_paddr));
+  uint64_t * epdpt_vaddr = (uint64_t*)my_getVirtual(hier.epdpt_paddr);
+  hier.epd_paddr = alloc_frame();
+  DBGPRNT(("EPD paddr: 0x%lx\n", hier.epd_paddr));
+  uint64_t * epd_vaddr = (uint64_t*)my_getVirtual(hier.epd_paddr);
+  hier.ept_paddr = alloc_frame();
+  DBGPRNT(("EPT paddr: 0x%lx\n", hier.ept_paddr));
+  uint64_t * ept_vaddr = (uint64_t*)my_getVirtual(hier.ept_paddr);
+
+  /* Get a frame to serve as the actual frame that will be mapped into the
+   * guest-physical space.
+   */
+  hier.guestpage_host_paddr = alloc_frame();
+  DBGPRNT(("Guest-visible page host-paddr: 0x%lx\n",
+        hier.guestpage_host_paddr));
+  unsigned char * guestpage_vaddr = my_getVirtual(hier.guestpage_host_paddr);
+
+  /* Zero the page-table pages to set all entries (initially) to "not
+   * present".
+   */
+  memset(epml4t_vaddr, 0, X86_PAGE_SIZE);
+  memset(epdpt_vaddr, 0, X86_PAGE_SIZE);
+  memset(epd_vaddr, 0, X86_PAGE_SIZE);
+  memset(ept_vaddr, 0, X86_PAGE_SIZE);
+
+  /* Set the 0x1BD'th entry in the PML4 table to point to the PDPT.
+   * Mapping has RWX permissions.
+   */
+  epml4t_vaddr[0x1bd] = (0x7 | hier.epdpt_paddr);
+
+  /* Set the 0xB6'th entry in the PDPT to point to the PD.
+   * Mapping has RWX permissions.
+   */
+  epdpt_vaddr[0xb6] = (0x7 | hier.epd_paddr);
+
+  /* Set the 0x1F7'th entry in the PD to point to the PT.
+   * Mapping has RWX permissions.
+   */
+  epd_vaddr[0x1f7] = (0x7 | hier.ept_paddr);
+
+  /* Set the 0xF0'th entry in the PT to point to the actual physical frame.
+   * Mapping has RWX permissions and 6 (WB) memory type (PAT not ignored).
+   */
+  ept_vaddr[0xf0] = (0x37 | hier.guestpage_host_paddr);
+
+  /* Zero the frame that will be mapped into the guest. */
+  memset(guestpage_vaddr, 0, X86_PAGE_SIZE);
+
+  /*
+   * TODO:
+   *  - Write machine code for the guest 'hello world' program to the frame
+   *  that will be mapped into the guest. The program should be:
+   *      orq %rax, %rbx
+   *      hlt
+   *  ...which will OR together two values that we will pre-load into RAX and
+   *  RBX before VM entry, and then issue HLT to force a VM exit. We can
+   *  confirm that the guest code actually ran by examining the saved state
+   *  of the guest's RBX register in the VMCS after exit.
+   */
+
+  return hier;
 }
