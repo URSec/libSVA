@@ -14,150 +14,11 @@
  */
 
 #include <sva/vmx.h>
+#include <sva/vmx_intrinsics.h>
 #include <sva/mmu.h>
 #include <sva/config.h>
 
 #include <string.h>
-
-/* Set this to 1/0 respectively to turn verbose printf's on or off. */
-#define SVAVMX_DEBUG 1
-
-/* Debug print macro to allow verbose printf's to be turned on/off with
- * SVAVMX_DEBUG.
- * 
- * Use DBGPRNT((...)) in place of printf(...).
- *
- * Note that the double parentheses are necessary due to the fact that we
- * aren't using C99 (and thus can't use variadic macros) in the FreeBSD 9.0
- * kernel.
- *
- * For more information see:
- *  https://stackoverflow.com/questions/1644868/
- *    c-define-macro-for-debug-printing#1644898
- */
-#define DBGPRNT(args) \
-  do { if (SVAVMX_DEBUG) printf args; } while (0)
-
-/**********
- * Constants
-**********/
-/* MSRs (non-VMX-related) */
-static const u_int FEATURE_CONTROL_MSR = 0x3a;
-static const u_int MSR_SYSENTER_CS = 0x174;
-static const u_int MSR_SYSENTER_ESP = 0x175;
-static const u_int MSR_SYSENTER_EIP = 0x176;
-static const u_int MSR_FS_BASE = 0xc0000100;
-static const u_int MSR_GS_BASE = 0xc0000101;
-
-/* MSRs (VMX-related) */
-/* We are not necessarily using all of these (yet); they're defined here so
- * that we don't have to go hunting in the Intel manual if we turn out to
- * need them later.
- *
- * These *appear* to be all of the VMX-related architectural MSRs listed in
- * the October 2017 version of the Intel manual.
- */
-static const u_int MSR_VMX_BASIC = 0x480;
-static const u_int MSR_VMX_PINBASED_CTLS = 0x481;
-static const u_int MSR_VMX_PROCBASED_CTLS = 0x482;
-static const u_int MSR_VMX_EXIT_CTLS = 0x483;
-static const u_int MSR_VMX_ENTRY_CTLS = 0x484;
-static const u_int MSR_VMX_MISC = 0x485;
-static const u_int MSR_VMX_CR0_FIXED0 = 0x486;
-static const u_int MSR_VMX_CR0_FIXED1 = 0x487;
-static const u_int MSR_VMX_CR4_FIXED0 = 0x488;
-static const u_int MSR_VMX_CR4_FIXED1 = 0x489;
-static const u_int MSR_VMX_VMCS_ENUM = 0x48a;
-static const u_int MSR_VMX_PROCBASED_CTLS2 = 0x48b;
-static const u_int MSR_VMX_EPT_VPID_CAP = 0x48c;
-static const u_int MSR_VMX_TRUE_PINBASED_CTLS = 0x48d;
-static const u_int MSR_VMX_TRUE_PROCBASED_CTLS = 0x48e;
-static const u_int MSR_VMX_TRUE_EXIT_CTLS = 0x48f;
-static const u_int MSR_VMX_TRUE_ENTRY_CTLS = 0x490;
-static const u_int MSR_VMX_VMFUNC = 0x491;
-
-/* VMX-related bitmasks */
-static const uint64_t CR4_ENABLE_VMX_BIT = 0x2000;
-static const uint64_t FEATURE_CONTROL_LOCK_BIT = 0x1; // bit 0
-static const uint64_t FEATURE_CONTROL_ENABLE_VMXON_WITHIN_SMX_BIT = 0x2; // bit 1
-static const uint64_t FEATURE_CONTROL_ENABLE_VMXON_OUTSIDE_SMX_BIT = 0x4; // bit 2
-static const uint32_t CPUID_01H_ECX_VMX_BIT = 0x20; // bit 5
-static const uint32_t CPUID_01H_ECX_SMX_BIT = 0x40; // bit 6
-
-/* Bit mask indicating the zero settings of CF (carry flag), PF (parity
- * flag), AF (auxiliary carry flag), ZF (zero flag), SF (sign flag), and OF
- * (overflow flag) in the RFLAGS register.
- *
- * If all of these are zero after executing a VMX instruction, the VMsucceed
- * condition is indicated by the processor (corresponding to our enum value
- * VM_SUCCEED).
- *
- * To check if RFLAGS == VMsucceed, test that:
- *  (RFLAGS & RFLAGS_VM_SUCCEED) == RFLAGS
- */
-static const uint64_t RFLAGS_VM_SUCCEED = 0xFFFFFFFFFFFFF73A;
-/* The condition VMfailInvalid is indicated by CF = 1, and all other flags
- * the same as in VMsucceed.
- *
- * Test with:
- *  (RFLAGS & RFLAGS_VM_FAIL_INVALID_0) == RFLAGS, and
- *  (RFLAGS & RFLAGS_VM_FAIL_INVALID_1).
- */
-static const uint64_t RFLAGS_VM_FAIL_INVALID_0 = 0xFFFFFFFFFFFFF73B;
-static const uint64_t RFLAGS_VM_FAIL_INVALID_1 = 0x1;
-/* The condition VMfailValid is indicated by ZF = 1, and all other flags the
- * same as in VMsucceed.
- *
- * Test with:
- *  (RFLAGS & RFLAGS_VM_FAIL_VALID_0) == RFLSGS, and
- *  (RFLAGS & RFLAGS_VM_FAIL_VALID_1).
- */
-static const uint64_t RFLAGS_VM_FAIL_VALID_0 = 0xFFFFFFFFFFFFF77A;
-static const uint64_t RFLAGS_VM_FAIL_VALID_1 = 0x40;
-
-/* Each virtual machine in active operation requires a Virtual Machine
- * Control Structure (VMCS). Each VMCS requires a processor-dependent amount
- * of space up to 4 kB, aligned to a 4 kB boundary.
- *
- * (We could query an MSR to determine the exact size, but the obvious thing
- * to do here is to just allocate an entire 4 kB frame.)
- */
-static const size_t VMCS_ALLOC_SIZE = 4096;
-
-/*
- * Enumeration of status codes indicating the success or failure of VMX
- * instructions.
- *
- * These are indicated by the processor by setting/clearing particular
- * combinations of bits in RFLAGS. To query this status, use the helper
- * function query_vmx_result() (defined in this file).
- *
- * See section 30.2 of the Intel SDM for a description of these status codes.
- */
-enum vmx_statuscode_t {
-  /* VM_UNKNOWN is a default value which does not correspond to a real status
-   * code returned by the processor. It is used to represent the situation
-   * where the combination of bits set in RFLAGS does not decode to any valid
-   * VMX status code. */
-  VM_UNKNOWN = 0,
-  VM_SUCCEED,
-  VM_FAIL_INVALID,
-  VM_FAIL_VALID
-};
-
-/**********
- * Forward declarations of helper functions local to this file (not
- * declared in header).
-**********/
-static inline unsigned char * my_getVirtual(uintptr_t physical);
-static inline uint32_t cpuid_1_ecx(void);
-static inline unsigned char cpu_supports_vmx(void);
-static inline unsigned char cpu_supports_smx(void);
-static inline unsigned char cpu_permit_vmx(void);
-static inline unsigned char check_cr0_fixed_bits(void);
-static inline unsigned char check_cr4_fixed_bits(void);
-static inline enum vmx_statuscode_t query_vmx_result(uint64_t rflags);
-static int run_vm(unsigned char use_vmresume);
 
 /**********
  * "Global" static variables (local to this file)
@@ -191,53 +52,6 @@ static unsigned char __attribute__((section("svamem"))) sva_vmx_initialized = 0;
 static uintptr_t __attribute__((section("svamem"))) VMXON_paddr = 0;
 
 /*
- * Structure: vm_desc_t
- *
- * Description:
- *  A descriptor for a virtual machine.
- *
- *  Summarizes the state of the VM (e.g., is it active on a processor) and
- *  contains pointers to its Virtual Machine Control Structure (VMCS) frame
- *  and related structures.
- *
- *  This structure can be safely zero-initialized. When all its fields are
- *  zero, it is interpreted as not being assigned to any virtual machine.
- */
-typedef struct vm_desc_t {
-  /* Physical-address pointer to the VM's Virtual Machine Control Structure
-   * (VMCS) frame.
-   *
-   * The VMCS contains numerous fields for controlling various aspects of the
-   * processor's VMX features and saving host/guest state across transitions
-   * in and out of guest operation for this VM.
-   *
-   * The layout and format of these fields is implementation-dependent to the
-   * processor, and when the VM is active on the processor, it may freely
-   * cache them in internal registers. Therefore, these fields *must not*,
-   * under any circumstances, be read or written using normal memory loads
-   * and stores, or undefined behavior may result. Instead, the processor
-   * provides the VMREAD/VMWRITE instructions to read/write these fields
-   * indirectly by "name" (i.e., by a logical numeric index which refers to
-   * the field abstractly).
-   *
-   * Because of the potential for undefined behavior if the VMCS is used
-   * incorrectly, and because many of its fields are sensitive to system
-   * security, the VMCS must be allocated in SVA protected memory, forcing
-   * the OS to use SVA intrinsics to access it. A suitable frame will be
-   * obtained from the frame cache by the sva_allocvm() intrinsic.
-   */
-  uintptr_t vmcs_paddr;
-
-  /* Has the VM been launched since it was last made active (loaded) onto the
-   * processor? (true/false)
-   *
-   * (If and only if so, we should use the VMRESUME instruction for VM entry
-   * instead of VMLAUNCH.)
-   */
-  unsigned char is_launched;
-} vm_desc_t;
-
-/*
  * Array of vm_desc_t structures for each VM allocated on the system.
  *
  * To keep things simple, we pre-allocate this as a statically sized array of
@@ -267,24 +81,6 @@ static struct vm_desc_t __attribute__((section("svamem"))) vm_descs[MAX_VMS];
  * TODO: make this a per-CPU array so it's multiprocessor-ready.
  */
 static vm_desc_t * __attribute__((section("svamem"))) active_vm = 0;
-
-/*
- * Structure: vmx_host_state_t
- *
- * Description:
- *  Describes the layout of the object we will use to store saved host state
- *  (registers, etc.) before a VM entry so we can restore it after VM exit.
- *
- *  The actual saving/restoring will be done by assembly code; the field
- *  names in C are for informational/reference purposes to those reading the
- *  code (and for debug code that e.g. needs to print these fields). This
- *  is declared as a "packed" struct so that we can know the exact
- *  arrangement of the fields when we need to access them in the assembly.
- */
-typedef struct __attribute__((packed)) vmx_host_state_t {
-  uint64_t rbp, rsi, rdi;
-  uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
-} vmx_host_state_t;
 
 /*
  * The object we will use to store saved host state (registers, stack
@@ -1773,43 +1569,6 @@ run_vm(unsigned char use_vmresume) {
 
     return -1; /* Will never execute, but the compiler will warn without it. */
   }
-}
-
-/*
- * Intrinsic: sva_print_vmx_msrs()
- *
- * Description:
- *  Print the values of various VMX-related MSRs to the kernel console.
- *
- *  This is for use during early development. It is not part of the designed
- *  SVA-VMX interface and will be removed.
- */
-void
-sva_print_vmx_msrs(void) {
-  printf("\n------------------------------\n");
-  printf("VMX-related MSRs\n");
-  printf("\n------------------------------\n");
-
-  printf("VMX_BASIC: 0x%lx\n", rdmsr(MSR_VMX_BASIC));
-  printf("VMX_PINBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_PINBASED_CTLS));
-  printf("VMX_PROCBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_PROCBASED_CTLS));
-  printf("VMX_EXIT_CTLS: 0x%lx\n", rdmsr(MSR_VMX_EXIT_CTLS));
-  printf("VMX_ENTRY_CTLS: 0x%lx\n", rdmsr(MSR_VMX_ENTRY_CTLS));
-  printf("VMX_MISC: 0x%lx\n", rdmsr(MSR_VMX_MISC));
-  printf("VMX_CR0_FIXED0: 0x%lx\n", rdmsr(MSR_VMX_CR0_FIXED0));
-  printf("VMX_CR0_FIXED1: 0x%lx\n", rdmsr(MSR_VMX_CR0_FIXED1));
-  printf("VMX_CR4_FIXED0: 0x%lx\n", rdmsr(MSR_VMX_CR4_FIXED0));
-  printf("VMX_CR4_FIXED1: 0x%lx\n", rdmsr(MSR_VMX_CR4_FIXED1));
-  printf("VMX_VMCS_ENUM: 0x%lx\n", rdmsr(MSR_VMX_VMCS_ENUM));
-  printf("VMX_PROCBASED_CTLS2: 0x%lx\n", rdmsr(MSR_VMX_PROCBASED_CTLS2));
-  printf("VMX_EPT_VPID_CAP: 0x%lx\n", rdmsr(MSR_VMX_EPT_VPID_CAP));
-  printf("VMX_TRUE_PINBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_PINBASED_CTLS));
-  printf("VMX_TRUE_PROCBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_PROCBASED_CTLS));
-  printf("VMX_TRUE_EXIT_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_EXIT_CTLS));
-  printf("VMX_TRUE_ENTRY_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_ENTRY_CTLS));
-  printf("VMX_VMFUNC: 0x%lx\n", rdmsr(MSR_VMX_VMCS_ENUM));
-
-  printf("\n------------------------------\n");
 }
 
 /*

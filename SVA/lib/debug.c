@@ -20,6 +20,7 @@
 #include <sva/interrupt.h>
 #include <sva/mmu.h>
 #include <sva/util.h>
+#include <sva/vmx.h>
 #include <machine/frame.h>
 
 /*****************************************************************************
@@ -395,5 +396,42 @@ sva_checkptr (uintptr_t p) {
 
   record_tsc(sva_checkptr_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
   return;
+}
+
+/*
+ * Intrinsic: sva_print_vmx_msrs()
+ *
+ * Description:
+ *  Print the values of various VMX-related MSRs to the kernel console.
+ *
+ *  This is for use during early development. It is not part of the designed
+ *  SVA-VMX interface and will be removed.
+ */
+void
+sva_print_vmx_msrs(void) {
+  printf("\n------------------------------\n");
+  printf("VMX-related MSRs\n");
+  printf("\n------------------------------\n");
+
+  printf("VMX_BASIC: 0x%lx\n", rdmsr(MSR_VMX_BASIC));
+  printf("VMX_PINBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_PINBASED_CTLS));
+  printf("VMX_PROCBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_PROCBASED_CTLS));
+  printf("VMX_EXIT_CTLS: 0x%lx\n", rdmsr(MSR_VMX_EXIT_CTLS));
+  printf("VMX_ENTRY_CTLS: 0x%lx\n", rdmsr(MSR_VMX_ENTRY_CTLS));
+  printf("VMX_MISC: 0x%lx\n", rdmsr(MSR_VMX_MISC));
+  printf("VMX_CR0_FIXED0: 0x%lx\n", rdmsr(MSR_VMX_CR0_FIXED0));
+  printf("VMX_CR0_FIXED1: 0x%lx\n", rdmsr(MSR_VMX_CR0_FIXED1));
+  printf("VMX_CR4_FIXED0: 0x%lx\n", rdmsr(MSR_VMX_CR4_FIXED0));
+  printf("VMX_CR4_FIXED1: 0x%lx\n", rdmsr(MSR_VMX_CR4_FIXED1));
+  printf("VMX_VMCS_ENUM: 0x%lx\n", rdmsr(MSR_VMX_VMCS_ENUM));
+  printf("VMX_PROCBASED_CTLS2: 0x%lx\n", rdmsr(MSR_VMX_PROCBASED_CTLS2));
+  printf("VMX_EPT_VPID_CAP: 0x%lx\n", rdmsr(MSR_VMX_EPT_VPID_CAP));
+  printf("VMX_TRUE_PINBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_PINBASED_CTLS));
+  printf("VMX_TRUE_PROCBASED_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_PROCBASED_CTLS));
+  printf("VMX_TRUE_EXIT_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_EXIT_CTLS));
+  printf("VMX_TRUE_ENTRY_CTLS: 0x%lx\n", rdmsr(MSR_VMX_TRUE_ENTRY_CTLS));
+  printf("VMX_VMFUNC: 0x%lx\n", rdmsr(MSR_VMX_VMCS_ENUM));
+
+  printf("\n------------------------------\n");
 }
 
