@@ -255,13 +255,13 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
   unsigned long origPA = *page_entry & PG_FRAME;
   unsigned long origFrame = origPA >> PAGESHIFT;
   uintptr_t origVA = (uintptr_t) getVirtual(origPA);
-  page_desc_t *origPG = &page_desc[origFrame];
+  page_desc_t *origPG = getPageDescPtr(origPA);
 
   /* Get associated information for the new page being mapped */
   unsigned long newPA = newVal & PG_FRAME;
   unsigned long newFrame = newPA >> PAGESHIFT;
   uintptr_t newVA = (uintptr_t) getVirtual(newPA);
-  page_desc_t *newPG = &page_desc[newFrame];
+  page_desc_t *newPG = getPageDescPtr(newPA);
 
   /* Get the page table page descriptor. The page_entry is the viratu */
   uintptr_t ptePAddr = getPhysicalAddr (page_entry);
@@ -527,7 +527,7 @@ updateNewPageData(page_entry_t mapping) {
   uintptr_t newPA = mapping & PG_FRAME;
   unsigned long newFrame = newPA >> PAGESHIFT;
   uintptr_t newVA = (uintptr_t) getVirtual(newPA);
-  page_desc_t *newPG = getPageDescPtr(mapping);
+  page_desc_t *newPG = getPageDescPtr(newPA);
 
   /*
    * If the new mapping is valid, update the counts for it.
@@ -578,7 +578,7 @@ static inline void
 updateOrigPageData(page_entry_t mapping) {
   uintptr_t origPA = mapping & PG_FRAME; 
   unsigned long origFrame = origPA >> PAGESHIFT;
-  page_desc_t *origPG = &page_desc[origFrame];
+  page_desc_t *origPG = getPageDescPtr(origPA);
 
   /* 
    * Only decrement the mapping count if the page has an existing valid
@@ -3064,15 +3064,14 @@ sva_remove_mapping(page_entry_t * pteptr) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
-  /* Get the page_desc for the newly declared l4 page frame */
-  page_desc_t *pgDesc = getPageDescPtr(*pteptr);
+  /* Get the page_desc for the page frame containing the PTE */
+  uintptr_t phys = getPhysicalAddr(pteptr);
+  page_desc_t * cur_pgDesc = getPageDescPtr(phys);
 
   /* Update the page table mapping to zero */
   __update_mapping (pteptr, ZERO_MAPPING);
 
 #ifdef SVA_ASID_PG
-  uintptr_t phys = getPhysicalAddr(pteptr);
-  page_desc_t * cur_pgDesc = getPageDescPtr(phys);
   if(cur_pgDesc->type == PG_L4)
   {
    uintptr_t other_cr3 = cur_pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
