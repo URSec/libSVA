@@ -56,7 +56,7 @@ static const uintptr_t checkMask = 0x00000000fffffd00;
 #endif
 
 /* Mask to set proper lower-order bits */
-static const uintptr_t setMask   = 0x0000008000000000u;
+static const uintptr_t setMask   = 0x0000020000000000u;
 
 // Location of secure memory
 static uintptr_t startGhostMemory = 0xfffffd0000000000u;
