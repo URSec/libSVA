@@ -1657,16 +1657,35 @@ sva_set_up_ept(void) {
 
   /*
    * Write the following program to the guest-mapped frame:
-   *    09 c3       orl %eax, %ebx
-   *    f4          hlt
-   * This will OR together two values that we will pre-load into EAX and EBX
-   * before VM entry, and then issue HLT to force a VM exit. We can confirm
-   * that the guest code actually ran by examining the saved state of the
-   * guest's EBX register in the VMCs after exit.
+   *    8b 44 24 04   movl 0x4(%rsp), %eax
+   *    8b 1c 24      movl (%rsp), %ebx
+   *    09 c3         orl %eax, %ebx
+   *    53            pushq %rbx
+   *    f4            hlt
+   * This will perform a computation on two values which we'll pre-load onto
+   * the guest stack before VM entry, and then issue HLT to force a VM exit.
+   * We can confirm that the guest code actually ran by examining the saved
+   * state of the guest's EBX register in the VMCs after exit.
    */
   /* This will also write a trailing null byte, which doesn't change
    * anything since we already zeroed the page. */
-  strcpy((char*)guestpage_vaddr, "\x09\xc3\xf4");
+  strcpy((char*)guestpage_vaddr,
+      "\x8b\x44\x24\x04"
+      "\x8b\x1c\x24"
+      "\x09\xc3"
+      "\x53"
+      "\xf4");
+
+  /*
+   * Write the values 0xd0a0b0e0 and 0x0e0d0e0f to the last two doublewords
+   * in the guest-mapped frame. This will be the guest's stack. If all goes
+   * well, it will OR the two together to form 0xdeadbeef and write it to
+   * address 0xdeadbeef0ff0 with the PUSHQ, providing evidence for us that
+   * the guest code actually ran.
+   */
+  uint32_t * guestpage_as_dwords = (uint32_t *)guestpage_vaddr;
+  guestpage_as_dwords[1023] = 0xd0a0b0e0;
+  guestpage_as_dwords[1022] = 0x0e0d0e0f;
 
   return hier;
 }
