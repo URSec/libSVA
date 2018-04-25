@@ -1689,3 +1689,71 @@ sva_set_up_ept(void) {
 
   return hier;
 }
+
+/*
+ * Intrinsic: sva_print_guest_stack()
+ *
+ * Description:
+ *  Print out the contents of the stack for a guest created using the
+ *  sva_set_up_ept() intrinsic.
+ *
+ *  This needs to be done by an SVA intrinsic since the guest-mapped page is
+ *  located in SVA protected memory.
+ *
+ *  This is for use during early development. It is not part of the designed
+ *  SVA-VMX interface and will be removed.
+ *
+ *  WARNING: this function is unsafe since it takes on faith a pointer
+ *  (within the "hier" structure parameter) given to it by the kernel, and
+ *  then proceeds to read from it. This is OK for debugging but, as noted
+ *  above, it is not part of the "real" interface and should not, under any
+ *  circumstances, be shipped in a production system.
+ *
+ *  (Really, this whole method of setting up and using the EPT is super
+ *  insecure and hacky. It's just for use in early development. :-))
+ *
+ * Arguments:
+ *  - hier: an sva_vmx_ept_hier structure specifying an EPT hierarchy created
+ *    by sva_set_up_ept().
+ */
+void
+sva_print_guest_stack(sva_vmx_ept_hier hier) {
+  printf("--------------------\n");
+
+  /* Read the guest RSP value from the VMCS. */
+  uint64_t guest_rsp;
+  sva_readvmcs(VMCS_GUEST_RSP, &guest_rsp);
+  printf("Guest RSP: 0x%lx\n", guest_rsp);
+
+  /* Mask off all but the lowest 12 bits of the guest RSP to get its relative
+   * offset within the guest-mapped page.
+   */
+  uint64_t guest_stack_offset = guest_rsp & 0xfff;
+
+  /* Use this offset to construct a virtual address by which we can read from
+   * the guest's stack.
+   */
+  unsigned char * guestpage_vaddr = my_getVirtual(hier.guestpage_host_paddr);
+  uint64_t * guest_stack_vaddr =
+    (uint64_t*)((uint64_t)guestpage_vaddr + guest_stack_offset);
+
+  /* A pointer to (one byte past) the end of the guest-mapped page. */
+  uint64_t * guestpage_end_vaddr = (uint64_t*)(guestpage_vaddr + 0x1000);
+
+  /* Print out the stack contents, 8 bytes at a time, from the RSP offset to
+   * the end of the guest-mapped page (the top of its stack).
+   */
+  for (uint64_t * qword = guest_stack_vaddr;
+       qword < guestpage_end_vaddr;
+       ++qword) {
+    /* Compute the address of this qword from the guest's perspective so we
+     * can print out the address that corresponds to this value.
+     */
+    uint64_t qword_offset = (uint64_t)qword & 0xfff;
+    uint64_t qword_guest_addr = qword_offset + hier.guestpage_guest_paddr;
+
+    printf("0x%lx:\t0x%lx\n", qword_guest_addr, *qword);
+  }
+
+  printf("--------------------\n");
+}

@@ -42,9 +42,6 @@
  *
  */
 enum sva_vmcs_field {
-  VMCS_VM_INST_ERR = 0x4400,
-  VMCS_EXIT_REASON = 0x4402,
-
   /*
    * GUEST_STATE FIELDS
    */
@@ -300,5 +297,7 @@ typedef struct sva_vmx_ept_hier {
   uintptr_t guestpage_guest_paddr;
 } sva_vmx_ept_hier;
 sva_vmx_ept_hier sva_set_up_ept(void);
+
+void sva_print_guest_stack(sva_vmx_ept_hier hier);
 
 #endif /* _SVA_VMX_INTRINSICS_H */
