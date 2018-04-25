@@ -448,11 +448,11 @@ check_cr4_fixed_bits(void) {
  */
 static inline enum vmx_statuscode_t
 query_vmx_result(uint64_t rflags) {
-  DBGPRNT(("RFLAGS value passed to query_vmx_result(): 0x%lx\n", rflags));
+  DBGPRNT(("\tRFLAGS value passed to query_vmx_result(): 0x%lx\n", rflags));
 
   /* Test for VMsucceed. */
   if ((rflags & RFLAGS_VM_SUCCEED) == rflags) {
-    DBGPRNT(("RFLAGS matches VMsucceed condition.\n"));
+    DBGPRNT(("\tRFLAGS matches VMsucceed condition.\n"));
     return VM_SUCCEED;
   }
 
@@ -1084,7 +1084,7 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
  */
 int
 sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
-  DBGPRNT(("sva_writevmcs() intrinsic called with field=0x%lx, data=0x%lx\n",
+  DBGPRNT(("\tsva_writevmcs() intrinsic called with field=0x%lx, data=0x%lx\n",
         field, data));
 
   if (!sva_vmx_initialized) {
@@ -1102,7 +1102,7 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
     return -1;
   }
 
-  DBGPRNT(("Executing VMWRITE instruction...\n"));
+  DBGPRNT(("\tExecuting VMWRITE instruction...\n"));
   uint64_t rflags;
   asm __volatile__ (
       "vmwrite %%rax, %%rbx\n"
@@ -1114,7 +1114,7 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
       );
   /* Confirm that the operation succeeded. */
   if (query_vmx_result(rflags) == VM_SUCCEED) {
-    DBGPRNT(("Successfully wrote VMCS field.\n"));
+    DBGPRNT(("\tSuccessfully wrote VMCS field.\n"));
 
     /* Return success. */
     return 0;
@@ -1342,6 +1342,7 @@ run_vm(unsigned char use_vmresume) {
    *
    * NOTE: we call our own sva_writevmcs() intrinsic for this.
    */
+  DBGPRNT(("run_vm: Saving host state...\n"));
   /* Control registers */
   uint64_t host_cr0 = _rcr0();
   sva_writevmcs(VMCS_HOST_CR0, host_cr0);
@@ -1349,6 +1350,7 @@ run_vm(unsigned char use_vmresume) {
   sva_writevmcs(VMCS_HOST_CR3, host_cr3);
   uint64_t host_cr4 = _rcr4();
   sva_writevmcs(VMCS_HOST_CR4, host_cr4);
+  DBGPRNT(("run_vm: Saved host control registers.\n"));
 
   /* Segment selectors */
   uint16_t es_sel, cs_sel, ss_sel, ds_sel, fs_sel, gs_sel, tr_sel;
@@ -1370,6 +1372,7 @@ run_vm(unsigned char use_vmresume) {
   sva_writevmcs(VMCS_HOST_FS_SEL, fs_sel);
   sva_writevmcs(VMCS_HOST_GS_SEL, gs_sel);
   sva_writevmcs(VMCS_HOST_TR_SEL, tr_sel);
+  DBGPRNT(("run_vm: Saved host segment selectors.\n"));
 
   /*
    * Segment and descriptor table base-address registers
@@ -1397,6 +1400,8 @@ run_vm(unsigned char use_vmresume) {
       );
   sva_writevmcs(VMCS_HOST_GDTR_BASE, gdtr[0]);
   sva_writevmcs(VMCS_HOST_IDTR_BASE, idtr[0]);
+  
+  DBGPRNT(("run_vm: Saved host FS, GS, GDTR, and IDTR bases.\n"));
 
   /* Get the TR base address from the GDT */
   uint16_t tr_gdt_index = (tr_sel >> 3);
@@ -1424,6 +1429,8 @@ run_vm(unsigned char use_vmresume) {
   /* Write our hard-earned TR base address to the VMCS... */
   sva_writevmcs(VMCS_HOST_TR_BASE, tr_baseaddr);
 
+  DBGPRNT(("run_vm: Saved host TR base.\n"));
+
   /* Various MSRs */
   uint64_t ia32_sysenter_cs = rdmsr(MSR_SYSENTER_CS);
   sva_writevmcs(VMCS_HOST_IA32_SYSENTER_CS, ia32_sysenter_cs);
@@ -1431,6 +1438,7 @@ run_vm(unsigned char use_vmresume) {
   sva_writevmcs(VMCS_HOST_IA32_SYSENTER_ESP, ia32_sysenter_esp);
   uint64_t ia32_sysenter_eip = rdmsr(MSR_SYSENTER_EIP);
   sva_writevmcs(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
+  DBGPRNT(("Saved various host MSRs.\n"));
 
   /*
    * This is where the magic happens.
