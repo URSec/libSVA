@@ -1383,30 +1383,33 @@ run_vm(unsigned char use_vmresume) {
   uint64_t gs_base = rdmsr(MSR_GS_BASE);
   sva_writevmcs(VMCS_HOST_GS_BASE, gs_base);
 
-  uint64_t gdtr[2], idtr[2];
+  unsigned char gdtr[10], idtr[10];
   /* The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
-   * memory. The first 8 bytes are the base-address field and the last two
-   * bytes are the limit field.
-   *
-   * This code stores the base-address field into the first element of the
-   * respective array, and the limit field into the lower (i.e. first, since
-   * x86 is little-endian) two bytes of the second element. We're only
-   * interested in the base-address field.
+   * memory. The first 2 bytes are the limit field adn the last 8 bytes are
+   * the base-address field.
    */
   asm __volatile__ (
       "sgdt (%0)\n"
       "sidt (%1)\n"
       : : "r" (gdtr), "r" (idtr)
       );
-  sva_writevmcs(VMCS_HOST_GDTR_BASE, gdtr[0]);
-  sva_writevmcs(VMCS_HOST_IDTR_BASE, idtr[0]);
+  uint64_t gdt_base = *(uint64_t*)(gdtr + 2);
+  uint64_t idt_base = *(uint64_t*)(idtr + 2);
+  sva_writevmcs(VMCS_HOST_GDTR_BASE, gdt_base);
+  sva_writevmcs(VMCS_HOST_IDTR_BASE, idt_base);
   
   DBGPRNT(("run_vm: Saved host FS, GS, GDTR, and IDTR bases.\n"));
 
   /* Get the TR base address from the GDT */
   uint16_t tr_gdt_index = (tr_sel >> 3);
-  uint32_t * gdt = (uint32_t*)gdtr[0]; /* GDT base address */
-  uint32_t * tr_gdt_entry = gdt + (tr_gdt_index * 8);
+  DBGPRNT(("TR selector: 0x%hx; index in GDT: 0x%hx\n", tr_sel, tr_gdt_index));
+  uint32_t * gdt = (uint32_t*) gdt_base;
+  DBGPRNT(("GDT base address: 0x%lx\n", (uint64_t)gdt));
+  uint32_t * tr_gdt_entry = gdt + (tr_gdt_index * 2);
+
+  DBGPRNT(("TR entry address: 0x%lx\n", (uint64_t)tr_gdt_entry));
+  DBGPRNT(("TR entry low 32 bits: 0x%x\n", tr_gdt_entry[0]));
+  DBGPRNT(("TR entry high 32 bits: 0x%x\n", tr_gdt_entry[1]));
 
   static const uint32_t SEGDESC_BASEADDR_31_24_MASK = 0xff000000;
   static const uint32_t SEGDESC_BASEADDR_23_16_MASK = 0xff;
@@ -1426,6 +1429,7 @@ run_vm(unsigned char use_vmresume) {
   uint32_t tr_baseaddr_31_0 = tr_baseaddr_31_16 | tr_baseaddr_15_0;
   uint64_t tr_baseaddr_63_32 = ((uint64_t)tr_gdt_entry[2] << 32);
   uint64_t tr_baseaddr = tr_baseaddr_63_32 | ((uint64_t)tr_baseaddr_31_0);
+  DBGPRNT(("Reconstructed TR base address: 0x%lx\n", tr_baseaddr));
   /* Write our hard-earned TR base address to the VMCS... */
   sva_writevmcs(VMCS_HOST_TR_BASE, tr_baseaddr);
 
