@@ -286,15 +286,16 @@ typedef struct sva_vmx_ept_hier {
    */
   uintptr_t ept_paddr;
 
-  /* Host-physical address of the single page which is mapped into the
+  /* Host-physical addresses of the 16 pages which are mapped into the
    * guest's physical address space.
    */
-  uintptr_t guestpage_host_paddr;
+  uintptr_t guestpage_host_paddrs[16];
 
-  /* Guest-physical address of the single page mapped into the guest's
-   * physical address space.
+  /* Guest-physical addresses of the 16 pages mapped into the guest's
+   * physical address space. (They are mapped contiguously, so these
+   * addresses just count up by 0x1000.)
    */
-  uintptr_t guestpage_guest_paddr;
+  uintptr_t guestpage_guest_paddrs[16];
 } sva_vmx_ept_hier;
 sva_vmx_ept_hier sva_set_up_ept(void);
 

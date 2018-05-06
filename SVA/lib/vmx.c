@@ -1600,17 +1600,21 @@ sva_set_up_ept(void) {
   sva_vmx_ept_hier hier;
 
   /*
-   * We will map a single frame into the guest-physical address:
-   *  0x 0000 DEAD BEEF 0000    (chosen arbitrarily)
-   *    (through address 0x DEAD BEEF 0FFF)
+   * We will map 16 contiguous frames into the guest-physical address space:
+   *  0x 0000 F00D BEEF 0000 through
+   *  0x 0000 F00D BEEF FFFF
    *
-   * This address indexes into the four table levels as follows:
-   *  - Bits 47-39: offset 0x1BD into the EPT PML4 table
-   *  - Bits 38-30: offset 0xB6 into the EPT PDPT
+   * 0xF00DBEEF0000 indexes into the four table levels as follows:
+   *  - Bits 47-39: offset 0x1E0 into the EPT PML4 table
+   *  - Bits 38-30: offset 0x36 into the EPT PDPT
    *  - Bits 29-21: offset 0x1F7 into the EPT PD
-   *  - BIts 20-12: offset 0xF0 into the EPT PT
+   *  - Bits 20-12: offset 0xF0 into the EPT PT
+   * The remaining 15 frames correspond to offsets 0xF1-FF into the EPT PT;
+   * their indices into the other tables are the same.
    */
-  hier.guestpage_guest_paddr = 0xdeadbeef0000;
+  for (int i = 0; i < 16; i++) {
+    hier.guestpage_guest_paddrs[i] = 0xf00dbeef0000 + (i * 0x1000);
+  }
 
   /* Get frames from the frame cache to serve as page-table pages for each of
    * the four levels of the EPT table hierarchy.
@@ -1628,14 +1632,6 @@ sva_set_up_ept(void) {
   DBGPRNT(("EPT paddr: 0x%lx\n", hier.ept_paddr));
   uint64_t * ept_vaddr = (uint64_t*)my_getVirtual(hier.ept_paddr);
 
-  /* Get a frame to serve as the actual frame that will be mapped into the
-   * guest-physical space.
-   */
-  hier.guestpage_host_paddr = alloc_frame();
-  DBGPRNT(("Guest-visible page host-paddr: 0x%lx\n",
-        hier.guestpage_host_paddr));
-  unsigned char * guestpage_vaddr = my_getVirtual(hier.guestpage_host_paddr);
-
   /* Zero the page-table pages to set all entries (initially) to "not
    * present".
    */
@@ -1644,31 +1640,108 @@ sva_set_up_ept(void) {
   memset(epd_vaddr, 0, X86_PAGE_SIZE);
   memset(ept_vaddr, 0, X86_PAGE_SIZE);
 
-  /* Set the 0x1BD'th entry in the PML4 table to point to the PDPT.
+  /* Set the 0x1E0'th entry in the EPT PML4 table to point to the EPT PDPT.
    * Mapping has RWX permissions.
    */
-  epml4t_vaddr[0x1bd] = (0x7 | hier.epdpt_paddr);
+  epml4t_vaddr[0x1e0] = (0x7 | hier.epdpt_paddr);
 
-  /* Set the 0xB6'th entry in the PDPT to point to the PD.
+  /* Set the 0x36'th entry in the EPT PDPT to point to the EPT PD.
    * Mapping has RWX permissions.
    */
-  epdpt_vaddr[0xb6] = (0x7 | hier.epd_paddr);
+  epdpt_vaddr[0x36] = (0x7 | hier.epd_paddr);
 
-  /* Set the 0x1F7'th entry in the PD to point to the PT.
+  /* Set the 0x1F7'th entry in the EPT PD to point to the EPT PT.
    * Mapping has RWX permissions.
    */
   epd_vaddr[0x1f7] = (0x7 | hier.ept_paddr);
 
-  /* Set the 0xF0'th entry in the PT to point to the actual physical frame.
-   * Mapping has RWX permissions and 6 (WB) memory type (PAT not ignored).
+  /* Set the 0xF0'th through 0xFF'th entries in the EPT PT to point to 16
+   * actual physical frames taken from the frame cache.
+   *
+   * The mappings have RWX permissions and 6 (WB) memory type (PAT not
+   * ignored).
    */
-  ept_vaddr[0xf0] = (0x37 | hier.guestpage_host_paddr);
+  unsigned char * guestpage_vaddrs[16];
+  for (int i = 0; i < 16; i++) {
+    hier.guestpage_host_paddrs[i] = alloc_frame();
+    DBGPRNT(("Guest-visible page #%d host-paddr: 0x%lx\n",
+          i+1, hier.guestpage_host_paddrs[i]));
 
-  /* Zero the frame that will be mapped into the guest. */
-  memset(guestpage_vaddr, 0, X86_PAGE_SIZE);
+    ept_vaddr[0xf0 + i] = (0x37 | hier.guestpage_host_paddrs[i]);
+
+    guestpage_vaddrs[i] =
+      my_getVirtual(hier.guestpage_host_paddrs[i]);
+
+    /* Zero the frames that will be mapped into the guest. */
+    memset(guestpage_vaddrs[i], 0, X86_PAGE_SIZE);
+  }
 
   /*
-   * Write the following program to the guest-mapped frame:
+   * Create a guest-side page table hierarchy mapping a single 1 GB large
+   * page into the guest-virtual address space.
+   *
+   * Note that only a 16 x 4 kB (64 kB) slice of this range has been
+   * EPT-mapped into the guest-physical address space. Accesses to
+   * guest-virtual addresses corresponding to these unmapped guest-physical
+   * addresses will result in an EPT fault (VM exit). This will not occur in
+   * our test code, which will only access one of the 4 kB pages that are
+   * mapped in both dimensions. Mapping an entire 1 GB large page in the
+   * guest makes things simpler because we only need to create two levels of
+   * guest page tables.
+   *
+   * Our mapping will be as follows:
+   *  0x 0000 DEAD B800 0000 - 0x 0000 DEAD BFFF FFFF (guest-virtual)
+   *    maps to
+   *  0x 0000 F00D B800 0000 - 0x 0000 F00D BFFF FFFF (guest-physical)
+   *
+   * Note that the only guest-virtual range which will actually correspond to
+   * EPT-mapped guest-physical space is:
+   *  0x 0000 DEAD BEEF 0000 - 0x 0000 DEAD BEEF FFFF
+   * i.e., this range points to the 16 successive (contiguous in the guest,
+   * but not in the host) pages we allocated for the guest from the SVA frame
+   * cache.
+   *
+   * We will put our guest test code and the guest's stack in the first such
+   * frame, i.e. 0x DEAD BEEF 0000 - 0x DEAD BEEF 0FFF.
+   * (The code will be at the beginning and the stack at the end.)
+   *
+   * 0xDEADBEEF0000 indexes into the four table levels as follows:
+   *  - Bits 47-39: offset 0x1BD into the PML4 table
+   *  - Bits 38-30: offset 0xB6 into the PDPT
+   *  - Bits 29-21: offset 0x1F7 into the PD
+   *  - Bits 20-12: offset oxF0 into the PT
+   * Since we are mapping in the entire 1 GB guest-virtual range as a large
+   * page, we will only need these first two levels.
+   */
+
+  /* We will locate the guest's page-table pages as follows within the
+   * guest-physical address space:
+   *  * The PML4 table will be at guest-physical address 0xf00dbeef8000,
+   *    i.e., the 9th (index-8'th) page we've EPT-mapped into the guest.
+   *  * The PDPT will be at guest-physical address 0xf00dbeef9000, i.e., the
+   *    10th (index-9'th) page we've EPT-mapped into the guest.
+   *
+   * Set the 0x1BD'th entry in the PML4 table to point to the PDPT.
+   * Mapping has RWX permissions and is designated as "supervisor", with
+   * accessed = 0, PWT = 0, and PCD = 0.
+   */
+  uint64_t * guest_pml4t_vaddr = (uint64_t*) guestpage_vaddrs[8];
+  guest_pml4t_vaddr[0x1bd] = (0x3 | hier.guestpage_host_paddrs[9]);
+
+  /* Set the 0xB6'th entry in the PDPT to be a 1 GB large page pointing to
+   * the 1 GB-aligned guest-physical range containing the 16 pages we've
+   * EPT-mapped in, namely, the range 0xf00db8000000 - 0xf00dbfffffff.
+   *
+   * Mapping has RWX permissions and is designated as "supervisor", with
+   * accessed = 0, dirty = 1, indicating PAT entry 0, and with a protection
+   * key of 0.
+   */
+  uint64_t * guest_pdpt_vaddr = (uint64_t*) guestpage_vaddrs[9];
+  guest_pdpt_vaddr[0xb6] =
+    (0xc3 | (hier.guestpage_host_paddrs[0] & 0xfffffffff8000000));
+
+  /*
+   * Write the following program to guest-mapped page #0:
    *    8b 44 24 04   movl 0x4(%rsp), %eax
    *    8b 1c 24      movl (%rsp), %ebx
    *    09 c3         orl %eax, %ebx
@@ -1681,7 +1754,7 @@ sva_set_up_ept(void) {
    */
   /* This will also write a trailing null byte, which doesn't change
    * anything since we already zeroed the page. */
-  strcpy((char*)guestpage_vaddr,
+  strcpy((char*)guestpage_vaddrs[0],
       "\x8b\x44\x24\x04"
       "\x8b\x1c\x24"
       "\x09\xc3"
@@ -1690,12 +1763,12 @@ sva_set_up_ept(void) {
 
   /*
    * Write the values 0xd0a0b0e0 and 0x0e0d0e0f to the last two doublewords
-   * in the guest-mapped frame. This will be the guest's stack. If all goes
-   * well, it will OR the two together to form 0xdeadbeef and write it to
-   * address 0xdeadbeef0ff0 with the PUSHQ, providing evidence for us that
+   * in guest-mapped page #0. This will be the guest's stack. If all
+   * goes well, it will OR the two together to form 0xdeadbeef and write it
+   * to address 0xdeadbeef0ff0 with the PUSHQ, providing evidence for us that
    * the guest code actually ran.
    */
-  uint32_t * guestpage_as_dwords = (uint32_t *)guestpage_vaddr;
+  uint32_t * guestpage_as_dwords = (uint32_t *)guestpage_vaddrs[0];
   guestpage_as_dwords[1023] = 0xd0a0b0e0;
   guestpage_as_dwords[1022] = 0x0e0d0e0f;
 
@@ -1745,7 +1818,8 @@ sva_print_guest_stack(sva_vmx_ept_hier hier) {
   /* Use this offset to construct a virtual address by which we can read from
    * the guest's stack.
    */
-  unsigned char * guestpage_vaddr = my_getVirtual(hier.guestpage_host_paddr);
+  unsigned char * guestpage_vaddr =
+    my_getVirtual(hier.guestpage_host_paddrs[0]);
   uint64_t * guest_stack_vaddr =
     (uint64_t*)((uint64_t)guestpage_vaddr + guest_stack_offset);
 
@@ -1762,7 +1836,8 @@ sva_print_guest_stack(sva_vmx_ept_hier hier) {
      * can print out the address that corresponds to this value.
      */
     uint64_t qword_offset = (uint64_t)qword & 0xfff;
-    uint64_t qword_guest_addr = qword_offset + hier.guestpage_guest_paddr;
+    uint64_t qword_guest_addr =
+      qword_offset + hier.guestpage_guest_paddrs[0];
 
     printf("0x%lx:\t0x%lx\n", qword_guest_addr, *qword);
   }
