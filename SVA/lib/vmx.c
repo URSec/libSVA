@@ -1664,8 +1664,8 @@ sva_set_up_ept(void) {
   unsigned char * guestpage_vaddrs[16];
   for (int i = 0; i < 16; i++) {
     hier.guestpage_host_paddrs[i] = alloc_frame();
-    DBGPRNT(("Guest-visible page #%d host-paddr: 0x%lx\n",
-          i+1, hier.guestpage_host_paddrs[i]));
+    DBGPRNT(("Guest-visible page #%d host-paddr: 0x%lx, guest-paddr: 0x%lx\n",
+          i+1, hier.guestpage_host_paddrs[i], hier.guestpage_guest_paddrs[i]));
 
     ept_vaddr[0xf0 + i] = (0x37 | hier.guestpage_host_paddrs[i]);
 
@@ -1713,6 +1713,9 @@ sva_set_up_ept(void) {
    * Since we are mapping in the entire 1 GB guest-virtual range as a large
    * page, we will only need these first two levels.
    */
+  for (int i = 0; i < 16; i++) {
+    hier.guestpage_guest_vaddrs[i] = 0xdeadbeef0000 + (i * 0x1000);
+  }
 
   /* We will locate the guest's page-table pages as follows within the
    * guest-physical address space:
