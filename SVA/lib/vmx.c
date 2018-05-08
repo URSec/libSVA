@@ -101,11 +101,13 @@ static vmx_host_state_t __attribute__((section("svamem"))) host_state;
  */
 static inline unsigned char *
 my_getVirtual(uintptr_t physical) {
+#if 0
   DBGPRNT(("Called my_getVirtual() with physical address 0x%lx...\n", physical));
 #ifdef SVA_DMAP
   DBGPRNT(("Using SVA's DMAP.\n"));
 #else
   DBGPRNT(("Using FreeBSD's DMAP.\n"));
+#endif
 #endif
 
   unsigned char * r;
@@ -448,11 +450,15 @@ check_cr4_fixed_bits(void) {
  */
 static inline enum vmx_statuscode_t
 query_vmx_result(uint64_t rflags) {
+#if 0
   DBGPRNT(("\tRFLAGS value passed to query_vmx_result(): 0x%lx\n", rflags));
+#endif
 
   /* Test for VMsucceed. */
   if ((rflags & RFLAGS_VM_SUCCEED) == rflags) {
+#if 0
     DBGPRNT(("\tRFLAGS matches VMsucceed condition.\n"));
+#endif
     return VM_SUCCEED;
   }
 
@@ -1011,8 +1017,9 @@ sva_unloadvm(void) {
  */
 int
 sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
-  DBGPRNT(("sva_readvmcs() intrinsic called with field=0x%lx, data=%p\n",
-        field, data));
+  DBGPRNT(("sva_readvmcs() intrinsic called with field="));
+  print_vmcs_field_name(field);
+  DBGPRNT((" (0x%lx), data=%p\n", field, data));
 
   if (!sva_vmx_initialized) {
     panic("Fatal error: must call sva_initvmx() before any other "
@@ -1029,7 +1036,9 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
     return -1;
   }
 
+#if 0
   DBGPRNT(("Executing VMREAD instruction...\n"));
+#endif
   uint64_t rflags;
   asm __volatile__ (
       "vmread %%rax, %%rbx\n"
@@ -1041,7 +1050,9 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
       );
   /* Confirm that the operation succeeded. */
   if (query_vmx_result(rflags) == VM_SUCCEED) {
+#if 0
     DBGPRNT(("Successfully read VMCS field.\n"));
+#endif
 
     /* The specified field has been successfully read into the location
      * pointed to by "data". Return success.
@@ -1084,8 +1095,9 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
  */
 int
 sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
-  DBGPRNT(("\tsva_writevmcs() intrinsic called with field=0x%lx, data=0x%lx\n",
-        field, data));
+  DBGPRNT(("sva_writevmcs() intrinsic called with field="));
+  print_vmcs_field_name(field);
+  DBGPRNT((" (0x%lx), data=0x%lx\n", field, data));
 
   if (!sva_vmx_initialized) {
     panic("Fatal error: must call sva_initvmx() before any other "
@@ -1102,7 +1114,9 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
     return -1;
   }
 
+#if 0
   DBGPRNT(("\tExecuting VMWRITE instruction...\n"));
+#endif
   uint64_t rflags;
   asm __volatile__ (
       "vmwrite %%rax, %%rbx\n"
@@ -1114,7 +1128,9 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
       );
   /* Confirm that the operation succeeded. */
   if (query_vmx_result(rflags) == VM_SUCCEED) {
+#if 0
     DBGPRNT(("\tSuccessfully wrote VMCS field.\n"));
+#endif
 
     /* Return success. */
     return 0;

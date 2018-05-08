@@ -19,7 +19,7 @@
 #define _SVA_VMX_INTRINSICS_H
 
 /*
- * Enumeration: vmcs_field
+ * Enumeration: sva_vmcs_field
  *
  * Identifies a Virtual Machine Control Structure field to be read or
  * written by the readvmcs()/writevmcs() intrinsics.
@@ -308,5 +308,7 @@ typedef struct sva_vmx_ept_hier {
 sva_vmx_ept_hier sva_set_up_ept(void);
 
 void sva_print_guest_stack(sva_vmx_ept_hier hier);
+/* Defined in debug.c */
+void print_vmcs_field_name(enum sva_vmcs_field);
 
 #endif /* _SVA_VMX_INTRINSICS_H */
