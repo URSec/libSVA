@@ -666,7 +666,7 @@ sva_initvmx(void) {
  *  processor.
  *
  * Return value:
- *  A non-negative integer which will be used to identify this virtual
+ *  A positive integer which will be used to identify this virtual
  *  machine in future invocations of VMX intrinsics. If the return value is
  *  negative, an error occurred and nothing was allocated.
  *
@@ -693,9 +693,24 @@ sva_allocvm(void) {
    * fragmentation, since the first free ID is always chosen. Creating a new
    * VM is an infrequent operation and the number of active VMs will likely
    * be small in practice, rendering this moot.
+   *
+   * NOTE: We skip ID #0 because these IDs do double-duty as the VPID
+   * (Virtual Processor ID) specified in the VMCS. (The purpose of the VPID
+   * is to distinguish TLB entries corresponding to different VMs.) This
+   * limits them to 16-bit positive integers, per Intel's specification. Note
+   * especially that we cannot use the value 0, because that is used to tag
+   * the host's TLB entries; an attempt to launch a VM with VPID=0 will
+   * result in an error.
+   *
+   * FIXME: SVA should be setting the VPID field in the VMCS itself, to
+   * uphold this invariant (and to ensure that the hypervisor can't
+   * mis-configure the TLB tagging to break security barriers between VMs or
+   * between a VM and the host). For now, we are leaving it up to the OS to
+   * set the VPID field with the sva_writevmcs() intrinsic. (Right now we
+   * don't have any field checks in sva_writevmcs() anyway...)
    */
   size_t vmid = -1;
-  for (size_t i = 0; i < MAX_VMS; i++) {
+  for (size_t i = 1; i < MAX_VMS; i++) {
     if (vm_descs[i].vmcs_paddr == 0) {
       DBGPRNT(("First free VM ID found: %lu\n", i));
 
