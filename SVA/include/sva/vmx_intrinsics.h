@@ -298,7 +298,8 @@ typedef struct sva_vmx_ept_hier {
   uintptr_t guestpage_guest_paddrs[16];
 
   /* Guest-virtual addresses of the 16 pages in the guest-virtual mapping
-   * which are backed by the 16 respective guest-physical pages.
+   * which are backed by the 16 respective guest-physical pages. (These are
+   * also mapped contiguously, i.e. the addresses count up by 0x1000.)
    *
    * (The mapped guest-virtual space is larger, but not all of its pages
    * correspond to guest-physical addresses that are present in the EPT map.)

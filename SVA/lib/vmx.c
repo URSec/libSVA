@@ -1806,6 +1806,33 @@ sva_set_up_ept(void) {
   guestpage_as_dwords[1023] = 0xd0a0b0e0;
   guestpage_as_dwords[1022] = 0x0e0d0e0f;
 
+  /*
+   * Lastly, create a simple Global Descriptor Table (GDT) in guest-mapped
+   * page #16. This will be located at guest-virtual address 0xdeadbeeff000.
+   *
+   * This GDT has three entries:
+   *  1. A null-selector entry (as required)
+   *
+   *  2. A code-segment descriptor:
+   *      base = limit = 0x0
+   *      G = 0, D/B = 0, L = 1, AVL = 0
+   *      P = 1, DPL = 00b, S = 1 (code or data)
+   *      type = 1000b (0x8 - execute-only nonconforming code segment,
+   *        not accessed)
+   *
+   *  3. A data-segment descriptor:
+   *      base = limit = 0x0
+   *      G = 0, D/B = 0, L = 0, AVL = 0
+   *      P = 1, DPL = 00b, S = 1 (code or data)
+   *      type = 0000b (0x0 - read-only expand-up data segment, not accessed)
+   *
+   * These settings imitate the way BHyVe sets up its GDT.
+   */
+  uint64_t * guest_gdt_as_qwords = (uint64_t *)guestpage_vaddrs[15];
+  guest_gdt_as_qwords[0] = 0x0; // null selector
+  guest_gdt_as_qwords[1] = 0x0020980000000000;
+  guest_gdt_as_qwords[2] = 0x0000900000000000;
+
   return hier;
 }
 
