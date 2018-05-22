@@ -1771,13 +1771,15 @@ sva_set_up_ept(void) {
    * guest page tables.
    *
    * Our mapping will be as follows:
-   *  0x FFFF DEAD B800 0000 - 0x FFFF DEAD BFFF FFFF (guest-virtual)
+   *  0x FFFF DEAD 8000 0000 - 0x FFFF DEAD BFFF FFFF (guest-virtual)
    *    maps to
-   *  0x 0000 0000 B800 0000 - 0x 0000 0000 BFFF FFFF (guest-physical)
+   *  0x 0000 0000 8000 0000 - 0x 0000 0000 BFFF FFFF (guest-physical)
    *
    * Note that the only guest-virtual range which will actually correspond to
    * EPT-mapped guest-physical space is:
-   *  0x FFFF DEAD BEEF 0000 - 0x FFFF DEAD BEEF FFFF
+   *  0x FFFF DEAD BEEF 0000 - 0x FFFF DEAD BEEF FFFF (guest-virtual)
+   *    at
+   *  0x 0000 0000 BEEF 0000 - 0x 0000 0000 BEEF FFFF (guest-physical)
    * i.e., this range points to the 16 successive (contiguous in the guest,
    * but not in the host) pages we allocated for the guest from the SVA frame
    * cache.
@@ -1814,7 +1816,7 @@ sva_set_up_ept(void) {
 
   /* Set the 0xB6'th entry in the PDPT to be a 1 GB large page pointing to
    * the 1 GB-aligned guest-physical range containing the 16 pages we've
-   * EPT-mapped in, namely, the range 0xb8000000 - 0xbfffffff.
+   * EPT-mapped in, namely, the range 0x80000000 - 0xbfffffff.
    *
    * Mapping has RWX permissions and is designated as "supervisor", with
    * accessed = 0, dirty = 1, indicating PAT entry 0, and with a protection
@@ -1822,7 +1824,7 @@ sva_set_up_ept(void) {
    */
   uint64_t * guest_pdpt_vaddr = (uint64_t*) guestpage_vaddrs[9];
   guest_pdpt_vaddr[0xb6] =
-    (0xc3 | (hier.guestpage_guest_paddrs[0] & 0xfffffffff8000000));
+    (0xc3 | (hier.guestpage_guest_paddrs[0] & 0xffffffffc0000000));
 
   /*
    * Write the following program to guest-mapped page #0:
