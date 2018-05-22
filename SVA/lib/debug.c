@@ -465,14 +465,17 @@ sva_print_vmx_msrs(void) {
 
   printf("\n");
   /* Use CPUID to query the physical-address width of the processor. */
-  uint16_t paddrwidth;
+  uint16_t cpuid_addrwidth;
   asm __volatile__ (
       "cpuid"
-      : "=c" (paddrwidth)
+      : "=a" (cpuid_addrwidth)
       : "a" (0x80000008)
       : "eax", "ebx", "ecx", "edx"
       );
-  printf("CPU physical-address width (MAXPHYADDR): 0x%hhx\n");
+  uint8_t paddrwidth = (uint8_t) cpuid_addrwidth;
+  uint8_t laddrwidth = (uint8_t) (cpuid_addrwidth >> 8);
+  printf("CPU physical-address width (MAXPHYADDR): 0x%hhx\n", paddrwidth);
+  printf("CPU linear-address width: 0x%hhx\n", laddrwidth);
 
   printf("\n------------------------------\n");
 }
