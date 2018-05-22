@@ -366,7 +366,7 @@ SFI::addBitMasking (Value * Pointer, Instruction & I) {
       //
       // Select the correct value based on whether the pointer is in SVA memory.
       //
-      Value * Final = SelectInst::Create (InSVA, mkZero, Masked, "fptr", &I);
+      Final = SelectInst::Create (InSVA, mkZero, Masked, "fptr", &I);
     }
 
     return (new IntToPtrInst (Final, Pointer->getType(), "masked", &I));
@@ -585,6 +585,20 @@ SFI::visitAtomicRMWInst (AtomicRMWInst & AI) {
 
 bool
 SFI::runOnFunction (Function & F) {
+  //
+  // Skip pmap_bootstrap() in sys/amd64/amd64/pmap.c.
+  //
+  // pmap_bootstrap() is called when paging is not enabled, and it will
+  // set up the initial page table and enable paging. We don't want to
+  // do SFI checks on physical addresses.
+  //
+  if (F.getName().equals("pmap_bootstrap")) {
+    const std::string & moduleId = F.getParent()->getModuleIdentifier();
+    if (moduleId.rfind("sys/amd64/amd64/pmap.c") != std::string::npos) {
+      return false;
+    }
+  }
+
   //
   // Visit all of the instructions in the function.
   //
