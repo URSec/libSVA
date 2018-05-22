@@ -1771,22 +1771,22 @@ sva_set_up_ept(void) {
    * guest page tables.
    *
    * Our mapping will be as follows:
-   *  0x 0000 DEAD B800 0000 - 0x 0000 DEAD BFFF FFFF (guest-virtual)
+   *  0x FFFF DEAD B800 0000 - 0x FFFF DEAD BFFF FFFF (guest-virtual)
    *    maps to
    *  0x 0000 0000 B800 0000 - 0x 0000 0000 BFFF FFFF (guest-physical)
    *
    * Note that the only guest-virtual range which will actually correspond to
    * EPT-mapped guest-physical space is:
-   *  0x 0000 DEAD BEEF 0000 - 0x 0000 DEAD BEEF FFFF
+   *  0x FFFF DEAD BEEF 0000 - 0x FFFF DEAD BEEF FFFF
    * i.e., this range points to the 16 successive (contiguous in the guest,
    * but not in the host) pages we allocated for the guest from the SVA frame
    * cache.
    *
    * We will put our guest test code and the guest's stack in the first such
-   * frame, i.e. 0x DEAD BEEF 0000 - 0x DEAD BEEF 0FFF.
+   * frame, i.e. 0x FFFF DEAD BEEF 0000 - 0x FFFF DEAD BEEF 0FFF.
    * (The code will be at the beginning and the stack at the end.)
    *
-   * 0xDEADBEEF0000 indexes into the four table levels as follows:
+   * 0xFFFFDEADBEEF0000 indexes into the four table levels as follows:
    *  - Bits 47-39: offset 0x1BD into the PML4 table
    *  - Bits 38-30: offset 0xB6 into the PDPT
    *  - Bits 29-21: offset 0x1F7 into the PD
@@ -1795,7 +1795,7 @@ sva_set_up_ept(void) {
    * page, we will only need these first two levels.
    */
   for (int i = 0; i < 16; i++) {
-    hier.guestpage_guest_vaddrs[i] = 0xdeadbeef0000 + (i * 0x1000);
+    hier.guestpage_guest_vaddrs[i] = 0xffffdeadbeef0000 + (i * 0x1000);
   }
 
   /* We will locate the guest's page-table pages as follows within the
@@ -1858,7 +1858,7 @@ sva_set_up_ept(void) {
 
   /*
    * Lastly, create a simple Global Descriptor Table (GDT) in guest-mapped
-   * page #16. This will be located at guest-virtual address 0xdeadbeeff000.
+   * page #16. This will be located at guest-virtual address 0xffffdeadbeeff000.
    *
    * This GDT has three entries:
    *  1. A null-selector entry (as required)
