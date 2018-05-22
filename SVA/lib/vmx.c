@@ -1682,19 +1682,19 @@ sva_set_up_ept(void) {
 
   /*
    * We will map 16 contiguous frames into the guest-physical address space:
-   *  0x 0000 F00D BEEF 0000 through
-   *  0x 0000 F00D BEEF FFFF
+   *  0x 0000 0000 BEEF 0000 through
+   *  0x 0000 0000 BEEF FFFF
    *
-   * 0xF00DBEEF0000 indexes into the four table levels as follows:
-   *  - Bits 47-39: offset 0x1E0 into the EPT PML4 table
-   *  - Bits 38-30: offset 0x36 into the EPT PDPT
+   * 0xBEEF0000 indexes into the four table levels as follows:
+   *  - Bits 47-39: offset 0x0 into the EPT PML4 table
+   *  - Bits 38-30: offset 0x2 into the EPT PDPT
    *  - Bits 29-21: offset 0x1F7 into the EPT PD
    *  - Bits 20-12: offset 0xF0 into the EPT PT
    * The remaining 15 frames correspond to offsets 0xF1-FF into the EPT PT;
    * their indices into the other tables are the same.
    */
   for (int i = 0; i < 16; i++) {
-    hier.guestpage_guest_paddrs[i] = 0xf00dbeef0000 + (i * 0x1000);
+    hier.guestpage_guest_paddrs[i] = 0xbeef0000 + (i * 0x1000);
   }
 
   /* Get frames from the frame cache to serve as page-table pages for each of
@@ -1721,15 +1721,15 @@ sva_set_up_ept(void) {
   memset(epd_vaddr, 0, X86_PAGE_SIZE);
   memset(ept_vaddr, 0, X86_PAGE_SIZE);
 
-  /* Set the 0x1E0'th entry in the EPT PML4 table to point to the EPT PDPT.
+  /* Set the 0x0'th entry in the EPT PML4 table to point to the EPT PDPT.
    * Mapping has RWX permissions.
    */
-  epml4t_vaddr[0x1e0] = (0x7 | hier.epdpt_paddr);
+  epml4t_vaddr[0x0] = (0x7 | hier.epdpt_paddr);
 
-  /* Set the 0x36'th entry in the EPT PDPT to point to the EPT PD.
+  /* Set the 0x2'nd entry in the EPT PDPT to point to the EPT PD.
    * Mapping has RWX permissions.
    */
-  epdpt_vaddr[0x36] = (0x7 | hier.epd_paddr);
+  epdpt_vaddr[0x2] = (0x7 | hier.epd_paddr);
 
   /* Set the 0x1F7'th entry in the EPT PD to point to the EPT PT.
    * Mapping has RWX permissions.
@@ -1773,7 +1773,7 @@ sva_set_up_ept(void) {
    * Our mapping will be as follows:
    *  0x 0000 DEAD B800 0000 - 0x 0000 DEAD BFFF FFFF (guest-virtual)
    *    maps to
-   *  0x 0000 F00D B800 0000 - 0x 0000 F00D BFFF FFFF (guest-physical)
+   *  0x 0000 0000 B800 0000 - 0x 0000 0000 BFFF FFFF (guest-physical)
    *
    * Note that the only guest-virtual range which will actually correspond to
    * EPT-mapped guest-physical space is:
@@ -1800,9 +1800,9 @@ sva_set_up_ept(void) {
 
   /* We will locate the guest's page-table pages as follows within the
    * guest-physical address space:
-   *  * The PML4 table will be at guest-physical address 0xf00dbeef8000,
+   *  * The PML4 table will be at guest-physical address 0xbeef8000,
    *    i.e., the 9th (index-8'th) page we've EPT-mapped into the guest.
-   *  * The PDPT will be at guest-physical address 0xf00dbeef9000, i.e., the
+   *  * The PDPT will be at guest-physical address 0xbeef9000, i.e., the
    *    10th (index-9'th) page we've EPT-mapped into the guest.
    *
    * Set the 0x1BD'th entry in the PML4 table to point to the PDPT.
@@ -1810,11 +1810,11 @@ sva_set_up_ept(void) {
    * accessed = 0, PWT = 0, and PCD = 0.
    */
   uint64_t * guest_pml4t_vaddr = (uint64_t*) guestpage_vaddrs[8];
-  guest_pml4t_vaddr[0x1bd] = (0x3 | hier.guestpage_host_paddrs[9]);
+  guest_pml4t_vaddr[0x1bd] = (0x3 | hier.guestpage_guest_paddrs[9]);
 
   /* Set the 0xB6'th entry in the PDPT to be a 1 GB large page pointing to
    * the 1 GB-aligned guest-physical range containing the 16 pages we've
-   * EPT-mapped in, namely, the range 0xf00db8000000 - 0xf00dbfffffff.
+   * EPT-mapped in, namely, the range 0xb8000000 - 0xbfffffff.
    *
    * Mapping has RWX permissions and is designated as "supervisor", with
    * accessed = 0, dirty = 1, indicating PAT entry 0, and with a protection
@@ -1822,7 +1822,7 @@ sva_set_up_ept(void) {
    */
   uint64_t * guest_pdpt_vaddr = (uint64_t*) guestpage_vaddrs[9];
   guest_pdpt_vaddr[0xb6] =
-    (0xc3 | (hier.guestpage_host_paddrs[0] & 0xfffffffff8000000));
+    (0xc3 | (hier.guestpage_guest_paddrs[0] & 0xfffffffff8000000));
 
   /*
    * Write the following program to guest-mapped page #0:
