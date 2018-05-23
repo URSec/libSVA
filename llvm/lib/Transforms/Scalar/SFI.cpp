@@ -345,18 +345,9 @@ SFI::addBitMasking (Value * Pointer, Instruction & I) {
                                                &I);
 
       //
-      // Create a value of the pointer that is zero.
-      //
-      Value * mkZero = BinaryOperator::Create (Instruction::Xor,
-                                               Masked,
-                                               Masked,
-                                               "mkZero",
-                                               &I);
-
-      //
       // Select the correct value based on whether the pointer is in SVA memory.
       //
-      Final = SelectInst::Create (InSVA, mkZero, Masked, "fptr", &I);
+      Final = SelectInst::Create (InSVA, Zero, Masked, "fptr", &I);
     }
 
     return (new IntToPtrInst (Final, Pointer->getType(), "masked", &I));
