@@ -52,14 +52,14 @@ UseMPX("enable-mpx-sfi",
 static const uintptr_t checkMask = 0xffffff0000000000u;
 #else
 /* Mask to determine if we use the original value or the masked value */
-static const uintptr_t checkMask = 0x00000000fffffd00;
+static const uintptr_t checkMask = 0x0000000000fffffdul;
 #endif
 
 /* Mask to set proper lower-order bits */
-static const uintptr_t setMask   = 0x0000020000000000u;
+static const uintptr_t setMask   = 0x0000020000000000ul;
 
 // Location of secure memory
-static uintptr_t startGhostMemory = 0xfffffd0000000000u;
+static uintptr_t startGhostMemory = 0xfffffd0000000000ul;
 
 namespace llvm {
   //
@@ -275,7 +275,7 @@ SFI::addBitMasking (Value * Pointer, Instruction & I) {
     Value * CheckMask = ConstantInt::get (IntPtrTy, checkMask);
     Value * SetMask   = ConstantInt::get (IntPtrTy, setMask);
     Value * Zero      = ConstantInt::get (IntPtrTy, 0u);
-    Value * ThirtyTwo = ConstantInt::get (IntPtrTy, 32u);
+    Value * ShiftBits = ConstantInt::get (IntPtrTy, 40u);
     Value * svaLow    = ConstantInt::get (IntPtrTy, 0xffffffff819ef000u);
     Value * svaHigh   = ConstantInt::get (IntPtrTy, 0xffffffff89b96060u);
 
@@ -288,18 +288,8 @@ SFI::addBitMasking (Value * Pointer, Instruction & I) {
     Value * CastedPointer = new PtrToIntInst (Pointer, IntPtrTy, "ptr", &I);
     Value * PtrHighBits = BinaryOperator::Create (Instruction::LShr,
                                                   CastedPointer,
-                                                  ThirtyTwo,
+                                                  ShiftBits,
                                                   "highbits",
-                                                  &I);
-                                                      
-    //
-    // Create an instruction to mask off the proper bits to see if the pointer
-    // is within the secure memory range.
-    //
-    Value * CheckMasked = BinaryOperator::Create (Instruction::And,
-                                                  PtrHighBits,
-                                                  CheckMask,
-                                                  "checkMask",
                                                   &I);
 
     //
@@ -308,7 +298,7 @@ SFI::addBitMasking (Value * Pointer, Instruction & I) {
     //
     Value * Cmp = new ICmpInst (&I,
                                 CmpInst::ICMP_EQ,
-                                CheckMasked,
+                                PtrHighBits,
                                 CheckMask,
                                 "cmp");
 
