@@ -1631,6 +1631,22 @@ run_vm(unsigned char use_vmresume) {
   if (result == VM_SUCCEED) {
     DBGPRNT(("VM EXIT: returned to host mode.\n"));
 
+    /* For debugging: print out the host GPR values that were restored
+     * (and some others that weren't because they didn't contain live values,
+     * so we can see the whole picture of the guest's GPR state on VM entry).
+     */
+    DBGPRNT(("Host GPR values restored:\n"));
+    DBGPRNT(("RBP: 0x%16lx\tRSI: 0x%16lx\tRDI: 0x%16lx\n",
+          host_state.rbp, host_state.rsi, host_state.rdi));
+    DBGPRNT(("R8:  0x%16lx\tR9:  0x%16lx\tR10: 0x%16lx\tR11: 0x%16lx\n",
+          host_state.r8, host_state.r9, host_state.r10, host_state.r11));
+    DBGPRNT(("R12: 0x%16lx\tR13: 0x%16lx\tR14: 0x%16lx\tR15: 0x%16lx\n",
+          host_state.r12, host_state.r13, host_state.r14, host_state.r15));
+    DBGPRNT(("Other host GPRs (not restored) had these values on VM entry:\n"));
+    DBGPRNT(("RAX: 0x%16lx\tRBX: 0x%16lx\tRCX: 0x%16lx\tRDX: 0x%16lx\n",
+          (uint64_t)(&host_state), VMCS_HOST_RSP, VMCS_HOST_RIP,
+          (uint64_t)(use_vmresume)));
+
     /* Return success. */
     return 0;
   } else if (result == VM_FAIL_VALID) {
@@ -1828,28 +1844,48 @@ sva_set_up_ept(void) {
 
   /*
    * Write the following program to guest-mapped page #0:
-   *    8b 44 24 04   movl 0x4(%rsp), %eax
-   *    8b 1c 24      movl (%rsp), %ebx
-   *    09 c3         orl %eax, %ebx
-   *    53            pushq %rbx
-   *    f4            hlt
+   *    8b 44 24 04           movl 0x4(%rsp), %eax
+   *    8b 1c 24              movl (%rsp), %ebx
+   *    09 c3                 orl %eax, %ebx
+   *    53                    pushq %rbx
+   *    f4                    hlt
+   *    48 31 c0              xorq %rax, %rax
+   *    48 31 f6              xorq %rsi, %rsi
+   *    48 83 c0 06           addq $6, %rax
+   *    48 83 c6 07           addq $7, %rsi
+   *    48 f7 e6              mulq %rsi
+   *    50                    pushq %rax
+   *    0f a2                 cpuid
    * This will perform a computation on two values which we'll pre-load onto
-   * the guest stack before VM entry, and then issue HLT to force a VM exit.
-   * We can confirm that the guest code actually ran by examining the saved
-   * state of the guest's EBX register in the VMCs after exit.
+   * the guest stack before VM entry, push the result onto the stack, and
+   * then issue HLT to force a VM exit. We can confirm that the guest code
+   * actually ran by examining the guest's stack after the exit.
+   *
+   * Following this, we will adjust the guest's RIP to skip over the HLT,
+   * then do another VM entry using VMRESUME. The guest will then multiply 6
+   * and 7 together and push the result, 42, to the stack. It will then issue
+   * CPUID to force a VM exit (for a different reason than the last time).
    */
   /* This will also write a trailing null byte, which doesn't change
    * anything since we already zeroed the page. */
   strcpy((char*)guestpage_vaddrs[0],
-      "\x8b\x44\x24\x04"
-      "\x8b\x1c\x24"
-      "\x09\xc3"
-      "\x53"
-      "\xf4");
+      "\x8b\x44\x24\x04"  // movl 0x4(%rsp), %eax
+      "\x8b\x1c\x24"      // movl (%rsp), %ebx
+      "\x09\xc3"          // orl %eax, %ebx
+      "\x53"              // pushq %rbx
+      "\xf4"              // hlt
+      "\x48\x31\xc0"      // xorq %rax, %rax
+      "\x48\x31\xf6"      // xorq %rsi, %rsi
+      "\x48\x83\xc0\x06"  // addq $6, %rax
+      "\x48\x83\xc6\x07"  // addq $7, %rsi
+      "\x48\xf7\xe6"      // mulq %rsi
+      "\x50"              // pushq %rax
+      "\x0f\xa2"          // cpuid
+      );
 
   /*
    * Write the values 0xd0a0b0e0 and 0x0e0d0e0f to the last two doublewords
-   * in guest-mapped page #0. This will be the guest's stack. If all
+   * in guest-mapped page #0. This will be the guest's initial stack. If all
    * goes well, it will OR the two together to form 0xdeadbeef and write it
    * to address 0xdeadbeef0ff0 with the PUSHQ, providing evidence for us that
    * the guest code actually ran.
