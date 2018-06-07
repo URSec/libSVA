@@ -1529,7 +1529,7 @@ run_vm(unsigned char use_vmresume) {
    * This is where the magic happens.
    *
    * In this assembly section, we:
-   *  - Save the general purpose registers to the host_state structure.
+   *  - Save the host's general purpose registers to the host_state structure.
    *
    *  - Use the VMWRITE instruction to set the RIP and RSP values that will
    *    be loaded by the processor on the next VM exit.
@@ -1550,18 +1550,24 @@ run_vm(unsigned char use_vmresume) {
    *    query_vmx_result() to determine whether the VM entry succeeded (and
    *    thence a VM exit actually occurred).
    *
-   *  - Restore the general purpose registers.
+   *  - Save the guest's general purpose registers (currently to the
+   *    host_state structure).
+   *
+   *  - Restore the host's general purpose registers.
    */
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
   uint64_t rflags;
   asm __volatile__ (
-      "# RAX contains a pointer to the host_state structure.\n"
-      "# Push it so that we can get it back after VM exit.\n"
+      /* RAX contains a pointer to the host_state structure.
+       * Push it so that we can get it back after VM exit.
+       */
       "pushq %%rax\n"
 
-      "### Save GPRs\n"
-      "# We don't need to save RAX, RBX, RCX, or RDX because we've used them\n"
-      "# as input/output registers for this inline assembly block.\n"
+      /*** Save host GPRs ***/
+      /* We don't need to save RAX, RBX, RCX, or RDX because we've used them
+       * as input/output registers for this inline assembly block, i.e., we
+       * know the compiler isn't keeping anything there.
+       */
       "movq %%rbp,  (%%rax)\n"
       "movq %%rsi,  8(%%rax)\n"
       "movq %%rdi,  16(%%rax)\n"
@@ -1574,19 +1580,20 @@ run_vm(unsigned char use_vmresume) {
       "movq %%r14,  72(%%rax)\n"
       "movq %%r15,  80(%%rax)\n"
 
-      "# (Now all the GPRs are free for our own use in this code.)\n"
+      /* (Now all the GPRs are free for our own use in this code.) */
 
-      "### Use VMWRITE to set RIP and RSP to be loaded on VM exit\n"
-      "vmwrite %%rsp, %%rbx # Write RSP to VMCS_HOST_RSP\n"
+      /*** Use VMWRITE to set RIP and RSP to be loaded on VM exit ***/
+      "vmwrite %%rsp, %%rbx\n" // Write RSP to VMCS_HOST_RSP
       "movq $vmexit_landing_pad, %%rbp\n"
-      "vmwrite %%rbp, %%rcx # Write vmexit_landing_pad to VMCS_HOST_RIP\n"
+      "vmwrite %%rbp, %%rcx\n" // Write vmexit_landing_pad to VMCS_HOST_RIP
 
-      "### Execute the appropriate VM entry instruction based on the value\n"
-      "### of use_vmresume.\n"
-      "# Note that we need to place an explicit jump to vmexit_landing_pad\n"
-      "# after the launch/resume instructions to ensure correct behavior if\n"
-      "# the VM entry fails (and thus execution falls through to the next\n"
-      "# instruction).\n"
+      /*** Execute the appropriate VM entry instruction based on the value
+       *** of use_vmresume. ***/
+      /* Note that we need to place an explicit jump to vmexit_landing_pad
+       * after the launch/resume instructions to ensure correct behavior if
+       * the VM entry fails (and thus execution falls through to the next
+       * instruction).
+       */
       "addb $0, %%dl\n"
       "jnz do_vmresume\n"
       "vmlaunch\n"
@@ -1594,20 +1601,63 @@ run_vm(unsigned char use_vmresume) {
 
       "do_vmresume:\n"
       "vmresume\n"
-      "# Here the fall-through is OK since vmexit_landing_pad is next.\n"
+      /* Here the fall-through is OK since vmexit_landing_pad is next. */
 
-      "### VM exits return here!!!\n"
+      /*** VM exits return here!!! ***/
       "vmexit_landing_pad:\n"
 
-      "### Save RFLAGS to RDX (output register for asm block)\n"
+      /*** Save RFLAGS, which contains the VMX error code. ***/
+      /* (We need to return this in RDX at the end of the asm block.) */
       "pushfq\n"
-      "popq %%rdx\n"
 
-      "### Get pointer to host_state structure which we saved on the stack\n"
-      "### prior to VM entry\n"
-      "popq %%rax\n"
+      /*** Get pointer to host_state structure which we saved on the stack
+       * prior to VM entry.
+       *
+       * We must be careful not to lose the value the guest left in the
+       * register we're using for the pointer (RAX).
+       *
+       * Note: after pushing RAX, our stack looks like:
+       *      (%rsp)  - saved guest RAX
+       *     8(%rsp)  - saved RFLAGS (VMX error code)
+       *    16(%rsp)  - pointer to host_state saved before VM entry
+       * (Since we're not using a frame pointer, and are using push/pop
+       * instructions i.e. a dynamic stack frame, we need to keep track of
+       * this carefully.)
+       */
+      "pushq %%rax\n"
+      "movq 16(%%rsp), %%rax\n"
 
-      "### Restore GPRs\n"
+      /*** Save guest GPRs ***/
+      /* TODO: For now, we are storing these in the host_state structure as
+       * well, because it's convenient (it's the one and only host data
+       * structure we have a pointer to at this point). It's suitable for now
+       * since all we're doing with this is stashing it momentarily so it can
+       * be printed to the debug console. But when we actually want to
+       * support restoring guest GPRs on VMLAUNCH/VMRESUME, we will need to
+       * move this to a VM-specific structure, probably vm_desc_t.
+       *
+       * We save RBX first since we need another free register to save the
+       * guest RAX we stashed away on the stack (since x86 doesn't do
+       * memory-to-memory moves).
+       */
+      "movq %%rbx,  96(%%rax)\n"
+      "movq (%%rsp), %%rbx\n"    // we stashed guest RAX at (%rsp)
+      "movq %%rbx,  88(%%rax)\n" // save guest RAX
+      "movq %%rcx, 104(%%rax)\n"
+      "movq %%rdx, 112(%%rax)\n"
+      "movq %%rbp, 120(%%rax)\n"
+      "movq %%rsi, 128(%%rax)\n"
+      "movq %%rdi, 136(%%rax)\n"
+      "movq %%r8,  144(%%rax)\n"
+      "movq %%r9,  152(%%rax)\n"
+      "movq %%r10, 160(%%rax)\n"
+      "movq %%r11, 168(%%rax)\n"
+      "movq %%r12, 176(%%rax)\n"
+      "movq %%r13, 184(%%rax)\n"
+      "movq %%r14, 192(%%rax)\n"
+      "movq %%r15, 200(%%rax)\n"
+
+      /*** Restore host GPRs ***/
       "movq (%%rax),   %%rbp\n"
       "movq 8(%%rax),  %%rsi\n"
       "movq 16(%%rax), %%rdi\n"
@@ -1620,6 +1670,17 @@ run_vm(unsigned char use_vmresume) {
       "movq 72(%%rax), %%r14\n"
       "movq 80(%%rax), %%r15\n"
 
+      /* Put the saved RFLAGS (VMX error code) into RDX for output from the
+       * asm block.
+       */
+      "movq 8(%%rsp), %%rdx\n"
+
+      /* Return the stack to the way it was when we entered the asm block.
+       * We pushed three quadwords, so to unwind the frame, we will add 24 to
+       * RSP.
+       */
+      "addq $24, %%rsp\n"
+
       : "=d" (rflags)
       : "a" (&host_state), "b" (VMCS_HOST_RSP), "c" (VMCS_HOST_RIP),
         "d" (use_vmresume)
@@ -1631,11 +1692,30 @@ run_vm(unsigned char use_vmresume) {
   if (result == VM_SUCCEED) {
     DBGPRNT(("VM EXIT: returned to host mode.\n"));
 
-    /* For debugging: print out the host GPR values that were restored
-     * (and some others that weren't because they didn't contain live values,
-     * so we can see the whole picture of the guest's GPR state on VM entry).
+    DBGPRNT(("--------------------\n"));
+    DBGPRNT(("Guest register state:\n"));
+    DBGPRNT(("RAX: 0x%16lx\tRBX: 0x%16lx\tRCX: 0x%16lx\tRDX: 0x%16lx\n",
+          host_state.guest_rax, host_state.guest_rbx,
+          host_state.guest_rcx, host_state.guest_rdx));
+    DBGPRNT(("RBP: 0x%16lx\tRSI: 0x%16lx\tRDI: 0x%16lx\n",
+          host_state.guest_rbp, host_state.guest_rsi, host_state.guest_rdi));
+    DBGPRNT(("R8:  0x%16lx\tR9:  0x%16lx\tR10: 0x%16lx\tR11: 0x%16lx\n",
+          host_state.guest_r8, host_state.guest_r9,
+          host_state.guest_r10, host_state.guest_r11));
+    DBGPRNT(("R12: 0x%16lx\tR13: 0x%16lx\tR14: 0x%16lx\tR15: 0x%16lx\n",
+          host_state.guest_r12, host_state.guest_r13,
+          host_state.guest_r14, host_state.guest_r15));
+    DBGPRNT(("--------------------\n"));
+
+    /* FIXME
+     * Note: since we do not (yet) support restoring of guest GPRs on VM
+     * entry, their initial values are whatever they were on the host.
+     *
+     * Needless to say, this is not the way things are *supposed* to work
+     * (besides breaking continuity of guest state, it can potentially leak
+     * sensitive information to the guest).
      */
-    DBGPRNT(("Host GPR values restored:\n"));
+    DBGPRNT(("Host GPR values restored (also guest values on VM entry):\n"));
     DBGPRNT(("RBP: 0x%16lx\tRSI: 0x%16lx\tRDI: 0x%16lx\n",
           host_state.rbp, host_state.rsi, host_state.rdi));
     DBGPRNT(("R8:  0x%16lx\tR9:  0x%16lx\tR10: 0x%16lx\tR11: 0x%16lx\n",
@@ -1646,6 +1726,7 @@ run_vm(unsigned char use_vmresume) {
     DBGPRNT(("RAX: 0x%16lx\tRBX: 0x%16lx\tRCX: 0x%16lx\tRDX: 0x%16lx\n",
           (uint64_t)(&host_state), VMCS_HOST_RSP, VMCS_HOST_RIP,
           (uint64_t)(use_vmresume)));
+    DBGPRNT(("--------------------\n"));
 
     /* Return success. */
     return 0;
