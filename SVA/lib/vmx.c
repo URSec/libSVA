@@ -117,7 +117,9 @@ my_getVirtual(uintptr_t physical) {
   r = getVirtual(physical);
 #endif
 
+#if 0
   DBGPRNT(("my_getVirtual() returning 0x%lx...\n", r));
+#endif
   return r;
 }
 
@@ -1032,9 +1034,11 @@ sva_unloadvm(void) {
  */
 int
 sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
+#if 0
   DBGPRNT(("sva_readvmcs() intrinsic called with field="));
   print_vmcs_field_name(field);
   DBGPRNT((" (0x%lx), data=%p\n", field, data));
+#endif
 
   if (!sva_vmx_initialized) {
     panic("Fatal error: must call sva_initvmx() before any other "
@@ -1558,6 +1562,15 @@ run_vm(unsigned char use_vmresume) {
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
   uint64_t rflags;
   asm __volatile__ (
+      /* Save host RFLAGS.
+       * 
+       * RFLAGS is cleared on every VM exit, so we need to restore it
+       * ourselves. Note in particular that this means interrupts are blocked
+       * (since IF = 0) after VM exit until we restore RFLAGS (or otherwise
+       * explicitly set IF, though we won't do that here).
+       */
+      "pushfq\n"
+
       /* RAX contains a pointer to the host_state structure.
        * Push it so that we can get it back after VM exit.
        */
@@ -1618,8 +1631,9 @@ run_vm(unsigned char use_vmresume) {
        *
        * Note: after pushing RAX, our stack looks like:
        *      (%rsp)  - saved guest RAX
-       *     8(%rsp)  - saved RFLAGS (VMX error code)
+       *     8(%rsp)  - RFLAGS saved after VM exit (VMX error code)
        *    16(%rsp)  - pointer to host_state saved before VM entry
+       *    24(%rsp)  - host RFLAGS saved before VM entry
        * (Since we're not using a frame pointer, and are using push/pop
        * instructions i.e. a dynamic stack frame, we need to keep track of
        * this carefully.)
@@ -1641,8 +1655,8 @@ run_vm(unsigned char use_vmresume) {
        * memory-to-memory moves).
        */
       "movq %%rbx,  96(%%rax)\n"
-      "movq (%%rsp), %%rbx\n"    // we stashed guest RAX at (%rsp)
-      "movq %%rbx,  88(%%rax)\n" // save guest RAX
+      "movq (%%rsp), %%rbx\n"    // We stashed guest RAX at (%rsp).
+      "movq %%rbx,  88(%%rax)\n" // Save guest RAX
       "movq %%rcx, 104(%%rax)\n"
       "movq %%rdx, 112(%%rax)\n"
       "movq %%rbp, 120(%%rax)\n"
@@ -1675,11 +1689,15 @@ run_vm(unsigned char use_vmresume) {
        */
       "movq 8(%%rsp), %%rdx\n"
 
-      /* Return the stack to the way it was when we entered the asm block.
-       * We pushed three quadwords, so to unwind the frame, we will add 24 to
-       * RSP.
+      /* Return the stack to the way it was when we entered the asm block,
+       * and restore RFLAGS to what it was before VM entry.
+       *
+       * NOTE: interrupts are always blocked (disabled) on VM exit due to
+       * RFLAGS being cleared by the processor. If interrupts were originally
+       * enabled prior to VM entry, the "popfq" here will re-enable them.
        */
-      "addq $24, %%rsp\n"
+      "addq $24, %%rsp\n" // Unwind the last three pushq's...
+      "popfq\n"           // ...leaving the host RFLAGS on top of the stack.
 
       : "=d" (rflags)
       : "a" (&host_state), "b" (VMCS_HOST_RSP), "c" (VMCS_HOST_RIP),
