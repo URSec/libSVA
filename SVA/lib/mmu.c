@@ -1917,7 +1917,8 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
         printf("\tIdentified 1GB page...\n");
 #endif
         unsigned long index = (pageMapping & ~PDPMASK) / pageSize;
-        page_desc[index].type = PG_TKDATA;
+        if (page_desc[index].type == PG_UNUSED)
+          page_desc[index].type = PG_TKDATA;
         page_desc[index].user = 0;           /* Set the priv flag to kernel */
         ++(page_desc[index].count);
         return;
@@ -1943,7 +1944,8 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
 #endif
         /* The frame address referencing the page obtained */
         unsigned long index = (pageMapping & ~PDRMASK) / pageSize;
-        page_desc[index].type = PG_TKDATA;
+        if (page_desc[index].type == PG_UNUSED)
+          page_desc[index].type = PG_TKDATA;
         page_desc[index].user = 0;           /* Set the priv flag to kernel */
         ++(page_desc[index].count);
         return;
