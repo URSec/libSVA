@@ -1918,9 +1918,9 @@ sva_set_up_ept(void) {
   /* We will locate the guest's page-table pages as follows within the
    * guest-physical address space:
    *  * The PML4 table will be at guest-physical address 0xbeef8000,
-   *    i.e., the 9th (index-8'th) page we've EPT-mapped into the guest.
-   *  * The PDPT will be at guest-physical address 0xbeef9000, i.e., the
-   *    10th (index-9'th) page we've EPT-mapped into the guest.
+   *    i.e., page #8 that we've EPT-mapped into the guest.
+   *  * The PDPT will be at guest-physical address 0xbeef9000, i.e.,
+   *    page #9 that we've EPT-mapped into the guest.
    *
    * Set the 0x1BD'th entry in the PML4 table to point to the PDPT.
    * Mapping has RWX permissions and is designated as "supervisor", with
@@ -1941,46 +1941,106 @@ sva_set_up_ept(void) {
   guest_pdpt_vaddr[0xb6] =
     (0xc3 | (hier.guestpage_guest_paddrs[0] & 0xffffffffc0000000));
 
+#if 0
+  /* For debugging: map guest-virtual 0x41414141 (offset 0x0 into PML4T).
+   * Points to a PDPT in EPT-mapped page #10. */
+  guest_pml4t_vaddr[0x0] = (0x3 | hier.guestpage_guest_paddrs[10]);
+
+  /* For debugging: map guest-virtual 0x41414141 (offset 0x1 into PDPT)
+   * Points to a PD in EPT-mapped page #11. */
+  uint64_t * guest_41pdpt_vaddr = (uint64_t*) guestpage_vaddrs[10];
+  guest_41pdpt_vaddr[0x1] = (0x3 | hier.guestpage_guest_paddrs[11]);
+
+  /* For debugging: map guest-virtual 0x41414141 (offset 0xA into PD).
+   * Points to a PT in EPT-mapped page #12. */
+  uint64_t * guest_41pd_vaddr = (uint64_t*) guestpage_vaddrs[11];
+  guest_41pd_vaddr[0xa] = (0x3 | hier.guestpage_guest_paddrs[12]);
+
+  /* For debugging: map guest-virtual 0x41414141 (offset 0x14 into PT).
+   * Points to a 4 kB frame in PT-mapped page #13.
+   * Mapping is RWX, supervisor, accessed = 0, dirty = 0, PAT 0, prot key 0.
+   *
+   * Note that this particular frame is *also* mapped to guest-virtual
+   * 0xffff dead beef d000 in the 1 GB mapping set up above. However, we're
+   * not using it for anything through that mapping.
+   */
+  uint64_t * guest_41pt_vaddr = (uint64_t*) guestpage_vaddrs[12];
+  guest_41pt_vaddr[0x14] = (0x3 | hier.guestpage_guest_paddrs[13]);
+  /* Now fill that frame with "0xee" bytes so that we can more easily see if
+   * the processor is writing to it. (Specifically, this allows us to check
+   * if it's writing 0's.)
+   */
+  uint64_t * guest_41page_vaddr = (uint64_t*) guestpage_vaddrs[13];
+  for (int i = 0; i < 512; i++) {
+    guest_41page_vaddr[i] = 0xeeeeeeeeeeeeeeee;
+  }
+#endif
+
   /*
-   * Write the following program to guest-mapped page #0:
-   *    8b 44 24 04           movl 0x4(%rsp), %eax
-   *    8b 1c 24              movl (%rsp), %ebx
-   *    09 c3                 orl %eax, %ebx
-   *    53                    pushq %rbx
-   *    f4                    hlt
-   *    48 31 c0              xorq %rax, %rax
-   *    48 31 f6              xorq %rsi, %rsi
-   *    48 83 c0 06           addq $6, %rax
-   *    48 83 c6 07           addq $7, %rsi
-   *    48 f7 e6              mulq %rsi
-   *    50                    pushq %rax
-   *    0f a2                 cpuid
-   * This will perform a computation on two values which we'll pre-load onto
-   * the guest stack before VM entry, push the result onto the stack, and
-   * then issue HLT to force a VM exit. We can confirm that the guest code
-   * actually ran by examining the guest's stack after the exit.
+   * Write a simple test program to guest-mapped page #0.
+   *
+   * This will OR together two values which we'll pre-load onto the guest
+   * stack before VM entry, push the result onto the stack, and then issue
+   * HLT to force a VM exit. We can confirm that the guest code actually ran
+   * by examining the guest's stack after the exit.
    *
    * Following this, we will adjust the guest's RIP to skip over the HLT,
    * then do another VM entry using VMRESUME. The guest will then multiply 6
    * and 7 together and push the result, 42, to the stack. It will then issue
    * CPUID to force a VM exit (for a different reason than the last time).
    */
-  /* This will also write a trailing null byte, which doesn't change
-   * anything since we already zeroed the page. */
-  strcpy((char*)guestpage_vaddrs[0],
-      "\x8b\x44\x24\x04"  // movl 0x4(%rsp), %eax
-      "\x8b\x1c\x24"      // movl (%rsp), %ebx
-      "\x09\xc3"          // orl %eax, %ebx
-      "\x53"              // pushq %rbx
-      "\xf4"              // hlt
-      "\x48\x31\xc0"      // xorq %rax, %rax
-      "\x48\x31\xf6"      // xorq %rsi, %rsi
-      "\x48\x83\xc0\x06"  // addq $6, %rax
-      "\x48\x83\xc6\x07"  // addq $7, %rsi
-      "\x48\xf7\xe6"      // mulq %rsi
-      "\x50"              // pushq %rax
-      "\x0f\xa2"          // cpuid
+  /* Declare an inline assembly block containing the guest program, to get it
+   * assembled into machine code.
+   *
+   * We don't actually want to execute this in the host, so we include a
+   * "jmp" at the beginning to skip over it. We also take this opportunity to
+   * save the start and end addresses of the code we want to copy to the
+   * guest (so that the surrounding C code can use them).
+   *
+   * NOTE: if you need to see the assembled bytecode (e.g. to determine which
+   * instruction corresponds to the RIP of a VM exit), you can get it by
+   * running:
+   *  objdump -d vmx.o
+   * from this directory after compiling SVA. Search for the label
+   * "guest_program_start" to find the relevant code.
+   */
+  unsigned char * guest_program_start;
+  unsigned char * guest_program_end;
+  asm __volatile__ (
+      /* Copy labels to C variables */
+      "movq $guest_program_start, (%0)\n"
+      "movq $guest_program_end, (%1)\n"
+
+      /* Skip over guest code so we don't execute it in the host */
+      "jmp guest_program_end\n"
+
+      ".global guest_program_start\n"
+      "guest_program_start:\n"
+      "movl 4(%%rsp), %%eax\n"
+      "movl (%%rsp), %%ebx\n"
+      "orl %%eax, %%ebx\n"
+      "pushq %%rbx\n"
+      "hlt\n"
+      "movl $6, %%eax\n"
+      "movl $7, %%esi\n"
+      "mulq %%rsi\n"
+      "pushq %%rax\n"
+      "cpuid\n"
+
+      ".global guest_program_end\n"
+      "guest_program_end:\n"
+      : : "r" (&guest_program_start), "r" (&guest_program_end)
       );
+
+  size_t guest_program_len =
+    (guest_program_end - guest_program_start) * sizeof(unsigned char);
+
+  /* Copy the program to guest-mapped page #0, which is where we will
+   * initialize RIP on our first VMLAUNCH.
+   */
+  printf("Copying %u-byte test program to beginning of guest page 0.\n",
+      guest_program_len);
+  memcpy(guestpage_vaddrs[0], guest_program_start, guest_program_len);
 
   /*
    * Write the values 0xd0a0b0e0 and 0x0e0d0e0f to the last two doublewords
@@ -1995,7 +2055,7 @@ sva_set_up_ept(void) {
 
   /*
    * Lastly, create a simple Global Descriptor Table (GDT) in guest-mapped
-   * page #16. This will be located at guest-virtual address 0xffffdeadbeeff000.
+   * page #15. This will be located at guest-virtual address 0xffffdeadbeeff000.
    *
    * This GDT has three entries:
    *  1. A null-selector entry (as required)
@@ -2091,4 +2151,50 @@ sva_print_guest_stack(sva_vmx_ept_hier hier) {
   }
 
   printf("--------------------\n");
+
+#if 0
+  printf("EPT-mapped page #13: guest-physical 0xbeef d000\n");
+  printf("(a.k.a. guest-virtual 0xffff dead beef d000, a.k.a. guest-virtual 0x4141 4000)\n");
+  /* Dump the page 8 doublewords to a line, i.e. 128 lines */
+  unsigned char * guestpage41_vaddr =
+    my_getVirtual(hier.guestpage_host_paddrs[13]);
+  uint32_t * guestpage41_as_dwords = (uint32_t *) guestpage41_vaddr;
+  for (int i = 0; i < 1024; i++) {
+    /* If this is the beginning of a line, print a newline and the running
+     * address.
+     */
+    if (i % 8 == 0) {
+      uint64_t dword_guest_addr = 0x41414000 + (i * 4);
+      printf("\n0x%lx: 0x ", dword_guest_addr);
+    }
+
+    /* Print the dword itself. */
+    printf("%8x ", guestpage41_as_dwords[i]);
+
+    /* Every 2 dwords, print an extra space. */
+    if (i % 2 == 1)
+      printf(" ");
+  }
+  printf("\n--------------------\n");
+#endif
+
+#if 0
+  /* Print out the guest-side PTEs (useful for determining if particular
+   * locations in memory were accessed or written to)
+   */
+  printf("Guest PTEs:\n");
+  uint64_t * pml4t = (uint64_t*) my_getVirtual(hier.guestpage_host_paddrs[8]);
+  printf("1 GB mapping PML4E: 0x%lx\n", pml4t[0x1bd]);
+  uint64_t * pdpt_1gb = (uint64_t*) my_getVirtual(hier.guestpage_host_paddrs[9]);
+  printf("1 GB mapping PDPTE: 0x%lx\n", pdpt_1gb[0xb6]);
+
+  printf("0x41414000 PML4E: 0x%lx\n", pml4t[0x0]);
+  uint64_t * pdpt_41 = (uint64_t*) my_getVirtual(hier.guestpage_host_paddrs[10]);
+  printf("0x41414000 PDPTE: 0x%lx\n", pdpt_41[0x1]);
+  uint64_t * pd_41 = (uint64_t*) my_getVirtual(hier.guestpage_host_paddrs[11]);
+  printf("0x41414000 PDE: 0x%lx\n", pd_41[0xa]);
+  uint64_t * pt_41 = (uint64_t*) my_getVirtual(hier.guestpage_host_paddrs[12]);
+  printf("0x41414000 PTE: 0x%lx\n", pt_41[0x14]);
+  printf("\n--------------------\n");
+#endif
 }
