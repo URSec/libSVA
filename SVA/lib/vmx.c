@@ -1647,7 +1647,7 @@ run_vm(unsigned char use_vmresume) {
        */
       "pushq %%rax\n"
       "movq 16(%%rsp), %%rax\n"            // RAX <-- host_state pointer
-      "movq %%rax, %c[active_vm](%%rax)\n" // RAX <-- active_vm pointer
+      "movq %c[active_vm](%%rax), %%rax\n" // RAX <-- active_vm pointer
 
       /*** Save guest GPRs ***
        *
