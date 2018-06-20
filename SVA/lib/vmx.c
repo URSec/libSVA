@@ -1562,8 +1562,7 @@ run_vm(unsigned char use_vmresume) {
    *    query_vmx_result() to determine whether the VM entry succeeded (and
    *    thence a VM exit actually occurred).
    *
-   *  - Save the guest's general purpose registers (currently to the
-   *    host_state structure).
+   *  - Save the guest's general purpose registers.
    *
    *  - Restore the host's general purpose registers.
    */
@@ -1600,7 +1599,6 @@ run_vm(unsigned char use_vmresume) {
       "movq %%r13,  %c[host_r13](%%rax)\n"
       "movq %%r14,  %c[host_r14](%%rax)\n"
       "movq %%r15,  %c[host_r15](%%rax)\n"
-
       /* (Now all the GPRs are free for our own use in this code.) */
 
       /*** Use VMWRITE to set RIP and RSP to be loaded on VM exit ***/
@@ -1631,11 +1629,12 @@ run_vm(unsigned char use_vmresume) {
       /* (We need to return this in RDX at the end of the asm block.) */
       "pushfq\n"
 
-      /*** Get pointer to host_state structure which we saved on the stack
-       * prior to VM entry.
+      /*** Get pointer to the active VM descriptor, using the host_state
+       * pointer which we saved on the stack prior to VM entry.
        *
-       * We must be careful not to lose the value the guest left in the
-       * register we're using for the pointer (RAX).
+       * We have NO free registers at this point (all of them contain guest
+       * values which we need to save). We therefore start by pushing RAX to
+       * give us one to work with.
        *
        * Note: after pushing RAX, our stack looks like:
        *      (%rsp)  - saved guest RAX
@@ -1647,16 +1646,10 @@ run_vm(unsigned char use_vmresume) {
        * this carefully.)
        */
       "pushq %%rax\n"
-      "movq 16(%%rsp), %%rax\n"
+      "movq 16(%%rsp), %%rax\n"            // RAX <-- host_state pointer
+      "movq %%rax, %c[active_vm](%%rax)\n" // RAX <-- active_vm pointer
 
-      /*** Save guest GPRs ***/
-      /* TODO: For now, we are storing these in the host_state structure as
-       * well, because it's convenient (it's the one and only host data
-       * structure we have a pointer to at this point). It's suitable for now
-       * since all we're doing with this is stashing it momentarily so it can
-       * be printed to the debug console. But when we actually want to
-       * support restoring guest GPRs on VMLAUNCH/VMRESUME, we will need to
-       * move this to a VM-specific structure, probably vm_desc_t.
+      /*** Save guest GPRs ***
        *
        * We save RBX first since we need another free register to save the
        * guest RAX we stashed away on the stack (since x86 doesn't do
@@ -1678,6 +1671,12 @@ run_vm(unsigned char use_vmresume) {
       "movq %%r13, %c[guest_r13](%%rax)\n"
       "movq %%r14, %c[guest_r14](%%rax)\n"
       "movq %%r15, %c[guest_r15](%%rax)\n"
+      /* (Now all the GPRs are free for our own use in this code.) */
+
+      /* (Re-)get the host_state pointer, which we couldn't keep earlier
+       * because we had no free registers.
+       */
+      "movq 16(%%rsp), %%rax\n"
 
       /*** Restore host GPRs ***/
       "movq %c[host_rbp](%%rax), %%rbp\n"
@@ -1705,12 +1704,13 @@ run_vm(unsigned char use_vmresume) {
        * enabled prior to VM entry, the "popfq" here will re-enable them.
        */
       "addq $24, %%rsp\n" // Unwind the last three pushq's...
-      "popfq\n"           // ...leaving the host RFLAGS on top of the stack.
+      "popfq\n"           // ...so we can pop the host RFLAGS below them.
 
       : "=d" (rflags)
       : "a" (&host_state), "b" (VMCS_HOST_RSP), "c" (VMCS_HOST_RIP),
         "d" (use_vmresume),
          /* Offsets of host_state elements */
+         [active_vm] "i" (offsetof(vmx_host_state_t, active_vm)),
          [host_rbp] "i" (offsetof(vmx_host_state_t, rbp)),
          [host_rsi] "i" (offsetof(vmx_host_state_t, rsi)),
          [host_rdi] "i" (offsetof(vmx_host_state_t, rdi)),
@@ -1722,22 +1722,22 @@ run_vm(unsigned char use_vmresume) {
          [host_r13] "i" (offsetof(vmx_host_state_t, r13)),
          [host_r14] "i" (offsetof(vmx_host_state_t, r14)),
          [host_r15] "i" (offsetof(vmx_host_state_t, r15)),
-         /* Offsets of guest state elements temporarily residing in host_state */
-         [guest_rax] "i" (offsetof(vmx_host_state_t, guest_rax)),
-         [guest_rbx] "i" (offsetof(vmx_host_state_t, guest_rbx)),
-         [guest_rcx] "i" (offsetof(vmx_host_state_t, guest_rcx)),
-         [guest_rdx] "i" (offsetof(vmx_host_state_t, guest_rdx)),
-         [guest_rbp] "i" (offsetof(vmx_host_state_t, guest_rbp)),
-         [guest_rsi] "i" (offsetof(vmx_host_state_t, guest_rsi)),
-         [guest_rdi] "i" (offsetof(vmx_host_state_t, guest_rdi)),
-         [guest_r8]  "i" (offsetof(vmx_host_state_t, guest_r8)),
-         [guest_r9]  "i" (offsetof(vmx_host_state_t, guest_r9)),
-         [guest_r10] "i" (offsetof(vmx_host_state_t, guest_r10)),
-         [guest_r11] "i" (offsetof(vmx_host_state_t, guest_r11)),
-         [guest_r12] "i" (offsetof(vmx_host_state_t, guest_r12)),
-         [guest_r13] "i" (offsetof(vmx_host_state_t, guest_r13)),
-         [guest_r14] "i" (offsetof(vmx_host_state_t, guest_r14)),
-         [guest_r15] "i" (offsetof(vmx_host_state_t, guest_r15))
+         /* Offsets of guest state elements in vm_desc_t */
+         [guest_rax] "i" (offsetof(vm_desc_t, rax)),
+         [guest_rbx] "i" (offsetof(vm_desc_t, rbx)),
+         [guest_rcx] "i" (offsetof(vm_desc_t, rcx)),
+         [guest_rdx] "i" (offsetof(vm_desc_t, rdx)),
+         [guest_rbp] "i" (offsetof(vm_desc_t, rbp)),
+         [guest_rsi] "i" (offsetof(vm_desc_t, rsi)),
+         [guest_rdi] "i" (offsetof(vm_desc_t, rdi)),
+         [guest_r8]  "i" (offsetof(vm_desc_t, r8)),
+         [guest_r9]  "i" (offsetof(vm_desc_t, r9)),
+         [guest_r10] "i" (offsetof(vm_desc_t, r10)),
+         [guest_r11] "i" (offsetof(vm_desc_t, r11)),
+         [guest_r12] "i" (offsetof(vm_desc_t, r12)),
+         [guest_r13] "i" (offsetof(vm_desc_t, r13)),
+         [guest_r14] "i" (offsetof(vm_desc_t, r14)),
+         [guest_r15] "i" (offsetof(vm_desc_t, r15))
       : "memory", "cc"
       );
 
@@ -1745,20 +1745,24 @@ run_vm(unsigned char use_vmresume) {
   enum vmx_statuscode_t result = query_vmx_result(rflags);
   if (result == VM_SUCCEED) {
     DBGPRNT(("VM EXIT: returned to host mode.\n"));
+    uint64_t host_rflags;
+    asm __volatile__ ("pushfq; popq %0\n" : "=r" (host_rflags));
+    DBGPRNT(("Host RFLAGS restored: 0x%lx\n", host_rflags));
 
     DBGPRNT(("--------------------\n"));
     DBGPRNT(("Guest register state:\n"));
     DBGPRNT(("RAX: 0x%16lx\tRBX: 0x%16lx\tRCX: 0x%16lx\tRDX: 0x%16lx\n",
-          host_state.guest_rax, host_state.guest_rbx,
-          host_state.guest_rcx, host_state.guest_rdx));
+          host_state.active_vm->rax, host_state.active_vm->rbx,
+          host_state.active_vm->rcx, host_state.active_vm->rdx));
     DBGPRNT(("RBP: 0x%16lx\tRSI: 0x%16lx\tRDI: 0x%16lx\n",
-          host_state.guest_rbp, host_state.guest_rsi, host_state.guest_rdi));
+          host_state.active_vm->rbp, host_state.active_vm->rsi,
+          host_state.active_vm->rdi));
     DBGPRNT(("R8:  0x%16lx\tR9:  0x%16lx\tR10: 0x%16lx\tR11: 0x%16lx\n",
-          host_state.guest_r8, host_state.guest_r9,
-          host_state.guest_r10, host_state.guest_r11));
+          host_state.active_vm->r8,  host_state.active_vm->r9,
+          host_state.active_vm->r10, host_state.active_vm->r11));
     DBGPRNT(("R12: 0x%16lx\tR13: 0x%16lx\tR14: 0x%16lx\tR15: 0x%16lx\n",
-          host_state.guest_r12, host_state.guest_r13,
-          host_state.guest_r14, host_state.guest_r15));
+          host_state.active_vm->r12, host_state.active_vm->r13,
+          host_state.active_vm->r14, host_state.active_vm->r15));
     DBGPRNT(("--------------------\n"));
 
     /* FIXME

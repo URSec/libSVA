@@ -208,6 +208,12 @@ typedef struct vm_desc_t {
    * instead of VMLAUNCH.)
    */
   unsigned char is_launched;
+
+  /* Guest GPRs saved on VM exit and restored on (next) VM entry */
+  uint64_t rax, rbx, rcx, rdx;
+  uint64_t rbp, rsi, rdi;
+  uint64_t r8,  r9,  r10, r11;
+  uint64_t r12, r13, r14, r15;
 } vm_desc_t;
 
 /*
@@ -244,19 +250,6 @@ typedef struct vmx_host_state_t {
   uint64_t rbp, rsi, rdi;
   uint64_t r8, r9, r10, r11;
   uint64_t r12, r13, r14, r15;
-
-  /* Guest state saved on VM exit
-   *
-   * (TODO: this should really be in a per-VM structure (probably the
-   * vm_desc_t), I'm just putting it here for now since it's convenient and I
-   * want to print these out for debugging. We're not yet actually
-   * *restoring* this state on VM load, just stashing it here so it can be
-   * printed.)
-   */
-  uint64_t guest_rax,  guest_rbx,  guest_rcx, guest_rdx;
-  uint64_t guest_rbp, guest_rsi, guest_rdi;
-  uint64_t guest_r8, guest_r9, guest_r10, guest_r11;
-  uint64_t guest_r12, guest_r13, guest_r14, guest_r15;
 } vmx_host_state_t;
 
 #endif /* _SVA_VMX_H */
