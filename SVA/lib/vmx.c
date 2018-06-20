@@ -19,6 +19,7 @@
 #include <sva/config.h>
 
 #include <string.h>
+#include <stddef.h> // for offsetof()
 
 /**********
  * "Global" static variables (local to this file)
@@ -1581,17 +1582,17 @@ run_vm(unsigned char use_vmresume) {
        * as input/output registers for this inline assembly block, i.e., we
        * know the compiler isn't keeping anything there.
        */
-      "movq %%rbp,  (%%rax)\n"
-      "movq %%rsi,  8(%%rax)\n"
-      "movq %%rdi,  16(%%rax)\n"
-      "movq %%r8,   24(%%rax)\n"
-      "movq %%r9,   32(%%rax)\n"
-      "movq %%r10,  40(%%rax)\n"
-      "movq %%r11,  48(%%rax)\n"
-      "movq %%r12,  56(%%rax)\n"
-      "movq %%r13,  64(%%rax)\n"
-      "movq %%r14,  72(%%rax)\n"
-      "movq %%r15,  80(%%rax)\n"
+      "movq %%rbp,  %c[host_rbp](%%rax)\n"
+      "movq %%rsi,  %c[host_rsi](%%rax)\n"
+      "movq %%rdi,  %c[host_rdi](%%rax)\n"
+      "movq %%r8,   %c[host_r8](%%rax)\n"
+      "movq %%r9,   %c[host_r9](%%rax)\n"
+      "movq %%r10,  %c[host_r10](%%rax)\n"
+      "movq %%r11,  %c[host_r11](%%rax)\n"
+      "movq %%r12,  %c[host_r12](%%rax)\n"
+      "movq %%r13,  %c[host_r13](%%rax)\n"
+      "movq %%r14,  %c[host_r14](%%rax)\n"
+      "movq %%r15,  %c[host_r15](%%rax)\n"
 
       /* (Now all the GPRs are free for our own use in this code.) */
 
@@ -1654,35 +1655,35 @@ run_vm(unsigned char use_vmresume) {
        * guest RAX we stashed away on the stack (since x86 doesn't do
        * memory-to-memory moves).
        */
-      "movq %%rbx,  96(%%rax)\n"
-      "movq (%%rsp), %%rbx\n"    // We stashed guest RAX at (%rsp).
-      "movq %%rbx,  88(%%rax)\n" // Save guest RAX
-      "movq %%rcx, 104(%%rax)\n"
-      "movq %%rdx, 112(%%rax)\n"
-      "movq %%rbp, 120(%%rax)\n"
-      "movq %%rsi, 128(%%rax)\n"
-      "movq %%rdi, 136(%%rax)\n"
-      "movq %%r8,  144(%%rax)\n"
-      "movq %%r9,  152(%%rax)\n"
-      "movq %%r10, 160(%%rax)\n"
-      "movq %%r11, 168(%%rax)\n"
-      "movq %%r12, 176(%%rax)\n"
-      "movq %%r13, 184(%%rax)\n"
-      "movq %%r14, 192(%%rax)\n"
-      "movq %%r15, 200(%%rax)\n"
+      "movq %%rbx, %c[guest_rbx](%%rax)\n"
+      "movq (%%rsp), %%rbx\n"              // We stashed guest RAX at (%rsp).
+      "movq %%rbx, %c[guest_rax](%%rax)\n" // Save guest RAX
+      "movq %%rcx, %c[guest_rcx](%%rax)\n"
+      "movq %%rdx, %c[guest_rdx](%%rax)\n"
+      "movq %%rbp, %c[guest_rbp](%%rax)\n"
+      "movq %%rsi, %c[guest_rsi](%%rax)\n"
+      "movq %%rdi, %c[guest_rdi](%%rax)\n"
+      "movq %%r8,  %c[guest_r8](%%rax)\n"
+      "movq %%r9,  %c[guest_r9](%%rax)\n"
+      "movq %%r10, %c[guest_r10](%%rax)\n"
+      "movq %%r11, %c[guest_r11](%%rax)\n"
+      "movq %%r12, %c[guest_r12](%%rax)\n"
+      "movq %%r13, %c[guest_r13](%%rax)\n"
+      "movq %%r14, %c[guest_r14](%%rax)\n"
+      "movq %%r15, %c[guest_r15](%%rax)\n"
 
       /*** Restore host GPRs ***/
-      "movq (%%rax),   %%rbp\n"
-      "movq 8(%%rax),  %%rsi\n"
-      "movq 16(%%rax), %%rdi\n"
-      "movq 24(%%rax), %%r8\n"
-      "movq 32(%%rax), %%r9\n"
-      "movq 40(%%rax), %%r10\n"
-      "movq 48(%%rax), %%r11\n"
-      "movq 56(%%rax), %%r12\n"
-      "movq 64(%%rax), %%r13\n"
-      "movq 72(%%rax), %%r14\n"
-      "movq 80(%%rax), %%r15\n"
+      "movq %c[host_rbp](%%rax), %%rbp\n"
+      "movq %c[host_rsi](%%rax), %%rsi\n"
+      "movq %c[host_rdi](%%rax), %%rdi\n"
+      "movq %c[host_r8](%%rax),  %%r8\n"
+      "movq %c[host_r9](%%rax),  %%r9\n"
+      "movq %c[host_r10](%%rax), %%r10\n"
+      "movq %c[host_r11](%%rax), %%r11\n"
+      "movq %c[host_r12](%%rax), %%r12\n"
+      "movq %c[host_r13](%%rax), %%r13\n"
+      "movq %c[host_r14](%%rax), %%r14\n"
+      "movq %c[host_r15](%%rax), %%r15\n"
 
       /* Put the saved RFLAGS (VMX error code) into RDX for output from the
        * asm block.
@@ -1701,7 +1702,35 @@ run_vm(unsigned char use_vmresume) {
 
       : "=d" (rflags)
       : "a" (&host_state), "b" (VMCS_HOST_RSP), "c" (VMCS_HOST_RIP),
-        "d" (use_vmresume)
+        "d" (use_vmresume),
+         /* Offsets of host_state elements */
+         [host_rbp] "i" (offsetof(vmx_host_state_t, rbp)),
+         [host_rsi] "i" (offsetof(vmx_host_state_t, rsi)),
+         [host_rdi] "i" (offsetof(vmx_host_state_t, rdi)),
+         [host_r8]  "i" (offsetof(vmx_host_state_t, r8)),
+         [host_r9]  "i" (offsetof(vmx_host_state_t, r9)),
+         [host_r10] "i" (offsetof(vmx_host_state_t, r10)),
+         [host_r11] "i" (offsetof(vmx_host_state_t, r11)),
+         [host_r12] "i" (offsetof(vmx_host_state_t, r12)),
+         [host_r13] "i" (offsetof(vmx_host_state_t, r13)),
+         [host_r14] "i" (offsetof(vmx_host_state_t, r14)),
+         [host_r15] "i" (offsetof(vmx_host_state_t, r15)),
+         /* Offsets of guest state elements temporarily residing in host_state */
+         [guest_rax] "i" (offsetof(vmx_host_state_t, guest_rax)),
+         [guest_rbx] "i" (offsetof(vmx_host_state_t, guest_rbx)),
+         [guest_rcx] "i" (offsetof(vmx_host_state_t, guest_rcx)),
+         [guest_rdx] "i" (offsetof(vmx_host_state_t, guest_rdx)),
+         [guest_rbp] "i" (offsetof(vmx_host_state_t, guest_rbp)),
+         [guest_rsi] "i" (offsetof(vmx_host_state_t, guest_rsi)),
+         [guest_rdi] "i" (offsetof(vmx_host_state_t, guest_rdi)),
+         [guest_r8]  "i" (offsetof(vmx_host_state_t, guest_r8)),
+         [guest_r9]  "i" (offsetof(vmx_host_state_t, guest_r9)),
+         [guest_r10] "i" (offsetof(vmx_host_state_t, guest_r10)),
+         [guest_r11] "i" (offsetof(vmx_host_state_t, guest_r11)),
+         [guest_r12] "i" (offsetof(vmx_host_state_t, guest_r12)),
+         [guest_r13] "i" (offsetof(vmx_host_state_t, guest_r13)),
+         [guest_r14] "i" (offsetof(vmx_host_state_t, guest_r14)),
+         [guest_r15] "i" (offsetof(vmx_host_state_t, guest_r15))
       : "memory", "cc"
       );
 

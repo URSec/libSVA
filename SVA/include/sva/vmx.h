@@ -217,18 +217,11 @@ typedef struct vm_desc_t {
  *  Describes the layout of the object we will use to store saved host state
  *  (registers, etc.) before a VM entry so we can restore it after VM exit.
  *
- *  The actual saving/restoring will be done by assembly code; the field
- *  names in C are for informational/reference purposes to those reading the
- *  code (and for debug code that e.g. needs to print these fields). This
- *  is declared as a "packed" struct so that we can know the exact
- *  arrangement of the fields when we need to access them in the assembly.
- *
- *  Field offsets are noted in comments for convenience.
  */
-typedef struct __attribute__((packed)) vmx_host_state_t {
-  uint64_t rbp /*0*/,  rsi /*8*/,  rdi /*16*/;
-  uint64_t r8  /*24*/, r9  /*32*/, r10 /*40*/, r11 /*48*/;
-  uint64_t r12 /*56*/, r13 /*64*/, r14 /*72*/, r15 /*80*/;
+typedef struct vmx_host_state_t {
+  uint64_t rbp, rsi, rdi;
+  uint64_t r8, r9, r10, r11;
+  uint64_t r12, r13, r14, r15;
 
   /* Guest state saved on VM exit
    *
@@ -238,10 +231,10 @@ typedef struct __attribute__((packed)) vmx_host_state_t {
    * *restoring* this state on VM load, just stashing it here so it can be
    * printed.)
    */
-  uint64_t guest_rax /*88*/,  guest_rbx /*96*/,  guest_rcx /*104*/, guest_rdx /*112*/;
-  uint64_t guest_rbp /*120*/, guest_rsi /*128*/, guest_rdi /*136*/;
-  uint64_t guest_r8  /*144*/, guest_r9  /*152*/, guest_r10 /*160*/, guest_r11 /*168*/;
-  uint64_t guest_r12 /*176*/, guest_r13 /*184*/, guest_r14 /*192*/, guest_r15 /*200*/;
+  uint64_t guest_rax,  guest_rbx,  guest_rcx, guest_rdx;
+  uint64_t guest_rbp, guest_rsi, guest_rdi;
+  uint64_t guest_r8, guest_r9, guest_r10, guest_r11;
+  uint64_t guest_r12, guest_r13, guest_r14, guest_r15;
 } vmx_host_state_t;
 
 #endif /* _SVA_VMX_H */
