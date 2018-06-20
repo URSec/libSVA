@@ -595,18 +595,6 @@ sva_initvmx(void) {
    */
   unsigned char * VMXON_vaddr = my_getVirtual(VMXON_paddr);
 
-  /***** TEMPORARY CODE */
-  // This works because physical addresses have the frame address in the same
-  // bit location as a page table entry pointing to them. (This is surely
-  // intentional on Intel's part to enable tricks exactly like this...)
-  page_desc_t * vmxon_pg = getPageDescPtr(VMXON_paddr);
-  printf("VMXON page type (enum page_type_t): %d\n", vmxon_pg->type);
-  printf("VMXON page vaddr: 0x%lx\n", vmxon_pg->pgVaddr);
-  printf("VMXON page is active: %u\n", vmxon_pg->active);
-  printf("VMXON page reference count: %u\n", vmxon_pg->count);
-  printf("VMXON page other_pgPaddr: 0x%lx\n", vmxon_pg->other_pgPaddr);
-  /***** END TEMPORARY CODE */
-
   DBGPRNT(("Zero-filling VMXON frame...\n"));
   memset(VMXON_vaddr, 0, VMCS_ALLOC_SIZE);
 
@@ -694,7 +682,8 @@ sva_allocvm(void) {
           "SVA-VMX intrinsic.\n");
   }
 
-  /* Scan the vm_descs array for the first free slot, i.e., the first entry
+  /*
+   * Scan the vm_descs array for the first free slot, i.e., the first entry
    * containing a null vmcs_paddr pointer. This indicates an unused VM ID.
    * (All fields in vm_desc_t should be 0 if it is not assigned to a VM.)
    *
@@ -736,7 +725,33 @@ sva_allocvm(void) {
     return -1;
   }
 
-  /* Allocate a physical frame of SVA secure memory from the frame cache to
+  /*
+   * Initialize the values of the new VM's general-purpose registers (GPRs).
+   *
+   * These will be loaded on the first VM entry. On subsequent VM exits and
+   * entries, the guest's active values will be saved/restored.
+   *
+   * For now, we will initialize them with recognizable nonsense values so
+   * that unchanged values can be easily spotted in debugging printouts.
+   */
+  vm_descs[vmid].rax = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].rbx = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].rcx = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].rdx = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].rbp = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].rsi = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].rdi = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].r8  = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].r9  = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].r10 = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].r11 = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].r12 = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].r13 = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].r14 = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].r15 = 0xd00d00d0d00d00d0;
+
+  /*
+   * Allocate a physical frame of SVA secure memory from the frame cache to
    * serve as this VM's Virtual Machine Control Structure.
    *
    * This frame is not mapped anywhere except in SVA's DMAP, ensuring that
@@ -748,7 +763,8 @@ sva_allocvm(void) {
   unsigned char * vmcs_vaddr = my_getVirtual(vm_descs[vmid].vmcs_paddr);
   memset(vmcs_vaddr, 0, VMCS_ALLOC_SIZE);
 
-  /* Write the processor's VMCS revision identifier to the first 31 bits of
+  /*
+   * Write the processor's VMCS revision identifier to the first 31 bits of
    * the VMCS frame, and clear the 32nd bit.
    *
    * This value is given in the lower 31 bits of the IA32_VMX_BASIC MSR.
@@ -759,7 +775,8 @@ sva_allocvm(void) {
   uint32_t vmcs_rev_id = (uint32_t) vmx_basic_data;
   *((uint32_t*)vmcs_vaddr) = vmcs_rev_id;
 
-  /* Use the VMCLEAR instruction to initialize any processor
+  /*
+   * Use the VMCLEAR instruction to initialize any processor
    * implementation-dependent fields in the VMCS.
    *
    * The VMCLEAR instruction is used both for initializing a new VMCS, and
@@ -1546,6 +1563,9 @@ run_vm(unsigned char use_vmresume) {
    *  - Use the VMWRITE instruction to set the RIP and RSP values that will
    *    be loaded by the processor on the next VM exit.
    *
+   *  - Restore the guest's general purpose registers from the active VM's
+   *    descriptor (vm_desc_t structure).
+   *
    *  - Execute VMLAUNCH/VMRESUME (as appropriate). This enters guest mode
    *    and runs the VM until an event occurs that triggers a VM exit.
    *
@@ -1606,16 +1626,70 @@ run_vm(unsigned char use_vmresume) {
       "movq $vmexit_landing_pad, %%rbp\n"
       "vmwrite %%rbp, %%rcx\n" // Write vmexit_landing_pad to VMCS_HOST_RIP
 
-      /*** Execute the appropriate VM entry instruction based on the value
-       *** of use_vmresume. ***/
-      /* Note that we need to place an explicit jump to vmexit_landing_pad
-       * after the launch/resume instructions to ensure correct behavior if
-       * the VM entry fails (and thus execution falls through to the next
-       * instruction).
-       */
+      /*** Determine whether we will be using VMLAUNCH or VMRESUME for VM
+       *** entry, based on the value of use_vmresume. ***/
       "addb $0, %%dl\n"
+      /* NOTE: the "addb" above sets the zero flag (ZF) if and only if
+       * use_vmresume is 0, i.e., we should use VMLAUNCH.
+       *
+       * We had to wait until now to restore the guest's GPRs, because after
+       * we've done so we'll have no free registers to work with (and any
+       * values we had previously stored in them will be clobbered).
+       *
+       ******
+       * IT IS IMPERATIVE THAT NO INSTRUCTIONS BETWEEN THIS POINT AND THE
+       * "jnz do_vmresume" TOUCH THE ZERO FLAG. Otherwise, we will forget
+       * whether we are launching or resuming the VM.
+       ******
+       *
+       * Fortunately, we only need to use MOVs to restore the guest GPRs, and
+       * none of those mess with the zero flag (or any of the flags).
+       *
+       * (If this ever becomes a limitation, there is a way around this: we
+       * could store the boolean use_vmresume in memory, and use the
+       * "immediate + memory" form of ADD, which would have the same desired
+       * effect on ZF. However, we would need to locate use_vmresume in a
+       * statically addressible location, since we'd still have no free
+       * registers to use for a pointer. This is clumsy and it'd be (perhaps
+       * not meaningfully) slower, so let's not do it if we don't have to.)
+       */
+
+      /*** Restore guest GPRs ***
+       * First, load a pointer to the active VM descriptor (which is stored
+       * in the host_state structure). This is where the guest GPR
+       * save/restore slots are located.
+       *
+       * We will restore RAX last, so that we can use it to store this
+       * pointer (the instruction that restores RAX will both use this
+       * pointer and overwrite it).
+       */
+      "movq %c[active_vm](%%rax), %%rax\n" // RAX <-- active_vm pointer
+      "movq %c[guest_rbx](%%rax), %%rbx\n"
+      "movq %c[guest_rcx](%%rax), %%rcx\n"
+      "movq %c[guest_rdx](%%rax), %%rdx\n"
+      "movq %c[guest_rbp](%%rax), %%rbp\n"
+      "movq %c[guest_rsi](%%rax), %%rsi\n"
+      "movq %c[guest_rdi](%%rax), %%rdi\n"
+      "movq %c[guest_r8](%%rax),  %%r8\n"
+      "movq %c[guest_r9](%%rax),  %%r9\n"
+      "movq %c[guest_r10](%%rax), %%r10\n"
+      "movq %c[guest_r11](%%rax), %%r11\n"
+      "movq %c[guest_r12](%%rax), %%r12\n"
+      "movq %c[guest_r13](%%rax), %%r13\n"
+      "movq %c[guest_r14](%%rax), %%r14\n"
+      "movq %c[guest_r15](%%rax), %%r15\n"
+      /* Restore RAX */
+      "movq %c[guest_rax](%%rax), %%rax\n" // replaces active_vm pointer
+      /* All GPRs are now ready for VM entry. */
+
+      /* If zero flag not set, use VMRESUME; otherwise use VMLAUNCH. */
       "jnz do_vmresume\n"
       "vmlaunch\n"
+      /* NOTE: we need to place an explicit jump to vmexit_landing_pad
+       * immediately after the VLAUNCH instruction to ensure consistent
+       * behavior if the VM entry fails (and thus execution falls through to
+       * the next instruction).
+       */
       "jmp vmexit_landing_pad\n"
 
       "do_vmresume:\n"
@@ -1780,10 +1854,6 @@ run_vm(unsigned char use_vmresume) {
           host_state.r8, host_state.r9, host_state.r10, host_state.r11));
     DBGPRNT(("R12: 0x%16lx\tR13: 0x%16lx\tR14: 0x%16lx\tR15: 0x%16lx\n",
           host_state.r12, host_state.r13, host_state.r14, host_state.r15));
-    DBGPRNT(("Other host GPRs (not restored) had these values on VM entry:\n"));
-    DBGPRNT(("RAX: 0x%16lx\tRBX: 0x%16lx\tRCX: 0x%16lx\tRDX: 0x%16lx\n",
-          (uint64_t)(&host_state), VMCS_HOST_RSP, VMCS_HOST_RIP,
-          (uint64_t)(use_vmresume)));
     DBGPRNT(("--------------------\n"));
 
     /* Return success. */
@@ -1993,6 +2063,11 @@ sva_set_up_ept(void) {
    * then do another VM entry using VMRESUME. The guest will then multiply 6
    * and 7 together and push the result, 42, to the stack. It will then issue
    * CPUID to force a VM exit (for a different reason than the last time).
+   *
+   * Additionally, to test saving/restoring of registers across VM
+   * exit/entry, we load a recognizable value into R12 before the HLT
+   * triggering the first VM exit, and push it onto the stack immediately
+   * after re-entering the VM.
    */
   /* Declare an inline assembly block containing the guest program, to get it
    * assembled into machine code.
@@ -2025,7 +2100,9 @@ sva_set_up_ept(void) {
       "movl (%%rsp), %%ebx\n"
       "orl %%eax, %%ebx\n"
       "pushq %%rbx\n"
+      "movl $0xf00dbeef, %%r12d\n"
       "hlt\n"
+      "pushq %%r12\n"
       "movl $6, %%eax\n"
       "movl $7, %%esi\n"
       "mulq %%rsi\n"
