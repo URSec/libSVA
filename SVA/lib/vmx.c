@@ -74,22 +74,29 @@ static const size_t MAX_VMS = 128;
 static struct vm_desc_t __attribute__((section("svamem"))) vm_descs[MAX_VMS];
 
 /*
- * Pointer to the virtual machine descriptor structure for the VM currently
- * loaded on the processor.
+ * A structure describing host state for each CPU.
+ * 
+ * TODO: this should be an array so we're multiprocessor-ready.
  *
- * If no VM is loaded on the processor, this pointer is null.
+ * Includes:
+ *  - A pointer to the VM descriptor (vm_desc_t) for the VM currently loaded
+ *    on the processor, or null if no VM is loaded.
+ *  - Places for the host GPRs to be saved/restored across VM entries/exits.
  *
- * TODO: make this a per-CPU array so it's multiprocessor-ready.
+ * An alternative would be to do this in sva_initvmx(), but this is cleaner
+ * and safer (doesn't rely on the assumption that specific code is being run
+ * at a specific time).
+ *
  */
-static vm_desc_t * __attribute__((section("svamem"))) active_vm = 0;
-
-/*
- * The object we will use to store saved host state (registers, stack
- * pointer, etc.) before a VM entry so we can restore it after VM exit.
- *
- * TODO: make this a per-CPU array so it's multiprocessor-ready.
- */
-static vmx_host_state_t __attribute__((section("svamem"))) host_state;
+static vmx_host_state_t __attribute__((section("svamem"))) host_state =
+{
+  /* We use an explicit initializer here to ensure that the active_vm field
+   * is initialized to a null pointer before any code can run. It's important
+   * this be done before any SVA intrinsics can be called, because their
+   * checks use this pointer to determine if a VM is active.
+   */
+  .active_vm = 0
+};
 
 /*
  * Function: my_getVirtual()
@@ -837,7 +844,7 @@ sva_freevm(size_t vmid) {
   }
 
   /* Don't free a VM which is still active on the processor. */
-  if (active_vm == &vm_descs[vmid]) {
+  if (host_state.active_vm == &vm_descs[vmid]) {
     panic("Fatal error: tried to free a VM which is active on the "
         "processor!\n");
   }
@@ -896,27 +903,27 @@ sva_loadvm(size_t vmid) {
    *
    * A non-null active_vm pointer indicates there is an active VM.
    */
-  if (active_vm) {
+  if (host_state.active_vm) {
     DBGPRNT(("Error: there is already a VM active on the processor. "
           "Cannot load a different VM until it is unloaded.\n"));
     return -1;
   }
 
   /* Set the indicated VM as the active one. */
-  active_vm = &vm_descs[vmid];
+  host_state.active_vm = &vm_descs[vmid];
 
   /* Use the VMPTRLD instruction to make the indicated VM's VMCS active on
    * the processor.
    */
   DBGPRNT(("Using VMPTRLD to make active the VMCS at paddr 0x%lx...\n",
-        active_vm->vmcs_paddr));
+        host_state.active_vm->vmcs_paddr));
   uint64_t rflags;
   asm __volatile__ (
       "vmptrld (%1)\n"
       "pushfq\n"
       "popq %0\n"
       : "=r" (rflags)
-      : "r" (&(active_vm->vmcs_paddr))
+      : "r" (&(host_state.active_vm->vmcs_paddr))
       : "cc"
       );
   /* Confirm that the operation succeeded. */
@@ -926,7 +933,7 @@ sva_loadvm(size_t vmid) {
     DBGPRNT(("Error: failed to load VMCS onto the processor.\n"));
 
     /* Unset the active_vm pointer. */
-    active_vm = 0;
+    host_state.active_vm = 0;
 
     /* Return failure. */
     return -1;
@@ -961,7 +968,7 @@ sva_unloadvm(void) {
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!active_vm) {
+  if (!host_state.active_vm) {
     DBGPRNT(("Error: there is no VM active on the processor to unload.\n"));
     return -1;
   }
@@ -969,14 +976,14 @@ sva_unloadvm(void) {
   /* Use the VMCLEAR instruction to unload the current VM from the processor.
    */
   DBGPRNT(("Using VMCLEAR to unload VMCS with address 0x%lx from the "
-        "processor...\n", active_vm->vmcs_paddr));
+        "processor...\n", host_state.active_vm->vmcs_paddr));
   uint64_t rflags;
   asm __volatile__ (
       "vmclear (%1)\n"
       "pushfq\n"
       "popq %0\n"
       : "=r" (rflags)
-      : "r" (&(active_vm->vmcs_paddr))
+      : "r" (&(host_state.active_vm->vmcs_paddr))
       : "cc"
       );
   /* Confirm that the operation succeeded. */
@@ -987,10 +994,10 @@ sva_unloadvm(void) {
      * in the future, we will need to use sva_launchvm() instead of
      * sva_resumevm() to resume its guest-mode operation.
      */
-    active_vm->is_launched = 0;
+    host_state.active_vm->is_launched = 0;
 
     /* Set the active_vm pointer to indicate no VM is active. */
-    active_vm = 0;
+    host_state.active_vm = 0;
   } else {
     DBGPRNT(("Error: failed to unload VMCS from the processor.\n"));
 
@@ -1050,7 +1057,7 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!active_vm) {
+  if (!host_state.active_vm) {
     DBGPRNT(("Error: there is no VM active on the processor. "
           "Cannot read from VMCS.\n"));
     return -1;
@@ -1128,7 +1135,7 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!active_vm) {
+  if (!host_state.active_vm) {
     DBGPRNT(("Error: there is no VM active on the processor. "
           "Cannot write to VMCS.\n"));
     return -1;
@@ -1196,7 +1203,7 @@ sva_launchvm(void) {
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!active_vm) {
+  if (!host_state.active_vm) {
     DBGPRNT(("Error: there is no VM active on the processor. "
           "Cannot launch VM.\n"));
     return -1;
@@ -1206,7 +1213,7 @@ sva_launchvm(void) {
    * processor, the sva_resumevm() intrinsic must be used instead of this
    * one.
    */
-  if (active_vm->is_launched) {
+  if (host_state.active_vm->is_launched) {
     DBGPRNT(("Error: Must use sva_resumevm() to enter a VM which "
           "was previously run since being loaded on the processor.\n"));
     return -1;
@@ -1216,7 +1223,7 @@ sva_launchvm(void) {
    * future entries to it must be performed using the sva_resumevm()
    * intrinsic.
    */
-  active_vm->is_launched = 1;
+  host_state.active_vm->is_launched = 1;
 
   /* Enter guest-mode execution (which will ultimately exit back into host
    * mode and return us here).
@@ -1277,7 +1284,7 @@ sva_resumevm(void) {
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!active_vm) {
+  if (!host_state.active_vm) {
     DBGPRNT(("Error: there is no VM active on the processor. "
           "Cannot resume VM.\n"));
     return -1;
@@ -1287,7 +1294,7 @@ sva_resumevm(void) {
    * loaded onto the processor, the sva_launchvm() intrinsic must be used
    * instead of this one.
    */
-  if (!active_vm->is_launched) {
+  if (!host_state.active_vm->is_launched) {
     DBGPRNT(("Error: Must use sva_launchvm() to enter a VM which hasn't "
           "previously been run since being loaded on the processor.\n"));
     return -1;

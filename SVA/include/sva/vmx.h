@@ -214,11 +214,33 @@ typedef struct vm_desc_t {
  * Structure: vmx_host_state_t
  *
  * Description:
- *  Describes the layout of the object we will use to store saved host state
- *  (registers, etc.) before a VM entry so we can restore it after VM exit.
+ *  A per-CPU structure storing various aspects of the host system's state.
  *
+ *  These include:
+ *    - A pointer to the VM descriptor (vm_desc_t) for the VM currently
+ *      loaded on the processor, or null if no VM is loaded.
+ *    - Places for the host GPRs to be saved/restored across VM
+ *      entries/exits.
  */
 typedef struct vmx_host_state_t {
+  /* Pointer to the descriptor for the VM currently loaded on this processor.
+   * If no VM is loaded, this should be set to null.
+   *
+   * NOTE: any code that allocates a vmx_host_state_t is responsible for
+   * ensuring that this field is initialized to null. SVA's intrinsics use
+   * this field to determine whether a VM is currently loaded; if a bad value
+   * is stored here, they will assume there is an active VM and look for its
+   * descriptor at that address.
+   */
+  vm_desc_t * active_vm;
+
+  /* Host GPRs that need to be saved/restored across VM entries/exits
+   *
+   * Note: we do not need to save/restore RAX, RBX, RCX, and RDX since we use
+   * them as inputs and outputs for the inline assembly block that handles
+   * the saving/restoring (and the VM entry/exit itself). Thus, the compiler
+   * does not expect any values to be preserved in them.
+   */
   uint64_t rbp, rsi, rdi;
   uint64_t r8, r9, r10, r11;
   uint64_t r12, r13, r14, r15;
