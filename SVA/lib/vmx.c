@@ -1839,15 +1839,7 @@ run_vm(unsigned char use_vmresume) {
           host_state.active_vm->r14, host_state.active_vm->r15));
     DBGPRNT(("--------------------\n"));
 
-    /* FIXME
-     * Note: since we do not (yet) support restoring of guest GPRs on VM
-     * entry, their initial values are whatever they were on the host.
-     *
-     * Needless to say, this is not the way things are *supposed* to work
-     * (besides breaking continuity of guest state, it can potentially leak
-     * sensitive information to the guest).
-     */
-    DBGPRNT(("Host GPR values restored (also guest values on VM entry):\n"));
+    DBGPRNT(("Host GPR values restored:\n"));
     DBGPRNT(("RBP: 0x%16lx\tRSI: 0x%16lx\tRDI: 0x%16lx\n",
           host_state.rbp, host_state.rsi, host_state.rdi));
     DBGPRNT(("R8:  0x%16lx\tR9:  0x%16lx\tR10: 0x%16lx\tR11: 0x%16lx\n",
