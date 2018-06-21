@@ -1598,7 +1598,7 @@ run_vm(unsigned char use_vmresume) {
    *  - Restore the host's general purpose registers.
    */
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
-  uint64_t rflags;
+  uint64_t vmexit_rflags, hostrestored_rflags;
   asm __volatile__ (
       /* Save host RFLAGS.
        * 
@@ -1780,6 +1780,10 @@ run_vm(unsigned char use_vmresume) {
        * asm block.
        */
       "movq 8(%%rsp), %%rdx\n"
+      /* Also put the earlier-saved host RFLAGS (which we're about to
+       * restore) into RBX for output from the asm block (so we can print it).
+       */
+      "movq 24(%%rsp), %%rbx\n"
 
       /* Return the stack to the way it was when we entered the asm block,
        * and restore RFLAGS to what it was before VM entry.
@@ -1791,7 +1795,7 @@ run_vm(unsigned char use_vmresume) {
       "addq $24, %%rsp\n" // Unwind the last three pushq's...
       "popfq\n"           // ...so we can pop the host RFLAGS below them.
 
-      : "=d" (rflags)
+      : "=d" (vmexit_rflags), "=b" (hostrestored_rflags)
       : "a" (&host_state), "b" (VMCS_HOST_RSP), "c" (VMCS_HOST_RIP),
         "d" (use_vmresume),
          /* Offsets of host_state elements */
@@ -1827,29 +1831,11 @@ run_vm(unsigned char use_vmresume) {
       );
 
   /* Confirm that the operation succeeded. */
-  enum vmx_statuscode_t result = query_vmx_result(rflags);
+  enum vmx_statuscode_t result = query_vmx_result(vmexit_rflags);
   if (result == VM_SUCCEED) {
     DBGPRNT(("VM EXIT: returned to host mode.\n"));
-    uint64_t host_rflags;
-    asm __volatile__ ("pushfq; popq %0\n" : "=r" (host_rflags));
-    DBGPRNT(("Host RFLAGS restored: 0x%lx\n", host_rflags));
 
     DBGPRNT(("--------------------\n"));
-    DBGPRNT(("Guest register state:\n"));
-    DBGPRNT(("RAX: 0x%16lx\tRBX: 0x%16lx\tRCX: 0x%16lx\tRDX: 0x%16lx\n",
-          host_state.active_vm->state.rax, host_state.active_vm->state.rbx,
-          host_state.active_vm->state.rcx, host_state.active_vm->state.rdx));
-    DBGPRNT(("RBP: 0x%16lx\tRSI: 0x%16lx\tRDI: 0x%16lx\n",
-          host_state.active_vm->state.rbp, host_state.active_vm->state.rsi,
-          host_state.active_vm->state.rdi));
-    DBGPRNT(("R8:  0x%16lx\tR9:  0x%16lx\tR10: 0x%16lx\tR11: 0x%16lx\n",
-          host_state.active_vm->state.r8,  host_state.active_vm->state.r9,
-          host_state.active_vm->state.r10, host_state.active_vm->state.r11));
-    DBGPRNT(("R12: 0x%16lx\tR13: 0x%16lx\tR14: 0x%16lx\tR15: 0x%16lx\n",
-          host_state.active_vm->state.r12, host_state.active_vm->state.r13,
-          host_state.active_vm->state.r14, host_state.active_vm->state.r15));
-    DBGPRNT(("--------------------\n"));
-
     DBGPRNT(("Host GPR values restored:\n"));
     DBGPRNT(("RBP: 0x%16lx\tRSI: 0x%16lx\tRDI: 0x%16lx\n",
           host_state.rbp, host_state.rsi, host_state.rdi));
@@ -1857,6 +1843,7 @@ run_vm(unsigned char use_vmresume) {
           host_state.r8, host_state.r9, host_state.r10, host_state.r11));
     DBGPRNT(("R12: 0x%16lx\tR13: 0x%16lx\tR14: 0x%16lx\tR15: 0x%16lx\n",
           host_state.r12, host_state.r13, host_state.r14, host_state.r15));
+    DBGPRNT(("RFLAGS restored: 0x%lx\n", hostrestored_rflags));
     DBGPRNT(("--------------------\n"));
 
     /* Return success. */
@@ -2319,12 +2306,16 @@ sva_set_up_ept(void) {
  */
 void
 sva_print_guest_stack(sva_vmx_ept_hier hier) {
-  printf("--------------------\n");
-
   /* Read the guest RSP value from the VMCS. */
   uint64_t guest_rsp;
   sva_readvmcs(VMCS_GUEST_RSP, &guest_rsp);
+
+  /* We don't need to print guest RSP any more since sva_getvmstate() allows
+   * our toy hypervisor to do it.
+   */
+#if 0
   printf("Guest RSP: 0x%lx\n", guest_rsp);
+#endif
 
   /* Mask off all but the lowest 12 bits of the guest RSP to get its relative
    * offset within the guest-mapped page.
@@ -2357,6 +2348,4 @@ sva_print_guest_stack(sva_vmx_ept_hier hier) {
 
     printf("0x%lx:\t0x%lx\n", qword_guest_addr, *qword);
   }
-
-  printf("--------------------\n");
 }
