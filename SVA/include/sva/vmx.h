@@ -20,6 +20,8 @@
 #ifndef _SVA_VMX_H
 #define _SVA_VMX_H
 
+#include "vmx_intrinsics.h"
+
 #include <sys/types.h>
 
 /* Set this to 1/0 respectively to turn verbose printf's on or off. */
@@ -169,12 +171,16 @@ static int run_vm(unsigned char use_vmresume);
  * Description:
  *  A descriptor for a virtual machine.
  *
- *  Summarizes the state of the VM (e.g., is it active on a processor) and
+ *  Summarizes the status of the VM (e.g., is it active on a processor) and
  *  contains pointers to its Virtual Machine Control Structure (VMCS) frame
- *  and related structures.
+ *  and related structures. Also contains a sub-structure of type
+ *  sva_vmx_guest_state which describes the state of the guest machine
+ *  virtualized by the VM.
  *
  *  This structure can be safely zero-initialized. When all its fields are
  *  zero, it is interpreted as not being assigned to any virtual machine.
+ *  (Client code may suffice to check just the vmcs_paddr field; if it is
+ *  null, the descriptor can be assumed to not be assigned to a VM.)
  */
 typedef struct vm_desc_t {
   /* Physical-address pointer to the VM's Virtual Machine Control Structure
@@ -209,11 +215,39 @@ typedef struct vm_desc_t {
    */
   unsigned char is_launched;
 
-  /* Guest GPRs saved on VM exit and restored on (next) VM entry */
-  uint64_t rax, rbx, rcx, rdx;
-  uint64_t rbp, rsi, rdi;
-  uint64_t r8,  r9,  r10, r11;
-  uint64_t r12, r13, r14, r15;
+  /* Has this VM run since the last time the guest state was edited by the
+   * hypervisor?
+   *
+   * If so, the next time we run the VM, we do not need to re-load state from
+   * the guest-state structure that is automatically saved/restored by the
+   * processor on VM entry/exit transitions (such as RIP and RSP).
+   *
+   * A hypervisor can edit the guest state by reading it with
+   * sva_getvmstate() and changing it with sva_setvmstate().
+   *
+   * Calls to sva_setvmstate() cause this flag to be cleared to "false".
+   *
+   * Note that this value is set to "true" (has run) if an attempt is made to
+   * run the VM which fails after the latest state was copied into the VMCS.
+   * This is correct behavior (the VMCS guest-state fields are no longer
+   * stale and do not need to be updated on the next VM entry), though not
+   * literally consistent with the name of this variable.
+   */
+  unsigned char has_run_since_edit;
+
+  /* State of the guest system virtualized by this VM.
+   *
+   * GPRs are saved here on VM exit and restored on next VM entry.
+   *
+   * RIP and RSP are also stored here, and these values are used to
+   * initialize RIP and RSP before the first VM launch.
+   *
+   * NOTE: For now, the RIP and RSP fields here are not updated on VM exit or
+   * re-loaded on VM entry. (The processor takes care of saving/restoring
+   * them through fields in the VMCS.) We only save or load these here
+   * on-demand when the hypervisor wants to see or edit the guest's state.
+   */
+  sva_vmx_guest_state state;
 } vm_desc_t;
 
 /*

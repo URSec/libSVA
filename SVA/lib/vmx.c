@@ -88,14 +88,15 @@ static struct vm_desc_t __attribute__((section("svamem"))) vm_descs[MAX_VMS];
  * at a specific time).
  *
  */
-static vmx_host_state_t __attribute__((section("svamem"))) host_state =
-{
+static vmx_host_state_t __attribute__((section("svamem"))) host_state = {
   /* We use an explicit initializer here to ensure that the active_vm field
    * is initialized to a null pointer before any code can run. It's important
    * this be done before any SVA intrinsics can be called, because their
    * checks use this pointer to determine if a VM is active.
    */
   .active_vm = 0
+
+  /* The other fields don't need to be explicitly initialized. */
 };
 
 /*
@@ -663,6 +664,10 @@ sva_initvmx(void) {
  *  Virtual Machine Control Structure) necessary to load this VM onto the
  *  processor.
  *
+ * Arguments:
+ *  - initial_state: the initial state of the guest system to be used on the
+ *    first launch of the VM.
+ *
  * Return value:
  *  A positive integer which will be used to identify this virtual
  *  machine in future invocations of VMX intrinsics. If the return value is
@@ -672,7 +677,7 @@ sva_initvmx(void) {
  *  size_t, an unsigned type...
  */
 size_t
-sva_allocvm(void) {
+sva_allocvm(sva_vmx_guest_state initial_state) {
   DBGPRNT(("sva_allocvm() intrinsic called.\n"));
 
   if (!sva_vmx_initialized) {
@@ -726,29 +731,9 @@ sva_allocvm(void) {
   }
 
   /*
-   * Initialize the values of the new VM's general-purpose registers (GPRs).
-   *
-   * These will be loaded on the first VM entry. On subsequent VM exits and
-   * entries, the guest's active values will be saved/restored.
-   *
-   * For now, we will initialize them with recognizable nonsense values so
-   * that unchanged values can be easily spotted in debugging printouts.
+   * Initialize the guest system state (registers, program counter, etc.).
    */
-  vm_descs[vmid].rax = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].rbx = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].rcx = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].rdx = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].rbp = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].rsi = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].rdi = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].r8  = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].r9  = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].r10 = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].r11 = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].r12 = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].r13 = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].r14 = 0xd00d00d0d00d00d0;
-  vm_descs[vmid].r15 = 0xd00d00d0d00d00d0;
+  vm_descs[vmid].state = initial_state;
 
   /*
    * Allocate a physical frame of SVA secure memory from the frame cache to
@@ -1338,6 +1323,11 @@ sva_resumevm(void) {
  *  mode (VM entry/exit).
  *
  *  This entails:
+ *  - Updating any guest-state fields in the VMCS that have become stale,
+ *    either because the VM is being run for the first time or because the
+ *    hypervisor has edited it (using the sva_setvmstate() intrinsic) since
+ *    the last time it was run.
+ *
  *  - Setting various VMCS fields containing host state to be restored on VM
  *    exit. These include the control registers, segment registers, the
  *    kernel program counter and stack pointer, and the MSRs that control
@@ -1377,6 +1367,25 @@ sva_resumevm(void) {
  */
 static int
 run_vm(unsigned char use_vmresume) {
+  /*
+   * Update any VMCS guest-state fields that have become stale since the last
+   * VM exit.
+   */
+  if (!host_state.active_vm->has_run_since_edit) {
+    DBGPRNT(("run_vm: updating stale VMCS guest-state fields...\n"));
+
+    /* Set RIP and RSP. */
+    sva_writevmcs(VMCS_GUEST_RIP, host_state.active_vm->state.rip);
+    sva_writevmcs(VMCS_GUEST_RSP, host_state.active_vm->state.rsp);
+
+    /* Set the "has run since last edit" flag. */
+    host_state.active_vm->has_run_since_edit = 1;
+  }
+  else {
+    DBGPRNT(("run_vm: Guest state not edited since last run;"
+         " VMCS guest-state fields not updated.\n"));
+  }
+
   /*
    * Set the host-state-object fields to recognizable nonsense values so that
    * we can spot them easily in the debugger if we mess up and fail to
@@ -1797,21 +1806,21 @@ run_vm(unsigned char use_vmresume) {
          [host_r14] "i" (offsetof(vmx_host_state_t, r14)),
          [host_r15] "i" (offsetof(vmx_host_state_t, r15)),
          /* Offsets of guest state elements in vm_desc_t */
-         [guest_rax] "i" (offsetof(vm_desc_t, rax)),
-         [guest_rbx] "i" (offsetof(vm_desc_t, rbx)),
-         [guest_rcx] "i" (offsetof(vm_desc_t, rcx)),
-         [guest_rdx] "i" (offsetof(vm_desc_t, rdx)),
-         [guest_rbp] "i" (offsetof(vm_desc_t, rbp)),
-         [guest_rsi] "i" (offsetof(vm_desc_t, rsi)),
-         [guest_rdi] "i" (offsetof(vm_desc_t, rdi)),
-         [guest_r8]  "i" (offsetof(vm_desc_t, r8)),
-         [guest_r9]  "i" (offsetof(vm_desc_t, r9)),
-         [guest_r10] "i" (offsetof(vm_desc_t, r10)),
-         [guest_r11] "i" (offsetof(vm_desc_t, r11)),
-         [guest_r12] "i" (offsetof(vm_desc_t, r12)),
-         [guest_r13] "i" (offsetof(vm_desc_t, r13)),
-         [guest_r14] "i" (offsetof(vm_desc_t, r14)),
-         [guest_r15] "i" (offsetof(vm_desc_t, r15))
+         [guest_rax] "i" (offsetof(vm_desc_t, state.rax)),
+         [guest_rbx] "i" (offsetof(vm_desc_t, state.rbx)),
+         [guest_rcx] "i" (offsetof(vm_desc_t, state.rcx)),
+         [guest_rdx] "i" (offsetof(vm_desc_t, state.rdx)),
+         [guest_rbp] "i" (offsetof(vm_desc_t, state.rbp)),
+         [guest_rsi] "i" (offsetof(vm_desc_t, state.rsi)),
+         [guest_rdi] "i" (offsetof(vm_desc_t, state.rdi)),
+         [guest_r8]  "i" (offsetof(vm_desc_t, state.r8)),
+         [guest_r9]  "i" (offsetof(vm_desc_t, state.r9)),
+         [guest_r10] "i" (offsetof(vm_desc_t, state.r10)),
+         [guest_r11] "i" (offsetof(vm_desc_t, state.r11)),
+         [guest_r12] "i" (offsetof(vm_desc_t, state.r12)),
+         [guest_r13] "i" (offsetof(vm_desc_t, state.r13)),
+         [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
+         [guest_r15] "i" (offsetof(vm_desc_t, state.r15))
       : "memory", "cc"
       );
 
@@ -1826,17 +1835,17 @@ run_vm(unsigned char use_vmresume) {
     DBGPRNT(("--------------------\n"));
     DBGPRNT(("Guest register state:\n"));
     DBGPRNT(("RAX: 0x%16lx\tRBX: 0x%16lx\tRCX: 0x%16lx\tRDX: 0x%16lx\n",
-          host_state.active_vm->rax, host_state.active_vm->rbx,
-          host_state.active_vm->rcx, host_state.active_vm->rdx));
+          host_state.active_vm->state.rax, host_state.active_vm->state.rbx,
+          host_state.active_vm->state.rcx, host_state.active_vm->state.rdx));
     DBGPRNT(("RBP: 0x%16lx\tRSI: 0x%16lx\tRDI: 0x%16lx\n",
-          host_state.active_vm->rbp, host_state.active_vm->rsi,
-          host_state.active_vm->rdi));
+          host_state.active_vm->state.rbp, host_state.active_vm->state.rsi,
+          host_state.active_vm->state.rdi));
     DBGPRNT(("R8:  0x%16lx\tR9:  0x%16lx\tR10: 0x%16lx\tR11: 0x%16lx\n",
-          host_state.active_vm->r8,  host_state.active_vm->r9,
-          host_state.active_vm->r10, host_state.active_vm->r11));
+          host_state.active_vm->state.r8,  host_state.active_vm->state.r9,
+          host_state.active_vm->state.r10, host_state.active_vm->state.r11));
     DBGPRNT(("R12: 0x%16lx\tR13: 0x%16lx\tR14: 0x%16lx\tR15: 0x%16lx\n",
-          host_state.active_vm->r12, host_state.active_vm->r13,
-          host_state.active_vm->r14, host_state.active_vm->r15));
+          host_state.active_vm->state.r12, host_state.active_vm->state.r13,
+          host_state.active_vm->state.r14, host_state.active_vm->state.r15));
     DBGPRNT(("--------------------\n"));
 
     DBGPRNT(("Host GPR values restored:\n"));

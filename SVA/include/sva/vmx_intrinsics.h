@@ -18,6 +18,8 @@
 #ifndef _SVA_VMX_INTRINSICS_H
 #define _SVA_VMX_INTRINSICS_H
 
+#include <sys/types.h>
+
 /*
  * Enumeration: sva_vmcs_field
  *
@@ -247,8 +249,60 @@ enum sva_vmcs_field {
   /* THE END */
 };
 
-/* Prototypes for VMX intrinsics */
-size_t sva_allocvm(void);
+/*
+ * *** Structure definitions used by VMX intrinsics ***
+ */
+
+/*
+ * Structure: sva_vmx_guest_state
+ *
+ * Description:
+ *  A structure describing the state of a guest system virtualized by a VM.
+ */
+typedef struct sva_vmx_guest_state {
+  /*
+   *** STATE NOT SAVED/RESTORED BY PROCESSOR ON VM ENTRY/EXIT ***
+   * (i.e. needs to be saved/restored by SVA)
+   *
+   * These fields always contain the latest values that represent the current
+   * state of the guest.
+   *
+   * (Except when the guest is actually running, in which case the values
+   * will be what they were at the time of the last VM entry. This is a moot
+   * point on a uniprocessor system since the host and guest cannot both run
+   * at the same time; the host can only see these values when they are in
+   * fact up-to-date.)
+   */
+
+  /* General purpose registers */
+  uint64_t rax, rbx, rcx, rdx;
+  uint64_t rbp, rsi, rdi;
+  uint64_t r8,  r9,  r10, r11;
+  uint64_t r12, r13, r14, r15;
+
+  /*
+   **** STATE THAT IS SAVED/RESTORED AUTOMATICALLY BY PROCESSOR
+   *    ON VM ENTRY/EXIT ***
+   *
+   * These fields are saved/restored directly to corresponding VMCS fields on
+   * VM entry/exit. SVA only needs to save/load it to its own guest state
+   * structure when it needs to allow client software (the kernel/hypervisor)
+   * to access it, or when the VM is started for the first time from its
+   * initial state.
+   *
+   * These fields are only updated when the hypervisor calls sva_getvmstate()
+   * to read the state of the guest, or sva_setvmstate() to modify it (e.g.
+   * to handle a VM exit by emulating an operation).
+   */
+
+  /* Program counter and stack pointer */
+  uint64_t rip, rsp;
+} sva_vmx_guest_state;
+
+/*
+ * *** Prototypes for VMX intrinsics ***
+ */
+size_t sva_allocvm(sva_vmx_guest_state initial_state);
 void sva_freevm(size_t vmid);
 int sva_loadvm(size_t vmid);
 int sva_unloadvm(void);
@@ -256,6 +310,8 @@ int sva_readvmcs(enum sva_vmcs_field field, uint64_t *data);
 int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 int sva_launchvm(void);
 int sva_resumevm(void);
+int sva_getvmstate(void); // TODO: implement this
+int sva_setvmstate(void); // TODO: implement this
 
 /* These intrinsics are for use during development.
  * They will be removed "soon" and are not part of the designed SVA-VMX
