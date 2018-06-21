@@ -261,6 +261,18 @@ enum sva_vmcs_field {
  */
 typedef struct sva_vmx_guest_state {
   /*
+   * This field is only used when an object of this type is returned from the
+   * sva_getvmstate() intrinsic. It contains an error code for the intrinsic:
+   * 0 indicates success, and a negative value indicates failure.
+   *
+   * It is not used when this structure is instantiated as a substructure
+   * within a VM descriptor internal to SVA; however, it is overwritten there
+   * by the sva_getvmstate() and sva_setvmstate() intrinsics. Other SVA code
+   * should not assume it has any particular value.
+   */
+  int errorcode;
+
+  /*
    *** STATE NOT SAVED/RESTORED BY PROCESSOR ON VM ENTRY/EXIT ***
    * (i.e. needs to be saved/restored by SVA)
    *
@@ -285,14 +297,14 @@ typedef struct sva_vmx_guest_state {
    *    ON VM ENTRY/EXIT ***
    *
    * These fields are saved/restored directly to corresponding VMCS fields on
-   * VM entry/exit. SVA only needs to save/load it to its own guest state
-   * structure when it needs to allow client software (the kernel/hypervisor)
-   * to access it, or when the VM is started for the first time from its
-   * initial state.
+   * VM entry/exit. The copies here are only used when we need to allow
+   * client software (the kernel/hypervisor) to read them; they are updated
+   * on-demand by the sva_getvmstate() intrinsic, and written by the
+   * sva_setvmstate() intrinsic.
    *
-   * These fields are only updated when the hypervisor calls sva_getvmstate()
-   * to read the state of the guest, or sva_setvmstate() to modify it (e.g.
-   * to handle a VM exit by emulating an operation).
+   * sva_setvmstate() sets a flag in SVA's internal VM descriptor to indicate
+   * that these values should be applied to the VMCS before the next VM
+   * entry.
    */
 
   /* Program counter and stack pointer */
@@ -310,8 +322,8 @@ int sva_readvmcs(enum sva_vmcs_field field, uint64_t *data);
 int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 int sva_launchvm(void);
 int sva_resumevm(void);
-int sva_getvmstate(void); // TODO: implement this
-int sva_setvmstate(void); // TODO: implement this
+sva_vmx_guest_state sva_getvmstate(void);
+void sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate);
 
 /* These intrinsics are for use during development.
  * They will be removed "soon" and are not part of the designed SVA-VMX

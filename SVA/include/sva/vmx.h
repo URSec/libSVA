@@ -44,7 +44,7 @@
   do { if (SVAVMX_DEBUG) printf args; } while (0)
 
 /**********
- * Constants
+ * Constants and Enumerations
 **********/
 /* MSRs (non-VMX-related) */
 static const u_int FEATURE_CONTROL_MSR = 0x3a;
@@ -165,6 +165,9 @@ static inline unsigned char check_cr4_fixed_bits(void);
 static inline enum vmx_statuscode_t query_vmx_result(uint64_t rflags);
 static int run_vm(unsigned char use_vmresume);
 
+/**********
+ * Structures
+**********/
 /*
  * Structure: vm_desc_t
  *
@@ -227,8 +230,10 @@ typedef struct vm_desc_t {
    *
    * Calls to sva_setvmstate() cause this flag to be cleared to "false".
    *
-   * Note that this value is set to "true" (has run) if an attempt is made to
-   * run the VM which fails after the latest state was copied into the VMCS.
+   * Note that this value can be set to "true" (has run) by a failed attempt
+   * to run the VM, if that failure occurs after the point in run_vm() where
+   * the current state is copied into the VMCS.
+   *
    * This is correct behavior (the VMCS guest-state fields are no longer
    * stale and do not need to be updated on the next VM entry), though not
    * literally consistent with the name of this variable.
