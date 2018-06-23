@@ -309,6 +309,43 @@ typedef struct sva_vmx_guest_state {
 
   /* Program counter and stack pointer */
   uint64_t rip, rsp;
+  /* Flags register */
+  uint64_t rflags;
+
+  /* Control registers (except paging-related ones) */
+  uint64_t cr0, cr4;
+
+  /* Debug registers/MSRs saved/restored by processor */
+  uint64_t dr7;
+  uint64_t msr_debugctl;
+
+  /* Paging-related registers saved/restored by processor */
+  uint64_t cr3;
+  /* PDPTE registers (use when guest is in PAE paging mode) */
+  uint64_t pdpte0, pdpte1, pdpte2, pdpte3;
+
+  /* SYSENTER-related MSRs */
+  uint64_t msr_sysenter_cs, msr_sysenter_esp, msr_sysenter_eip;
+
+  /* Segment registers (including hidden portions) */
+  uint64_t cs_base, cs_limit, cs_access_rights, cs_sel;
+  uint64_t ss_base, ss_limit, ss_access_rights, ss_sel;
+  uint64_t ds_base, ds_limit, ds_access_rights, ds_sel;
+  uint64_t es_base, es_limit, es_access_rights, es_sel;
+  uint64_t fs_base, fs_limit, fs_access_rights, fs_sel;
+  uint64_t gs_base, gs_limit, gs_access_rights, gs_sel;
+  /* TR (Task Register) */
+  uint64_t tr_base, tr_limit, tr_access_rights, tr_sel;
+
+  /* Descriptor table registers */
+  uint64_t gdtr_base, gdtr_limit;
+  uint64_t idtr_base, idtr_limit;
+  uint64_t ldtr_base, ldtr_limit, ldtr_access_rights, ldtr_sel;
+
+  /* Various other guest system state */
+  uint64_t activity_state;
+  uint64_t interruptibility_state;
+  uint64_t pending_debug_exceptions;
 } sva_vmx_guest_state;
 
 /*
