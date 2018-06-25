@@ -1375,94 +1375,7 @@ run_vm(unsigned char use_vmresume) {
   if (!host_state.active_vm->has_run_since_edit) {
     DBGPRNT(("run_vm: Updating stale VMCS guest-state fields...\n"));
 
-    /* RIP and RSP */
-    sva_writevmcs(VMCS_GUEST_RIP, host_state.active_vm->state.rip);
-    sva_writevmcs(VMCS_GUEST_RSP, host_state.active_vm->state.rsp);
-    /* Flags */
-    sva_writevmcs(VMCS_GUEST_RFLAGS, host_state.active_vm->state.rflags);
-    /* Control registers (except paging-related ones) */
-    sva_writevmcs(VMCS_GUEST_CR0, host_state.active_vm->state.cr0);
-    sva_writevmcs(VMCS_GUEST_CR4, host_state.active_vm->state.cr4);
-    /* Debug registers/MSRs saved/restored by processor */
-    sva_writevmcs(VMCS_GUEST_DR7, host_state.active_vm->state.dr7);
-    sva_writevmcs(VMCS_GUEST_IA32_DEBUGCTL,
-        host_state.active_vm->state.msr_debugctl);
-    /* Paging-related registers saved/restored by processor */
-    sva_writevmcs(VMCS_GUEST_CR3, host_state.active_vm->state.cr3);
-    sva_writevmcs(VMCS_GUEST_PDPTE0, host_state.active_vm->state.pdpte0);
-    sva_writevmcs(VMCS_GUEST_PDPTE1, host_state.active_vm->state.pdpte1);
-    sva_writevmcs(VMCS_GUEST_PDPTE2, host_state.active_vm->state.pdpte2);
-    sva_writevmcs(VMCS_GUEST_PDPTE3, host_state.active_vm->state.pdpte3);
-    /* SYSENTER-related MSRs */
-    sva_writevmcs(VMCS_GUEST_IA32_SYSENTER_CS,
-        host_state.active_vm->state.msr_sysenter_cs);
-    sva_writevmcs(VMCS_GUEST_IA32_SYSENTER_ESP,
-        host_state.active_vm->state.msr_sysenter_esp);
-    sva_writevmcs(VMCS_GUEST_IA32_SYSENTER_EIP,
-        host_state.active_vm->state.msr_sysenter_eip);
-    /* Segment registers (including hidden portions) */
-    /* CS */
-    sva_writevmcs(VMCS_GUEST_CS_BASE, host_state.active_vm->state.cs_base);
-    sva_writevmcs(VMCS_GUEST_CS_LIMIT, host_state.active_vm->state.cs_limit);
-    sva_writevmcs(VMCS_GUEST_CS_ACCESS_RIGHTS,
-        host_state.active_vm->state.cs_access_rights);
-    sva_writevmcs(VMCS_GUEST_CS_SEL, host_state.active_vm->state.cs_sel);
-    /* SS */
-    sva_writevmcs(VMCS_GUEST_SS_BASE, host_state.active_vm->state.ss_base);
-    sva_writevmcs(VMCS_GUEST_SS_LIMIT, host_state.active_vm->state.ss_limit);
-    sva_writevmcs(VMCS_GUEST_SS_ACCESS_RIGHTS,
-        host_state.active_vm->state.ss_access_rights);
-    sva_writevmcs(VMCS_GUEST_SS_SEL, host_state.active_vm->state.ss_sel);
-    /* DS */
-    sva_writevmcs(VMCS_GUEST_DS_BASE, host_state.active_vm->state.ds_base);
-    sva_writevmcs(VMCS_GUEST_DS_LIMIT, host_state.active_vm->state.ds_limit);
-    sva_writevmcs(VMCS_GUEST_DS_ACCESS_RIGHTS,
-        host_state.active_vm->state.ds_access_rights);
-    sva_writevmcs(VMCS_GUEST_DS_SEL, host_state.active_vm->state.ds_sel);
-    /* ES */
-    sva_writevmcs(VMCS_GUEST_ES_BASE, host_state.active_vm->state.es_base);
-    sva_writevmcs(VMCS_GUEST_ES_LIMIT, host_state.active_vm->state.es_limit);
-    sva_writevmcs(VMCS_GUEST_ES_ACCESS_RIGHTS,
-        host_state.active_vm->state.es_access_rights);
-    sva_writevmcs(VMCS_GUEST_ES_SEL, host_state.active_vm->state.es_sel);
-    /* FS */
-    sva_writevmcs(VMCS_GUEST_FS_BASE, host_state.active_vm->state.fs_base);
-    sva_writevmcs(VMCS_GUEST_FS_LIMIT, host_state.active_vm->state.fs_limit);
-    sva_writevmcs(VMCS_GUEST_FS_ACCESS_RIGHTS,
-        host_state.active_vm->state.fs_access_rights);
-    sva_writevmcs(VMCS_GUEST_FS_SEL, host_state.active_vm->state.fs_sel);
-    /* GS */
-    sva_writevmcs(VMCS_GUEST_GS_BASE, host_state.active_vm->state.gs_base);
-    sva_writevmcs(VMCS_GUEST_GS_LIMIT, host_state.active_vm->state.gs_limit);
-    sva_writevmcs(VMCS_GUEST_GS_ACCESS_RIGHTS,
-        host_state.active_vm->state.gs_access_rights);
-    sva_writevmcs(VMCS_GUEST_GS_SEL, host_state.active_vm->state.gs_sel);
-    /* TR */
-    sva_writevmcs(VMCS_GUEST_TR_BASE, host_state.active_vm->state.tr_base);
-    sva_writevmcs(VMCS_GUEST_TR_LIMIT, host_state.active_vm->state.tr_limit);
-    sva_writevmcs(VMCS_GUEST_TR_ACCESS_RIGHTS,
-        host_state.active_vm->state.tr_access_rights);
-    sva_writevmcs(VMCS_GUEST_TR_SEL, host_state.active_vm->state.tr_sel);
-    /* Descriptor table registers */
-    /* GDTR */
-    sva_writevmcs(VMCS_GUEST_GDTR_BASE, host_state.active_vm->state.gdtr_base);
-    sva_writevmcs(VMCS_GUEST_GDTR_LIMIT, host_state.active_vm->state.gdtr_limit);
-    /* IDTR */
-    sva_writevmcs(VMCS_GUEST_IDTR_BASE, host_state.active_vm->state.idtr_base);
-    sva_writevmcs(VMCS_GUEST_IDTR_LIMIT, host_state.active_vm->state.idtr_limit);
-    /* LDTR */
-    sva_writevmcs(VMCS_GUEST_LDTR_BASE, host_state.active_vm->state.ldtr_base);
-    sva_writevmcs(VMCS_GUEST_LDTR_LIMIT, host_state.active_vm->state.ldtr_limit);
-    sva_writevmcs(VMCS_GUEST_LDTR_ACCESS_RIGHTS,
-        host_state.active_vm->state.ldtr_access_rights);
-    sva_writevmcs(VMCS_GUEST_LDTR_SEL, host_state.active_vm->state.ldtr_sel);
-    /* Various other guest system state */
-    sva_writevmcs(VMCS_GUEST_ACTIVITY_STATE,
-        host_state.active_vm->state.activity_state);
-    sva_writevmcs(VMCS_GUEST_INTERRUPTIBILITY_STATE,
-        host_state.active_vm->state.interruptibility_state);
-    sva_writevmcs(VMCS_GUEST_PENDING_DBG_EXCEPTIONS,
-        host_state.active_vm->state.pending_debug_exceptions);
+    save_restore_guest_state(0 /* this is a "restore" operation */);
 
     /* Set the "has run since last edit" flag, indicating no fields are
      * currently stale. */
@@ -2024,94 +1937,7 @@ sva_getvmstate(void) {
   /* Update the fields in SVA's guest state structure to match the current
    * values in the VMCS.
    */
-  /* RIP and RSP */
-  sva_readvmcs(VMCS_GUEST_RIP, &host_state.active_vm->state.rip);
-  sva_readvmcs(VMCS_GUEST_RSP, &host_state.active_vm->state.rsp);
-  /* Flags */
-  sva_readvmcs(VMCS_GUEST_RFLAGS, &host_state.active_vm->state.rflags);
-  /* Control registers (except paging-related ones) */
-  sva_readvmcs(VMCS_GUEST_CR0, &host_state.active_vm->state.cr0);
-  sva_readvmcs(VMCS_GUEST_CR4, &host_state.active_vm->state.cr4);
-  /* Debug registers/MSRs saved/restored by processor */
-  sva_readvmcs(VMCS_GUEST_DR7, &host_state.active_vm->state.dr7);
-  sva_readvmcs(VMCS_GUEST_IA32_DEBUGCTL,
-      &host_state.active_vm->state.msr_debugctl);
-  /* Paging-related registers saved/restored by processor */
-  sva_readvmcs(VMCS_GUEST_CR3, &host_state.active_vm->state.cr3);
-  sva_readvmcs(VMCS_GUEST_PDPTE0, &host_state.active_vm->state.pdpte0);
-  sva_readvmcs(VMCS_GUEST_PDPTE1, &host_state.active_vm->state.pdpte1);
-  sva_readvmcs(VMCS_GUEST_PDPTE2, &host_state.active_vm->state.pdpte2);
-  sva_readvmcs(VMCS_GUEST_PDPTE3, &host_state.active_vm->state.pdpte3);
-  /* SYSENTER-related MSRs */
-  sva_readvmcs(VMCS_GUEST_IA32_SYSENTER_CS,
-      &host_state.active_vm->state.msr_sysenter_cs);
-  sva_readvmcs(VMCS_GUEST_IA32_SYSENTER_ESP,
-      &host_state.active_vm->state.msr_sysenter_esp);
-  sva_readvmcs(VMCS_GUEST_IA32_SYSENTER_EIP,
-      &host_state.active_vm->state.msr_sysenter_eip);
-  /* Segment registers (including hidden portions) */
-  /* CS */
-  sva_readvmcs(VMCS_GUEST_CS_BASE, &host_state.active_vm->state.cs_base);
-  sva_readvmcs(VMCS_GUEST_CS_LIMIT, &host_state.active_vm->state.cs_limit);
-  sva_readvmcs(VMCS_GUEST_CS_ACCESS_RIGHTS,
-      &host_state.active_vm->state.cs_access_rights);
-  sva_readvmcs(VMCS_GUEST_CS_SEL, &host_state.active_vm->state.cs_sel);
-  /* SS */
-  sva_readvmcs(VMCS_GUEST_SS_BASE, &host_state.active_vm->state.ss_base);
-  sva_readvmcs(VMCS_GUEST_SS_LIMIT, &host_state.active_vm->state.ss_limit);
-  sva_readvmcs(VMCS_GUEST_SS_ACCESS_RIGHTS,
-      &host_state.active_vm->state.ss_access_rights);
-  sva_readvmcs(VMCS_GUEST_SS_SEL, &host_state.active_vm->state.ss_sel);
-  /* DS */
-  sva_readvmcs(VMCS_GUEST_DS_BASE, &host_state.active_vm->state.ds_base);
-  sva_readvmcs(VMCS_GUEST_DS_LIMIT, &host_state.active_vm->state.ds_limit);
-  sva_readvmcs(VMCS_GUEST_DS_ACCESS_RIGHTS,
-      &host_state.active_vm->state.ds_access_rights);
-  sva_readvmcs(VMCS_GUEST_DS_SEL, &host_state.active_vm->state.ds_sel);
-  /* ES */
-  sva_readvmcs(VMCS_GUEST_ES_BASE, &host_state.active_vm->state.es_base);
-  sva_readvmcs(VMCS_GUEST_ES_LIMIT, &host_state.active_vm->state.es_limit);
-  sva_readvmcs(VMCS_GUEST_ES_ACCESS_RIGHTS,
-      &host_state.active_vm->state.es_access_rights);
-  sva_readvmcs(VMCS_GUEST_ES_SEL, &host_state.active_vm->state.es_sel);
-  /* FS */
-  sva_readvmcs(VMCS_GUEST_FS_BASE, &host_state.active_vm->state.fs_base);
-  sva_readvmcs(VMCS_GUEST_FS_LIMIT, &host_state.active_vm->state.fs_limit);
-  sva_readvmcs(VMCS_GUEST_FS_ACCESS_RIGHTS,
-      &host_state.active_vm->state.fs_access_rights);
-  sva_readvmcs(VMCS_GUEST_FS_SEL, &host_state.active_vm->state.fs_sel);
-  /* GS */
-  sva_readvmcs(VMCS_GUEST_GS_BASE, &host_state.active_vm->state.gs_base);
-  sva_readvmcs(VMCS_GUEST_GS_LIMIT, &host_state.active_vm->state.gs_limit);
-  sva_readvmcs(VMCS_GUEST_GS_ACCESS_RIGHTS,
-      &host_state.active_vm->state.gs_access_rights);
-  sva_readvmcs(VMCS_GUEST_GS_SEL, &host_state.active_vm->state.gs_sel);
-  /* TR */
-  sva_readvmcs(VMCS_GUEST_TR_BASE, &host_state.active_vm->state.tr_base);
-  sva_readvmcs(VMCS_GUEST_TR_LIMIT, &host_state.active_vm->state.tr_limit);
-  sva_readvmcs(VMCS_GUEST_TR_ACCESS_RIGHTS,
-      &host_state.active_vm->state.tr_access_rights);
-  sva_readvmcs(VMCS_GUEST_TR_SEL, &host_state.active_vm->state.tr_sel);
-  /* Descriptor table registers */
-  /* GDTR */
-  sva_readvmcs(VMCS_GUEST_GDTR_BASE, &host_state.active_vm->state.gdtr_base);
-  sva_readvmcs(VMCS_GUEST_GDTR_LIMIT, &host_state.active_vm->state.gdtr_limit);
-  /* IDTR */
-  sva_readvmcs(VMCS_GUEST_IDTR_BASE, &host_state.active_vm->state.idtr_base);
-  sva_readvmcs(VMCS_GUEST_IDTR_LIMIT, &host_state.active_vm->state.idtr_limit);
-  /* LDTR */
-  sva_readvmcs(VMCS_GUEST_LDTR_BASE, &host_state.active_vm->state.ldtr_base);
-  sva_readvmcs(VMCS_GUEST_LDTR_LIMIT, &host_state.active_vm->state.ldtr_limit);
-  sva_readvmcs(VMCS_GUEST_LDTR_ACCESS_RIGHTS,
-      &host_state.active_vm->state.ldtr_access_rights);
-  sva_readvmcs(VMCS_GUEST_LDTR_SEL, &host_state.active_vm->state.ldtr_sel);
-  /* Various other guest system state */
-  sva_readvmcs(VMCS_GUEST_ACTIVITY_STATE,
-      &host_state.active_vm->state.activity_state);
-  sva_readvmcs(VMCS_GUEST_INTERRUPTIBILITY_STATE,
-      &host_state.active_vm->state.interruptibility_state);
-  sva_readvmcs(VMCS_GUEST_PENDING_DBG_EXCEPTIONS,
-      &host_state.active_vm->state.pending_debug_exceptions);
+  save_restore_guest_state(1 /* this is a "save" operation */);
 
   /* Return a copy of SVA's guest state structure.
    *
@@ -2170,6 +1996,231 @@ sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate) {
    * before the next VM entry.
    */
   vm_descs[vmid].has_run_since_edit = 0;
+}
+
+/*
+ * Function: save_restore_guest_state()
+ *
+ * Description:
+ *  A local helper function which abstracts around whether we are saving or
+ *  restoring guest state from an sva_vmx_guest_state structure.
+ *
+ *  Saving and restoring are "mirror" operations performed on a long list of
+ *  state fields. It's better software engineering practice to do both
+ *  operations with the same code, both to make the code more concise and to
+ *  prevent inconsistencies between the two operations. The more fields we
+ *  add to the state structure, the more important this will be.
+ *
+ *  This function *always* operates on the active VMCS and its corresponding
+ *  VM descriptor (pointed to by host_state.active_vm). The preconditions
+ *  below assure that this is safe to do.
+ *
+ * Arguments:
+ *  - saverestore: A boolean value. If true, we are saving (copying from the
+ *    active VMCS to the state structure). If false, we are restoring
+ *    (copying from the state structure to the active VMCS).
+ *
+ * Preconditions:
+ *  - There must be a VMCS loaded on the processor.
+ *
+ *  - The host_state.active_vm pointer should point to the VM descriptor
+ *    corresponding to the VMCS loaded on the processor.
+ *
+ *  This function is meant to be used internally by SVA code that has already
+ *  ensured these conditions hold. Particularly, this is true in
+ *  sva_getvmstate() (which checks those conditions before saving guest
+ *  state) and run_vm() (which inherits these preconditions from its own
+ *  broader precondition, namely, that it is only called at the end of
+ *  sva_launch/resumevm() after all checks have been performed to ensure it
+ *  is safe to enter a VM).
+ */
+static inline void save_restore_guest_state(unsigned char saverestore) {
+  /*
+   * If saverestore == true, we are saving state (copying from the active
+   * VMCS to the state structure), i.e. *reading* from the VMCS, so the
+   * "write" argument passed to read_write_vmcs_field() is false.
+   *
+   * If saverestore == false, we are restoring state (copying from the state
+   * structure to the active VMCS, i.e. *writing* to the VMCS, so the "write"
+   * argument passed to read_write_vmcs_field() is true.
+   *
+   * In other words, !saverestore == write.
+   */
+
+  /* RIP and RSP */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_RIP,
+      &host_state.active_vm->state.rip);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_RSP,
+      &host_state.active_vm->state.rsp);
+  /* Flags */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_RFLAGS,
+      &host_state.active_vm->state.rflags);
+  /* Control registers (except paging-related ones) */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_CR0,
+      &host_state.active_vm->state.cr0);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_CR4,
+      &host_state.active_vm->state.cr4);
+  /* Debug registers/MSRs saved/restored by processor */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_DR7,
+      &host_state.active_vm->state.dr7);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_DEBUGCTL,
+      &host_state.active_vm->state.msr_debugctl);
+  /* Paging-related registers saved/restored by processor */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_CR3,
+      &host_state.active_vm->state.cr3);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE0,
+      &host_state.active_vm->state.pdpte0);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE1,
+      &host_state.active_vm->state.pdpte1);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE2,
+      &host_state.active_vm->state.pdpte2);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE3,
+      &host_state.active_vm->state.pdpte3);
+  /* SYSENTER-related MSRs */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_SYSENTER_CS,
+      &host_state.active_vm->state.msr_sysenter_cs);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_SYSENTER_ESP,
+      &host_state.active_vm->state.msr_sysenter_esp);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_SYSENTER_EIP,
+      &host_state.active_vm->state.msr_sysenter_eip);
+  /* Segment registers (including hidden portions) */
+  /* CS */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_BASE,
+      &host_state.active_vm->state.cs_base);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_LIMIT,
+      &host_state.active_vm->state.cs_limit);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_ACCESS_RIGHTS,
+      &host_state.active_vm->state.cs_access_rights);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_SEL,
+      &host_state.active_vm->state.cs_sel);
+  /* SS */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_BASE,
+      &host_state.active_vm->state.ss_base);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_LIMIT,
+      &host_state.active_vm->state.ss_limit);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_ACCESS_RIGHTS,
+      &host_state.active_vm->state.ss_access_rights);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_SEL,
+      &host_state.active_vm->state.ss_sel);
+  /* DS */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_BASE,
+      &host_state.active_vm->state.ds_base);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_LIMIT,
+      &host_state.active_vm->state.ds_limit);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_ACCESS_RIGHTS,
+      &host_state.active_vm->state.ds_access_rights);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_SEL,
+      &host_state.active_vm->state.ds_sel);
+  /* ES */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_BASE,
+      &host_state.active_vm->state.es_base);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_LIMIT,
+      &host_state.active_vm->state.es_limit);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_ACCESS_RIGHTS,
+      &host_state.active_vm->state.es_access_rights);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_SEL,
+      &host_state.active_vm->state.es_sel);
+  /* FS */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_BASE,
+      &host_state.active_vm->state.fs_base);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_LIMIT,
+      &host_state.active_vm->state.fs_limit);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_ACCESS_RIGHTS,
+      &host_state.active_vm->state.fs_access_rights);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_SEL,
+      &host_state.active_vm->state.fs_sel);
+  /* GS */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_BASE,
+      &host_state.active_vm->state.gs_base);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_LIMIT,
+      &host_state.active_vm->state.gs_limit);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_ACCESS_RIGHTS,
+      &host_state.active_vm->state.gs_access_rights);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_SEL,
+      &host_state.active_vm->state.gs_sel);
+  /* TR */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_BASE,
+      &host_state.active_vm->state.tr_base);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_LIMIT,
+      &host_state.active_vm->state.tr_limit);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_ACCESS_RIGHTS,
+      &host_state.active_vm->state.tr_access_rights);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_SEL,
+      &host_state.active_vm->state.tr_sel);
+  /* Descriptor table registers */
+  /* GDTR */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_GDTR_BASE,
+      &host_state.active_vm->state.gdtr_base);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_GDTR_LIMIT,
+      &host_state.active_vm->state.gdtr_limit);
+  /* IDTR */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_IDTR_BASE,
+      &host_state.active_vm->state.idtr_base);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_IDTR_LIMIT,
+      &host_state.active_vm->state.idtr_limit);
+  /* LDTR */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_BASE,
+      &host_state.active_vm->state.ldtr_base);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_LIMIT,
+      &host_state.active_vm->state.ldtr_limit);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_ACCESS_RIGHTS,
+      &host_state.active_vm->state.ldtr_access_rights);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_SEL,
+      &host_state.active_vm->state.ldtr_sel);
+  /* Various other guest system state */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_ACTIVITY_STATE,
+      &host_state.active_vm->state.activity_state);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_INTERRUPTIBILITY_STATE,
+      &host_state.active_vm->state.interruptibility_state);
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_PENDING_DBG_EXCEPTIONS,
+      &host_state.active_vm->state.pending_debug_exceptions);
+}
+
+/*
+ * Function: read_write_vmcs_field()
+ *
+ * Description:
+ *  A local helper function which abstracts around whether we are reading or
+ *  writing a VMCS field.
+ *
+ *  Calls sva_writevmcs() if "rw" is true, otherwise calls sva_readvmcs().
+ *  The "data" parameter is appropriately dereferenced if we're calling
+ *  sva_writevmcs() (which takes a uint64_t, not a uint64_t*).
+ *
+ *  This is useful so that we don't have to repeat ourselves when writing
+ *  code that saves/restores long sequences of VMCS fields. These usually
+ *  come in pairs (save and restore) which are otherwise identical; using the
+ *  same code for both is better software engineering practice (makes the
+ *  code more concise and eliminates the risk of inconsistency between the
+ *  two implementations).
+ *
+ * Arguments:
+ *  - write: A boolean value. If true, we write the VMCS field; if false, we
+ *    read it.
+ *
+ *  - field: Specifies the VMCS field. Passed through to
+ *    sva_read/writevmcs().
+ *
+ *  - data: Pointer to the location containing the data to be written, or to
+ *    which the data to be read should be stored. For sva_writevmcs(), this
+ *    is dereferenced and the value in it is passed on to be written. For
+ *    sva_readvmcs(), the address is passed directly and the VMCS field's
+ *    contents are stored there.
+ *
+ * Return value:
+ *  The error code returned by sva_read/writevmcs(), respectively, is passed
+ *  through.
+ */
+static inline int
+read_write_vmcs_field(unsigned char write,
+    enum sva_vmcs_field field, uint64_t *data) {
+  if (write) {
+    /* We are writing to the VMCS field. */
+    return sva_writevmcs(field, *data);
+  } else {
+    /* We are reading from the VMCS field. */
+    return sva_readvmcs(field, data);
+  }
 }
 
 /*

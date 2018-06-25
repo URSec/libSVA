@@ -164,6 +164,10 @@ static inline unsigned char check_cr0_fixed_bits(void);
 static inline unsigned char check_cr4_fixed_bits(void);
 static inline enum vmx_statuscode_t query_vmx_result(uint64_t rflags);
 static int run_vm(unsigned char use_vmresume);
+static inline void save_restore_guest_state(unsigned char saverestore);
+static inline int read_write_vmcs_field(
+    unsigned char write,
+    enum sva_vmcs_field field, uint64_t *data);
 
 /**********
  * Structures
