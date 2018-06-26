@@ -254,6 +254,33 @@ enum sva_vmcs_field {
  */
 
 /*
+ * Structure: sva_vmx_vm_ctrls
+ *
+ * Description:
+ *  A structure describing the various VMX controls that govern execution of
+ *  a VM.
+ */
+typedef struct sva_vmx_vm_ctrls {
+  /** VM execution controls **/
+  uint64_t pinbased_exec_ctrls;
+  /* Primary and secondary processor-based execution controls */
+  uint64_t procbased_exec_ctrls1, procbased_exec_ctrls2;
+  uint64_t entry_ctrls, exit_ctrls;
+
+  /** VM entry/exit MSR load/store controls **/
+  uint64_t entry_msr_load_count;
+  uint64_t exit_msr_load_count;
+  uint64_t exit_msr_store_count;
+
+  /** Event injection and exception controls **/
+  uint64_t entry_interrupt_info;
+  uint64_t exception_exiting_bitmap;
+
+  /** Control register guest/host masks **/
+  uint64_t cr0_guesthost_mask, cr4_guesthost_mask;
+} sva_vmx_vm_ctrls;
+
+/*
  * Structure: sva_vmx_guest_state
  *
  * Description:
@@ -314,6 +341,8 @@ typedef struct sva_vmx_guest_state {
 
   /* Control registers (except paging-related ones) */
   uint64_t cr0, cr4;
+  /* Control register read shadows */
+  uint64_t cr0_read_shadow, cr4_read_shadow;
 
   /* Debug registers/MSRs saved/restored by processor */
   uint64_t dr7;
@@ -351,7 +380,8 @@ typedef struct sva_vmx_guest_state {
 /*
  * *** Prototypes for VMX intrinsics ***
  */
-size_t sva_allocvm(sva_vmx_guest_state initial_state);
+size_t sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
+    sva_vmx_guest_state initial_state);
 void sva_freevm(size_t vmid);
 int sva_loadvm(size_t vmid);
 int sva_unloadvm(void);
@@ -359,6 +389,29 @@ int sva_readvmcs(enum sva_vmcs_field field, uint64_t *data);
 int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 int sva_launchvm(void);
 int sva_resumevm(void);
+/* TODO: implement these.
+ *
+ * We don't need them just yet since (at the moment) we only set these
+ * controls once when we create the VM and never change them.
+ *
+ * Note to self:
+ *  This will be simpler to implement than the corresponding guest state
+ *  intrinsics, since **most** (but not all) of these fields are never
+ *  changed by the processor (i.e. we only ever have to copy them one way
+ *  since we know they can't have changed).
+ *
+ *  However, one in particular - the VM-entry interruption-info field - is
+ *  changed by the processor, namely, one of its bits is flipped off to
+ *  indicate that the processor successfully acted upon its contents.
+ *
+ *  We might not actually even need to implement sva_getvmctrls(); a single
+ *  intrinsic to handle the VM-entry interruption-info field would suffice
+ *  and be more efficient.
+ */
+#if 0
+sva_vmx_vm_ctrls sva_getvmctrls(void);
+void sva_setvmctrls(size_t vmid, sva_vmx_vm_ctrls newctrls);
+#endif
 sva_vmx_guest_state sva_getvmstate(void);
 void sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate);
 

@@ -677,7 +677,8 @@ sva_initvmx(void) {
  *  size_t, an unsigned type...
  */
 size_t
-sva_allocvm(sva_vmx_guest_state initial_state) {
+sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
+    sva_vmx_guest_state initial_state) {
   DBGPRNT(("sva_allocvm() intrinsic called.\n"));
 
   if (!sva_vmx_initialized) {
@@ -730,6 +731,10 @@ sva_allocvm(sva_vmx_guest_state initial_state) {
     return -1;
   }
 
+  /*
+   * Initialize VMCS controls.
+   */
+  vm_descs[vmid].ctrls = initial_ctrls;
   /*
    * Initialize the guest system state (registers, program counter, etc.).
    */
@@ -1323,9 +1328,13 @@ sva_resumevm(void) {
  *  mode (VM entry/exit).
  *
  *  This entails:
+ *  - Updating any VMCS controls that have become stale, either because the
+ *    VM is being run for the first time or because the hypervisor has edited
+ *    them since the last time it was run.
+ *
  *  - Updating any guest-state fields in the VMCS that have become stale,
  *    either because the VM is being run for the first time or because the
- *    hypervisor has edited it (using the sva_setvmstate() intrinsic) since
+ *    hypervisor has edited them (using the sva_setvmstate() intrinsic) since
  *    the last time it was run.
  *
  *  - Setting various VMCS fields containing host state to be restored on VM
@@ -1368,22 +1377,39 @@ sva_resumevm(void) {
 static int
 run_vm(unsigned char use_vmresume) {
   /*
+   * If this VM's VMCS controls have been edited since it was last run (or
+   * this is the first time it's being run), load the new values from the VM
+   * descriptor.
+   */
+  if (!host_state.active_vm->vm_ctrls_not_stale) {
+    DBGPRNT(("run_vm: Updating stale VMCS controls...\n"));
+
+    update_vmcs_ctrls();
+
+    /* Mark this VM's VMCS controls as not stale, since we've just updated
+     * them.
+     */
+    host_state.active_vm->vm_ctrls_not_stale = 1;
+  } else {
+    DBGPRNT(("run_vm: VMCS controls not stale (not updated).\n"));
+  }
+
+  /*
    * If this VM's guest state has been edited since it was last run (or this
    * is the first time it's being run), load the new values from the VM
    * descriptor.
    */
-  if (!host_state.active_vm->has_run_since_edit) {
+  if (!host_state.active_vm->guest_state_not_stale) {
     DBGPRNT(("run_vm: Updating stale VMCS guest-state fields...\n"));
 
     save_restore_guest_state(0 /* this is a "restore" operation */);
 
-    /* Set the "has run since last edit" flag, indicating no fields are
-     * currently stale. */
-    host_state.active_vm->has_run_since_edit = 1;
+    /* Mark this VM's guest state as not stale, since we've just updated it.
+     */
+    host_state.active_vm->guest_state_not_stale = 1;
   }
   else {
-    DBGPRNT(("run_vm: Guest state not edited since last run;"
-         " VMCS guest-state fields not updated.\n"));
+    DBGPRNT(("run_vm: VMCS guest-state fields not stale (not updated).\n"));
   }
 
   /*
@@ -1991,11 +2017,64 @@ sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate) {
    */
   vm_descs[vmid].state = newstate;
 
-  /* Clear the "has run since edit" flag for this VM to indicate that we will
-   * need to re-load the VMCS guest state fields from the VM descriptor
-   * before the next VM entry.
+  /* Mark this VM's guest state as stale since we will need to re-load the
+   * VMCS guest state fields from the VM descriptor before the next VM entry.
    */
-  vm_descs[vmid].has_run_since_edit = 0;
+  vm_descs[vmid].guest_state_not_stale = 0;
+}
+
+/*
+ * Function: update_vmcs_ctrls()
+ *
+ * Description:
+ *  A local helper function that updates control fields in the VMCS to match
+ *  newer values in the active VM descriptor.
+ *
+ * Preconditions:
+ *  - There must be a VMCS loaded on the processor.
+ *
+ *  - The host_state.active_vm pointer should point to the VM descriptor
+ *    corresponding to the VMCS loaded on the processor.
+ *
+ *  This function is meant to be used internally by SVA code that has already
+ *  ensured these conditions hold. Particularly, this is true in run_vm()
+ *  (which inherits these preconditions from its own broader precondition,
+ *  namely, that it is only called at the end of sva_launch/resumevm() after
+ *  all checks have been performed to ensure it is safe to enter a VM).
+ */
+static inline void
+update_vmcs_ctrls() {
+  /* VM execution controls */
+  sva_writevmcs(VMCS_PINBASED_VM_EXEC_CTRLS,
+      host_state.active_vm->ctrls.pinbased_exec_ctrls);
+  sva_writevmcs(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+      host_state.active_vm->ctrls.procbased_exec_ctrls1);
+  sva_writevmcs(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+      host_state.active_vm->ctrls.procbased_exec_ctrls2);
+  sva_writevmcs(VMCS_VM_ENTRY_CTRLS,
+      host_state.active_vm->ctrls.entry_ctrls);
+  sva_writevmcs(VMCS_VM_EXIT_CTRLS,
+      host_state.active_vm->ctrls.exit_ctrls);
+
+  /* VM entry/exit MSR load/store controls */
+  sva_writevmcs(VMCS_VM_ENTRY_MSR_LOAD_COUNT,
+      host_state.active_vm->ctrls.entry_msr_load_count);
+  sva_writevmcs(VMCS_VM_EXIT_MSR_LOAD_COUNT,
+      host_state.active_vm->ctrls.exit_msr_load_count);
+  sva_writevmcs(VMCS_VM_EXIT_MSR_STORE_COUNT,
+      host_state.active_vm->ctrls.exit_msr_store_count);
+
+  /* Event injection and exception controls */
+  sva_writevmcs(VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD,
+      host_state.active_vm->ctrls.entry_interrupt_info);
+  sva_writevmcs(VMCS_EXCEPTION_BITMAP,
+      host_state.active_vm->ctrls.exception_exiting_bitmap);
+
+  /* Control register guest/host masks */
+  sva_writevmcs(VMCS_CR0_GUESTHOST_MASK,
+      host_state.active_vm->ctrls.cr0_guesthost_mask);
+  sva_writevmcs(VMCS_CR4_GUESTHOST_MASK,
+      host_state.active_vm->ctrls.cr4_guesthost_mask);
 }
 
 /*
@@ -2034,7 +2113,8 @@ sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate) {
  *  sva_launch/resumevm() after all checks have been performed to ensure it
  *  is safe to enter a VM).
  */
-static inline void save_restore_guest_state(unsigned char saverestore) {
+static inline void
+save_restore_guest_state(unsigned char saverestore) {
   /*
    * If saverestore == true, we are saving state (copying from the active
    * VMCS to the state structure), i.e. *reading* from the VMCS, so the
@@ -2055,16 +2135,24 @@ static inline void save_restore_guest_state(unsigned char saverestore) {
   /* Flags */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_RFLAGS,
       &host_state.active_vm->state.rflags);
+
   /* Control registers (except paging-related ones) */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_CR0,
       &host_state.active_vm->state.cr0);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_CR4,
       &host_state.active_vm->state.cr4);
+  /* Control register read shadows */
+  read_write_vmcs_field(!saverestore, VMCS_CR0_READ_SHADOW,
+      &host_state.active_vm->state.cr0_read_shadow);
+  read_write_vmcs_field(!saverestore, VMCS_CR4_READ_SHADOW,
+      &host_state.active_vm->state.cr4_read_shadow);
+
   /* Debug registers/MSRs saved/restored by processor */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_DR7,
       &host_state.active_vm->state.dr7);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_DEBUGCTL,
       &host_state.active_vm->state.msr_debugctl);
+
   /* Paging-related registers saved/restored by processor */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_CR3,
       &host_state.active_vm->state.cr3);
@@ -2076,6 +2164,7 @@ static inline void save_restore_guest_state(unsigned char saverestore) {
       &host_state.active_vm->state.pdpte2);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE3,
       &host_state.active_vm->state.pdpte3);
+
   /* SYSENTER-related MSRs */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_SYSENTER_CS,
       &host_state.active_vm->state.msr_sysenter_cs);
@@ -2083,6 +2172,7 @@ static inline void save_restore_guest_state(unsigned char saverestore) {
       &host_state.active_vm->state.msr_sysenter_esp);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_SYSENTER_EIP,
       &host_state.active_vm->state.msr_sysenter_eip);
+
   /* Segment registers (including hidden portions) */
   /* CS */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_BASE,
@@ -2147,6 +2237,7 @@ static inline void save_restore_guest_state(unsigned char saverestore) {
       &host_state.active_vm->state.tr_access_rights);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_SEL,
       &host_state.active_vm->state.tr_sel);
+
   /* Descriptor table registers */
   /* GDTR */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_GDTR_BASE,
@@ -2167,6 +2258,7 @@ static inline void save_restore_guest_state(unsigned char saverestore) {
       &host_state.active_vm->state.ldtr_access_rights);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_SEL,
       &host_state.active_vm->state.ldtr_sel);
+
   /* Various other guest system state */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_ACTIVITY_STATE,
       &host_state.active_vm->state.activity_state);

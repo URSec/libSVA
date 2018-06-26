@@ -164,6 +164,7 @@ static inline unsigned char check_cr0_fixed_bits(void);
 static inline unsigned char check_cr4_fixed_bits(void);
 static inline enum vmx_statuscode_t query_vmx_result(uint64_t rflags);
 static int run_vm(unsigned char use_vmresume);
+static inline void update_vmcs_ctrls();
 static inline void save_restore_guest_state(unsigned char saverestore);
 static inline int read_write_vmcs_field(
     unsigned char write,
@@ -222,27 +223,54 @@ typedef struct vm_desc_t {
    */
   unsigned char is_launched;
 
-  /* Has this VM run since the last time the guest state was edited by the
-   * hypervisor?
+  /* Do we need to update the VMCS controls before the next VM entry?
    *
-   * If so, the next time we run the VM, we do not need to re-load state from
-   * the guest-state structure that is automatically saved/restored by the
-   * processor on VM entry/exit transitions (such as RIP and RSP).
+   * We define this boolean value in the negative (i.e., 0 indicates the
+   * controls *do* need to be reloaded) so that it is set correctly when we
+   * zero-initialize a new VM descriptor.
    *
-   * A hypervisor can edit the guest state by reading it with
-   * sva_getvmstate() and changing it with sva_setvmstate().
+   * The controls are stale when either:
+   *  - The VM has never been run, or
+   *  - The controls have been edited by the hypervisor (or SVA) since the
+   *    last time the VM was run.
    *
-   * Calls to sva_setvmstate() cause this flag to be cleared to "false".
-   *
-   * Note that this value can be set to "true" (has run) by a failed attempt
-   * to run the VM, if that failure occurs after the point in run_vm() where
-   * the current state is copied into the VMCS.
-   *
-   * This is correct behavior (the VMCS guest-state fields are no longer
-   * stale and do not need to be updated on the next VM entry), though not
-   * literally consistent with the name of this variable.
+   * Note that this value can be set to "true" (not stale) by a failed
+   * attempt to run the VM, if that failure occurs after the point in
+   * run_vm() where the updated controls are copied into the VMCS. This is
+   * correct behavior (the VMCS controls are no longer stale and do not need
+   * to be updated on the next VM entry).
    */
-  unsigned char has_run_since_edit;
+  unsigned char vm_ctrls_not_stale;
+
+  /* Current values of all VMCS controls for this VM. */
+  sva_vmx_vm_ctrls ctrls;
+
+  /* Do we need to reload VMCS-resident guest state from our own state
+   * structure before the next VM entry?
+   *
+   * We define this boolean value in the negative (i.e., 0 indicates state
+   * *does* need to be reloaded) so that it is set correctly when we
+   * zero-initialize a new VM descriptor.
+   *
+   * Guest state is stale when either:
+   *  - The VM has never been run, or
+   *  - The VM's guest state has been edited by the hypervisor (or SVA)
+   *    since the last time it was run.
+   *
+   * Note that some state always needs to be reloaded on VM entry, since the
+   * processor leaves its saving/restoring to software instead of doing it
+   * atomically as part of VM entry/exit. This includes, for instance, the
+   * general-purpose registers. The "stale" flag therefore only indicates
+   * whether we explicitly update state that is resident in the VMCS (i.e.,
+   * managed by the processor).
+   *
+   * Note that this value can be set to "true" (not stale) by a failed
+   * attempt to run the VM, if that failure occurs after the point in
+   * run_vm() where the current state is copied into the VMCS. This is
+   * correct behavior (the VMCS guest-state fields are no longer stale and do
+   * not need to be updated on the next VM entry).
+   */
+  unsigned char guest_state_not_stale;
 
   /* State of the guest system virtualized by this VM.
    *
