@@ -1377,6 +1377,72 @@ sva_resumevm(void) {
 static int
 run_vm(unsigned char use_vmresume) {
   /*
+   * If this is the first time this VM has ever been run, set any VMCS fields
+   * that have known values and will never need to be changed as long as the
+   * VM exists.
+   */
+  if (!host_state.active_vm->has_run) {
+    DBGPRNT(("run_vm: Setting one-time VMCS fields for first run of VM...\n"));
+
+    /*
+     * Set the VPID (Virtual Processor ID) field to be equal to the VM ID
+     * assigned to this VM by SVA.
+     *
+     * The VPID distinguishes TLB entries belonging to the VM from those
+     * belonging to the host and to other VMs.
+     *
+     * It must NOT be set to 0; that is used for the host.
+     */
+    /* TODO: SVA should really be using 16-bit integers for VM ID's, since
+     * VPIDs are limited to 16 bits. This is a processor-imposed hard limit on
+     * the number of VMs we can run concurrently if we want to take advantage
+     * of the VPID feature.
+     *
+     * Note also that we will need to avoid assigning 0 as a VM ID, since VPID
+     * = 0 is used to designate the host (and VM entry will fail if we attempt
+     * to use it for a VM).
+     *
+     * Also note: when we (in the future) want to support multi-CPU guests,
+     * each virtual CPU will require its own VMCS and VPID. Think about how we
+     * want to handle this: should the hypervisor be responsible for creating
+     * an independent "VM" (as far as SVA is concerned) for each VCPU and
+     * coordinating between them? Or is there a compelling reason for SVA to
+     * track them together? If so, we will need to devise a new scheme for
+     * allocating VPIDs, independent of SVA's VM IDs.
+     */
+
+    /* Determine the numeric ID of this VM. This is equal to its descriptor's
+     * index within the vm_descs array. We only have the active_vm pointer
+     * directly to the descriptor, so we need to do some pointer arithmetic
+     * to get the index.
+     *
+     * TODO: this will no longer be necessary when you change
+     * sva_launch/resumevm() to take a VMID as a parameter.
+     */
+    size_t vmid = host_state.active_vm - vm_descs;
+
+    sva_writevmcs(VMCS_VPID, vmid);
+
+    /*
+     * Set the "CR3-target count" VM execution control to 0. The value doesn't
+     * actually matter because we are using EPT (and thus there are no
+     * restrictions on what the guest can load into CR3); but if we leave the
+     * value uninitialized, the processor may throw an error on VM entry if the
+     * value is greater than 4.
+     */
+    sva_writevmcs(VMCS_CR3_TARGET_COUNT, 0);
+
+    /* Set VMCS link pointer to indicate that we are not using VMCS shadowing.
+     *
+     * (SVA currently does not support VM nesting.)
+     */
+    uint64_t vmcs_link_ptr = 0xffffffffffffffff;
+    sva_writevmcs(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
+
+    host_state.active_vm->has_run = 1;
+  }
+
+  /*
    * If this VM's VMCS controls have been edited since it was last run (or
    * this is the first time it's being run), load the new values from the VM
    * descriptor.

@@ -223,6 +223,14 @@ typedef struct vm_desc_t {
    */
   unsigned char is_launched;
 
+  /* Has this VM ever been run?
+   *
+   * There are a few VMCS fields which SVA needs to set to known values
+   * before the first run of a VM, but which will never need to be changed
+   * after that. This flag tells us if we need to do so on VM entry.
+   */
+  unsigned char has_run;
+
   /* Do we need to update the VMCS controls before the next VM entry?
    *
    * We define this boolean value in the negative (i.e., 0 indicates the
