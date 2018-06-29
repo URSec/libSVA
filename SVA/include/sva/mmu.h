@@ -156,6 +156,10 @@ enum page_type_t {
     PG_DML2,        /* 12: Defines a L2 PTP  for the direct map */
     PG_DML3,        /* 13: Defines a L3 PTP  for the direct map */
     PG_DML4,        /* 14: Defines a L4 PTP  for the direct map */
+    PG_EPTL1,       /* 15: Defines a L1 PTP for Extended Page Tables (VMX) */
+    PG_EPTL2,       /* 16: Defines a L2 PTP for Extended Page Tables (VMX) */
+    PG_EPTL3,       /* 17: Defines a L3 PTP for Extended Page Tables (VMX) */
+    PG_EPTL4,       /* 18: Defines a L4 PTP for Extended Page Tables (VMX) */
 };
 
 /* Mask to get the address bits out of a PTE, PDE, etc. */
@@ -174,7 +178,7 @@ typedef struct page_desc_t {
     enum page_type_t type;
 
     /*
-     * If the page is a page table page, mark the virtual addres to which it is
+     * If the page is a page table page, mark the virtual address to which it is
      * mapped.
      */
     uintptr_t pgVaddr;
@@ -203,6 +207,13 @@ typedef struct page_desc_t {
     /* the physical adddress of the other (kernel or user/SVA) version pml4 page table page*/
     uintptr_t other_pgPaddr; 
 } page_desc_t;
+
+/* Array describing the physical pages. Used by SVA's MMU and EPT intrinsics.
+ * The index is the physical page number.
+ *
+ * Defined in mmu.c.
+ */
+extern page_desc_t page_desc[numPageDescEntries];
 
 
 /*
@@ -614,6 +625,7 @@ page_desc_t * getPageDescPtr(unsigned long mapping);
 /* See implementation in c file for details */
 static inline page_entry_t * va_to_pte (uintptr_t va, enum page_type_t level);
 static inline int isValidMappingOrder (page_desc_t *pgDesc, uintptr_t newVA);
+void initDeclaredPage (unsigned long frameAddr);
 
 #if 0
 static inline uintptr_t

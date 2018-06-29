@@ -110,8 +110,12 @@ struct PTInfo PTPages[1024] __attribute__ ((section ("svamem")));
 extern unsigned char
 SVAPTPages[1024][X86_PAGE_SIZE] __attribute__ ((section ("svamem")));
 
-/* Array describing the physical pages */
-/* The index is the physical page number */
+/* Array describing the physical pages. Used by SVA's MMU and EPT intrinsics.
+ * The index is the physical page number.
+ *
+ * There is an "extern" declaration for this object in mmu.h so that the EPT
+ * intrinsics can see it.
+ */
 page_desc_t page_desc[numPageDescEntries];
 
 /*
@@ -654,13 +658,8 @@ __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
  *
  * Inputs:
  *  frameAddr: represents the physical address of this frame
- *
- *  *page_entry: A pointer to a page table entry that will be used to
- *      initialize the mapping to this newly created page as read only. Note
- *      that the address of the page_entry must be a virtually accessible
- *      address.
  */
-static inline void 
+void 
 initDeclaredPage (unsigned long frameAddr) {
   /*
    * Get the direct map virtual address of the physical address.

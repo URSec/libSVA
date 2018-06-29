@@ -2586,7 +2586,6 @@ sva_set_up_ept(void) {
       /* Skip over guest code so we don't execute it in the host */
       "jmp guest_program_end\n"
 
-      ".global guest_program_start\n"
       "guest_program_start:\n"
       "movl 4(%%rsp), %%eax\n"
       "movl (%%rsp), %%ebx\n"
@@ -2601,7 +2600,6 @@ sva_set_up_ept(void) {
       "pushq %%rax\n"
       "cpuid\n"
 
-      ".global guest_program_end\n"
       "guest_program_end:\n"
       : "=rm" (guest_program_start), "=rm" (guest_program_end)
       );
@@ -2681,7 +2679,7 @@ sva_set_up_ept(void) {
  *
  * Arguments:
  *  - hier: an sva_vmx_ept_hier structure specifying an EPT hierarchy created
- *    by sva_set_up_ept().
+ *    by sva_set_up_ept(). Only the 0th guest-mapped page is examined.
  */
 void
 sva_print_guest_stack(sva_vmx_ept_hier hier) {
