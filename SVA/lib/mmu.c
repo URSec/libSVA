@@ -2925,10 +2925,13 @@ sva_remove_page (uintptr_t paddr) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
-  /* Get the entry controlling the permissions for this pte PTP */
-  page_entry_t *pte = get_pgeVaddr((uintptr_t)getVirtual (paddr));
+  /*
+   * Get the last-level page table entry in the kernel's direct map that
+   * references this PTP.
+   */
+  page_entry_t *pte_kdmap = get_pgeVaddr((uintptr_t) getVirtual(paddr));
 
-  /* Get the page_desc for the l1 page frame */
+  /* Get the descriptor for the physical frame where this PTP resides. */
   page_desc_t *pgDesc = getPageDescPtr(paddr);
 
   /*
@@ -2944,8 +2947,8 @@ sva_remove_page (uintptr_t paddr) {
 
     default:
       /* Restore interrupts */
-      panic ("SVA: undeclare bad page type: %lx %lx\n", paddr, pgDesc->type);
-      sva_exit_critical (rflags);
+      panic("SVA: undeclare bad page type: %lx %lx\n", paddr, pgDesc->type);
+      sva_exit_critical(rflags);
       usersva_to_kernel_pcid();
       record_tsc(sva_remove_page_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
       return;
@@ -2970,20 +2973,26 @@ sva_remove_page (uintptr_t paddr) {
 #ifdef SVA_ASID_PG
     if(pgDesc->type == PG_L4)
     {
-	uintptr_t other_cr3 = pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
-	
-	if(other_cr3)
-	{  
-		page_desc_t *other_pgDesc = getPageDescPtr(other_cr3);
-		SVA_ASSERT((other_pgDesc->count <= 2),
-			    "the kernel or usersva version pml4 page table page still has reference.\n" );
-		other_pgDesc->type = PG_UNUSED;
-		page_entry_t *other_pte = get_pgeVaddr((uintptr_t)getVirtual (other_cr3));
-	        page_entry_store ((page_entry_t *) other_pte, setMappingReadWrite (*other_pte));
-		sva_mm_flush_tlb(getVirtual(other_cr3));
-		other_pgDesc->other_pgPaddr = 0;
-		pgDesc->other_pgPaddr = 0;
-	}
+      uintptr_t other_cr3 = pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
+
+      if(other_cr3)
+      {  
+        page_desc_t *other_pgDesc = getPageDescPtr(other_cr3);
+        SVA_ASSERT((other_pgDesc->count <= 2),
+            "the kernel or usersva version pml4 page table page "
+            "still has reference.\n" );
+
+        other_pgDesc->type = PG_UNUSED;
+
+        page_entry_t *other_pte =
+          get_pgeVaddr((uintptr_t) getVirtual(other_cr3));
+        page_entry_store(other_pte, setMappingReadWrite(*other_pte));
+
+        sva_mm_flush_tlb(getVirtual(other_cr3));
+
+        other_pgDesc->other_pgPaddr = 0;
+        pgDesc->other_pgPaddr = 0;
+      }
     }
 #endif
     /*
@@ -2995,14 +3004,14 @@ sva_remove_page (uintptr_t paddr) {
      * Make the page writeable again.  Be sure to flush the TLBs to make the
      * change take effect right away.
      */
-    page_entry_store ((page_entry_t *) pte, setMappingReadWrite (*pte));
-    sva_mm_flush_tlb (getVirtual (paddr));
+    page_entry_store(pte_kdmap, setMappingReadWrite(*pte_kdmap));
+    sva_mm_flush_tlb(getVirtual(paddr));
   } else {
-    printf ("SVA: remove_page: type=%x count %x\n", pgDesc->type, pgDesc->count);
+    printf("SVA: remove_page: type=%x count %x\n", pgDesc->type, pgDesc->count);
   }
 
   /* Restore interrupts */
-  sva_exit_critical (rflags);
+  sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
   record_tsc(sva_remove_page_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
   return;
