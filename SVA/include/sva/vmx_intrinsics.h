@@ -422,7 +422,6 @@ void sva_declare_l1_eptpage(uintptr_t frameAddr);
 void sva_declare_l2_eptpage(uintptr_t frameAddr);
 void sva_declare_l3_eptpage(uintptr_t frameAddr);
 void sva_declare_l4_eptpage(uintptr_t frameAddr);
-void sva_undeclare_eptpage(uintptr_t frameAddr);
 void sva_update_l1_eptmapping(pte_t *eptePtr, page_entry_t val);
 void sva_update_l2_eptmapping(pde_t *epdePtr, page_entry_t val);
 void sva_update_l3_eptmapping(pdpte_t *epdptePtr, page_entry_t val);

@@ -2912,6 +2912,9 @@ printPTES (uintptr_t vaddr) {
  *  This function informs the SVA VM that the system software no longer wants
  *  to use the specified page as a page table page.
  *
+ *  This intrinsic should be used to undeclare EPT PTPs as well as regular
+ *  PTPs.
+ *
  * Inputs:
  *  paddr - The physical address of the page table page.
  */
@@ -2938,11 +2941,15 @@ sva_remove_page (uintptr_t paddr) {
    * Make sure that this is a page table page.  We don't want the system
    * software to trick us.
    */
-  switch (pgDesc->type)  {
+  switch (pgDesc->type) {
     case PG_L1:
     case PG_L2:
     case PG_L3:
     case PG_L4:
+    case PG_EPTL1:
+    case PG_EPTL2:
+    case PG_EPTL3:
+    case PG_EPTL4:
       break;
 
     default:
