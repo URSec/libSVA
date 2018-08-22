@@ -2343,59 +2343,58 @@ void * DMPDphys, void * DMPTphys, int ndmpdp, int ndm1g)
   int i, j;
 
   for (i = 0; i < NPTEPG * NPDEPG * ndmpdp; i++) {
-	        ((pte_t *)DMPTphys)[i] = (uintptr_t) i << PAGE_SHIFT;
-		((pte_t *)DMPTphys)[i] |= PG_RW | PG_V 
+    ((pte_t *)DMPTphys)[i] = (uintptr_t) i << PAGE_SHIFT;
+    ((pte_t *)DMPTphys)[i] |= PG_RW | PG_V 
 #ifdef SVA_ASID_PG
-			;
+      ;
 #else
-			| PG_G;
+      | PG_G;
 #endif
-       }
+  }
 
   for (i = NPDEPG * ndm1g, j = 0; i < NPDEPG * ndmpdp; i++, j++) {
-                ((pde_t *)DMPDphys)[j] = (uintptr_t)DMPTphys + ((uintptr_t)j << PAGE_SHIFT);
-                /* Preset PG_M and PG_A because demotion expects it. */
-                ((pde_t *)DMPDphys)[j] |= PG_RW | PG_V; /*| PG_PS | 
+    ((pde_t *)DMPDphys)[j] = (uintptr_t)DMPTphys + ((uintptr_t)j << PAGE_SHIFT);
+    /* Preset PG_M and PG_A because demotion expects it. */
+    ((pde_t *)DMPDphys)[j] |= PG_RW | PG_V; /*| PG_PS | 
 #ifdef SVA_ASID_PG
-                    PG_M | PG_A;
+      PG_M | PG_A;
 #else	
-		    PG_G | PG_M | PG_A;
+      PG_G | PG_M | PG_A;
 #endif*/
-       }
+  }
 
   for (i = 0/*384*/; i < 0 /*384*/ + ndm1g; i++) {
-                ((pdpte_t *)DMPDPphys)[i] = (uintptr_t)(i /*- 384*/) << PDPSHIFT;
-                /* Preset PG_M and PG_A because demotion expects it. */
-                ((pdpte_t *)DMPDPphys)[i] |= PG_RW | PG_V | PG_PS | 
+    ((pdpte_t *)DMPDPphys)[i] = (uintptr_t)(i /*- 384*/) << PDPSHIFT;
+    /* Preset PG_M and PG_A because demotion expects it. */
+    ((pdpte_t *)DMPDPphys)[i] |= PG_RW | PG_V | PG_PS | 
 #ifdef SVA_ASID_PG
-                    PG_M | PG_A;
+      PG_M | PG_A;
 #else	
-		    PG_G | PG_M | PG_A;
+      PG_G | PG_M | PG_A;
 #endif
   }
   for (j = 0; i < /*384 +*/ ndmpdp; i++, j++) {
-                ((pdpte_t *)DMPDPphys)[i] = (uintptr_t)DMPDphys + (uintptr_t)(j << PAGE_SHIFT);
-                ((pdpte_t *)DMPDPphys)[i] |= PG_RW | PG_V | PG_U;
-
+    ((pdpte_t *)DMPDPphys)[i] = (uintptr_t)DMPDphys + (uintptr_t)(j << PAGE_SHIFT);
+    ((pdpte_t *)DMPDPphys)[i] |= PG_RW | PG_V | PG_U;
   }
 
 
   /* Connect the Direct Map slot(s) up to the PML4. */
   for (i = 0; i < NDMPML4E; i++) {
-                ((pdpte_t *)KPML4phys)[DMPML4I + i] = (uintptr_t)DMPDPphys + (uintptr_t)
-                    (i << PAGE_SHIFT);
-                ((pdpte_t *)KPML4phys)[DMPML4I + i] |= PG_RW | PG_V | PG_U;
+    ((pdpte_t *)KPML4phys)[DMPML4I + i] = (uintptr_t)DMPDPphys + (uintptr_t)
+      (i << PAGE_SHIFT);
+    ((pdpte_t *)KPML4phys)[DMPML4I + i] |= PG_RW | PG_V | PG_U;
   }
 
 
   for(i = 0; i < NDMPML4E; i++)
   {
-	sva_declare_dmap_page((unsigned long)DMPDPphys + (i << PAGE_SHIFT));
+    sva_declare_dmap_page((unsigned long)DMPDPphys + (i << PAGE_SHIFT));
   }
 
   for(i = 0; i < ndmpdp - ndm1g; i ++)
   {
-	sva_declare_dmap_page((unsigned long)DMPDphys + (i << PAGE_SHIFT));
+    sva_declare_dmap_page((unsigned long)DMPDphys + (i << PAGE_SHIFT));
   }
 
   return;
@@ -2433,7 +2432,7 @@ void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val)
  *  To initialize the sva page descriptors, this function takes the pml4 base
  *  mapping and walks down each level of the page table tree. 
  *
- *  NOTE: In this function we assume that he page mapping for the kpml4 has
+ *  NOTE: In this function we assume that the page mapping for the kpml4 has
  *  physical addresses in it. We then dereference by obtaining the virtual
  *  address mapping of this page. This works whether or not the processor is in
  *  a virtually addressed or physically addressed mode. 
@@ -3002,6 +3001,7 @@ sva_remove_page (uintptr_t paddr) {
       }
     }
 #endif
+
     /*
      * Mark the page frame as an unused page.
      */
