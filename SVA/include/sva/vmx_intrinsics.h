@@ -417,17 +417,21 @@ void sva_setvmctrls(size_t vmid, sva_vmx_vm_ctrls newctrls);
 sva_vmx_guest_state sva_getvmstate(void);
 void sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate);
 
-/* VMX MMU intrinsics for managing Extended Page Tables */
+/*
+ * VMX-specific MMU intrinsics for managing Extended Page Tables.
+ *
+ * In addition to the intrinsics declared here, the following
+ * non-EPT-specific MMU intrinsics (see mmu_intrinsics.h) support extended
+ * page tables as well as regular ones:
+ *    * sva_remove_page() (used to undeclare page table pages)
+ */
 void sva_declare_l1_eptpage(uintptr_t frameAddr);
 void sva_declare_l2_eptpage(uintptr_t frameAddr);
 void sva_declare_l3_eptpage(uintptr_t frameAddr);
 void sva_declare_l4_eptpage(uintptr_t frameAddr);
-void sva_update_l1_eptmapping(pte_t *eptePtr, page_entry_t val);
-void sva_update_l2_eptmapping(pde_t *epdePtr, page_entry_t val);
-void sva_update_l3_eptmapping(pdpte_t *epdptePtr, page_entry_t val);
-void sva_update_l4_eptmapping(pdpte_t *epml4ePtr, page_entry_t val);
-void sva_remove_eptmapping(page_entry_t *eptePtr);
-int sva_load_eptable(size_t vmid, uintptr_t epml4t);
+void sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val);
+void sva_remove_ept_mapping(page_entry_t *eptePtr);
+int sva_load_eptable(size_t vmid, pml4e_t *epml4t);
 uintptr_t sva_save_eptable(size_t vmid);
 
 /* These intrinsics are for use during development.

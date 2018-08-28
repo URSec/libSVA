@@ -320,3 +320,74 @@ sva_declare_l4_eptpage(uintptr_t frameAddr) {
   /* Restore interrupts */
   sva_exit_critical(rflags);
 }
+
+/*
+ * Intrinsic: sva_update_ept_mapping()
+ *
+ * Description:
+ *  This intrinsic updates a page table entry (PTE) within an extended page
+ *  table. That is, it adds/replaces a mapping from a guest-physical page to
+ *  a host-physical page, or a reference to a lower-level page table (in the
+ *  case of a PTE located in a non-last-level table).
+ *
+ *  This function makes different checks to ensure the mapping does not
+ *  bypass the type safety proven by the compiler.
+ *
+ *  Note that this intrinsic supports changing mappings at any level in the
+ *  EPT paging hierarchy. It infers the level of the page-table page being
+ *  modified from SVA's internal data structures which remember the declared
+ *  usage of each physical frame.
+ *
+ *  (The non-EPT intrinsics sva_update_l<1-4>_mapping() actually do the same
+ *  thing internally, even though they are separate intrinsics on the
+ *  surface. We could/should unify those into a single intrinsic.)
+ *
+ * Inputs:
+ *  epteptr - The location within the page table page in which the new
+ *            translation should be placed.
+ *  val     - The new translation (page-table entry) to insert into the
+ *            extended page table.
+ */
+void
+sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+  /*
+   * Disable interrupts so that we appear to execute as a single instruction.
+   */
+  unsigned long rflags = sva_enter_critical();
+
+  /*
+   * Ensure that the PTE pointer points to an EPT page table. If it does not,
+   * report an error.
+   */
+  page_desc_t *ptDesc = getPageDescPtr(getPhysicalAddr(eptePtr));
+  if (!disableMMUChecks) {
+    switch(ptDesc->type) {
+      case PG_EPTL1:
+      case PG_EPTL2:
+      case PG_EPTL3:
+      case PG_EPTL4:
+        break;
+
+      default:
+        panic("SVA: MMU: attempted to update an EPTE in a page that isn't "
+            "an EPTP! Location: 0x%lx; new value: 0x%lx; "
+            "actual frame type: 0x%lx\n", eptePtr, val, ptDesc->type);
+        break;
+    }
+  }
+
+  /*
+   * Update the page table with the new mapping. The __update_mapping()
+   * function is responsible for doing any further checks.
+   */
+  __update_mapping(eptePtr, val);
+
+  /* Restore interrupts and return to the kernel page tables. */
+  sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
+}

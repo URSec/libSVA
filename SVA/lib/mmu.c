@@ -61,11 +61,6 @@ static inline uintptr_t getPhysicalAddrSVADMAP (void * v);
 static inline page_entry_t * get_pgeVaddr (uintptr_t vaddr);
 
 /*
- * Mapping update function prototypes.
- */
-static inline void __update_mapping (pte_t * pageEntryPtr, page_entry_t val);
-
-/*
  *****************************************************************************
  * Define paging structures and related constants local to this source file
  *****************************************************************************
@@ -239,6 +234,8 @@ page_entry_store (unsigned long *page_entry, page_entry_t newVal) {
  * Description:
  *  This function assesses a potential page table update for a valid mapping.
  *
+ *  It also works for extended page table (EPT) updates.
+ *
  *  NOTE: This function assumes that the page being mapped in has already been
  *  declared and has its intial page metadata captured as defined in the
  *  initial mapping of the page.
@@ -267,10 +264,13 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
   uintptr_t newVA = (uintptr_t) getVirtual(newPA);
   page_desc_t *newPG = &page_desc[newFrame];
 
-  /* Get the page table page descriptor. The page_entry is the viratu */
-  uintptr_t ptePAddr = getPhysicalAddr (page_entry);
+  /* Get the page table page descriptor. */
+  uintptr_t ptePAddr = getPhysicalAddr(page_entry);
   page_desc_t *ptePG = getPageDescPtr(ptePAddr);
 
+  /* Is this an extended page table update? */
+  unsigned char isEPT = (ptePG->type >= PG_EPTL1) && (ptePG->type <= PG_EPTL4);
+ 
   /* Return value */
   unsigned char retValue = 2;
 
@@ -281,22 +281,22 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
     return retValue;
 
   /*
-   * Determine if the page table pointer is within the direct map.  If not,
-   * then it's an error.
+   * Determine if the page table pointer is within the kernel's direct map.
+   * If not, then it's an error.
    *
-   * TODO: This check can cause a panic because the SVA VM does not set
-   *       up the direct map before starting the kernel.  As a result, we get
-   *       page table addresses that don't fall into the direct map.
+   * TODO: This check can cause a panic because the SVA VM does not set up
+   *       the kernel's direct map before starting the kernel. As a result,
+   *       we get page table addresses that don't fall into the direct map.
    */
-  SVA_NOOP_ASSERT (isDirectMap (page_entry), "SVA: MMU: Not direct map\n");
+  SVA_NOOP_ASSERT(isDirectMap(page_entry), "SVA: MMU: Not direct map\n");
 
   /*
-   * Verify that we're not trying to modify the PML4E entry that controls the
+   * Verify that we're not trying to modify the PML4 entry that controls the
    * ghost address space.
    */
   if (vg) {
     if ((ptePG->type == PG_L4) && ((ptePAddr & PG_FRAME) == secmemOffset)) {
-      panic ("SVA: MMU: Trying to modify ghost memory pml4e!\n");
+      panic("SVA: MMU: Kernel attempted to modify ghost memory pml4e!\n");
     }
   }
 
@@ -307,209 +307,242 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
    * should suffice.
    */
   if (vg) {
-    SVA_ASSERT (!isGhostPTP(ptePG), "SVA: MMU: Kernel modifying ghost memory!\n");
+    SVA_ASSERT(!isGhostPTP(ptePG),
+        "SVA: MMU: Kernel attempted to modify ghost memory mappings!\n");
   }
+
+  /*
+   * Verify that we're not attempting to establish a mapping to a ghost PTP.
+   */
+  if (isGhostPTP(newPG))
+    panic("SVA: MMU: Kernel attempted to map a ghost PTP!");
 
   /*
    * Add check that the direct map is not being modified.
    */
   if ((PG_DML1 <= ptePG->type) && (ptePG->type <= PG_DML4)) {
-    panic ("SVA: MMU: Modifying direct map!\n");
+    panic("SVA: MMU: Modifying direct map!\n");
   }
 
   /* 
    * If we aren't mapping a new page then we can skip several checks, and in
-   * some cases we must, otherwise, the checks will fail. For example if this
-   * is a mapping in a page table page then we allow a zero mapping. 
+   * some cases we must, otherwise the checks will fail.
    */
-  if (newVal & PG_V) {
+  if (isEPT ? isPresentEPT(&newVal) : isPresent(&newVal)) {
     /*
-     * If the new mapping references a secure memory page, then silently
-     * ignore the request.  This reduces porting effort because the kernel
-     * can try to map a ghost page, and the mapping will just never happen.
+     * If this is a last-level mapping (L1 or large page with PS bit set),
+     * verify that the mapping points to physical memory the OS is allowed to
+     * access.
+     *
+     * For non-last-level mappings, verify that the mappoing points to the
+     * appropriate next-level page table.
+     *
+     * NOTE: PG_PS and PG_EPT_PS are the same bit (#7), so we can use the
+     * same check for both regular and extended page tables.
      */
-    if (vg && isGhostPG(newPG)) {
-      return 0;
-    }
-
-    /* If the new mapping references a secure memory page fail */
-    if (vg) SVA_ASSERT (!isGhostPTP(newPG), "MMU: Kernel mapping a ghost PTP");
-
-    /* If the mapping is to an SVA page then fail */
-    SVA_ASSERT (!isSVAPg(newPG), "Kernel attempted to map an SVA page");
-
-    /*
-     * New mappings to code pages are permitted as long as they are either
-     * for user-space pages or do not permit write access.
-     */
-    if (isCodePg (newPG)) {
-      if ((newVal & (PG_RW | PG_U)) == (PG_RW)) {
-        panic ("SVA: Making kernel code writeable: %lx %lx\n", newVA, newVal);
-      }
-    }
-
-    /* 
-     * If the new page is a page table page, then we verify some page table
-     * page specific checks. 
-     */
-    if (isPTP(newPG)) {
-      /* 
-       * If we have a page table page being mapped in and it currently
-       * has a mapping to it, then we verify that the new VA from the new
-       * mapping matches the existing currently mapped VA.   
+    if (ptePG->type == PG_L1 || (newVal & PG_PS)) {
+      /*
+       * The OS is only allowed to create mappings to certain types of frames
+       * (e.g., unused, kernel data, or user data frames). Some frame types
+       * are allowed but are forced to be mapped non-writably (e.g. PTPs and
+       * code pages).
        *
-       * This guarantees that we each page table page (and the translations
-       * within it) maps a singular region of the address space.
-       *
-       * Otherwise, this is the first mapping of the page, and we should record
-       * in what virtual address it is being placed.
+       * All requests to add mappings to frame types not explicitly handled
+       * here are rejected by SVA. This is a "fail-closed" design that will
+       * reduce the risk of loopholes as we add frame types in ongoing SVA
+       * development.
        */
+      switch (newPG->type) {
+        /* These mappings are allowed without restriction. */
+        case PG_UNUSED:
+        case PG_TKDATA:
+        case PG_TUDATA:
+          break;
+
+          /* These are allowed, but forced to be non-writable. */
+        case PG_L1:
+        case PG_L2:
+        case PG_L3:
+        case PG_L4:
+          /* NOTE (EJJ 8/25/18): This code was commented-out in the original
+           * version of this function before I refactored it. I've left it
+           * that way and have not changed the comment below because I'm not
+           * entirely sure whether this code is still needed or worked
+           * correctly (given it was commented out).
+           */
+          /* 
+           * If the new page is a page table page, then we verify some page
+           * table page specific checks. 
+           *
+           * If we have a page table page being mapped in and it currently
+           * has a mapping to it, then we verify that the new VA from the new
+           * mapping matches the existing currently mapped VA.   
+           *
+           * This guarantees that we each page table page (and the
+           * translations within it) maps a singular region of the address
+           * space.
+           *
+           * Otherwise, this is the first mapping of the page, and we should
+           * record in what virtual address it is being placed.
+           */
 #if 0
-      if (pgRefCount(newPG) > 1) {
-        if (newPG->pgVaddr != page_entry) {
-          panic ("SVA: PG: %lx %lx: type=%x\n", newPG->pgVaddr, page_entry, newPG->type);
-        }
-        SVA_ASSERT (newPG->pgVaddr == page_entry, "MMU: Map PTP to second VA");
-      } else {
-        newPG->pgVaddr = page_entry;
-      }
+          if (pgRefCount(newPG) > 1) {
+            if (newPG->pgVaddr != page_entry) {
+              panic ("SVA: PG: %lx %lx: type=%x\n",
+                  newPG->pgVaddr, page_entry, newPG->type);
+            }
+            SVA_ASSERT (newPG->pgVaddr == page_entry,
+                "MMU: Map PTP to second VA");
+          } else {
+            newPG->pgVaddr = page_entry;
+          }
 #endif
+        case PG_EPTL1:
+        case PG_EPTL2:
+        case PG_EPTL3:
+        case PG_EPTL4:
+        case PG_CODE:
+          /*
+           * NOTE (EJJ 8/25/18): This code was included in this function
+           * before I refactored it. Based on the original comment, it
+           * *appeared* to be intended to *allow* writable mappings to code
+           * pages if they were in userspace. However, it was superseded by
+           * another check which explicitly made all code-page mappings
+           * non-writable (which is reflected in this switch table here in
+           * the refactored code).
+           *
+           * If not for the superseding check, I believe this would have been
+           * a security hole, since giving the kernel the power to make
+           * writable mappings in userspace to any code page is as good as
+           * allowing the kernel to make its own writable code page mappings.
+           *
+           * Perhaps what was intended (but incorrectly implemented) was to
+           * allow writable mappings to code pages which have been declare to
+           * SVA as being for use in userspace? (In any case, SVA doesn't
+           * presently have a frame type to represent that.)
+           *
+           * I've included the code here, commented-out, for posterity in
+           * case it existed for a reason which remains relevant. Please note
+           * that it will not simply "work" if you uncomment it, because this
+           * case falls through to "retValue = 1" (force non-writable) below,
+           * which matches the *actual* behavior of the pre-refactoring code
+           * (due to a superseding check which blanketly disallowed writable
+           * code-page mappings).
+           *
+           *    Original comment:
+           * New mappings to code pages are permitted as long as they are
+           * either for user-space pages or do not permit write access.
+           */
+#if 0
+          if (isCodePg(newPG)) {
+            if ((newVal & (PG_RW | PG_U)) == (PG_RW)) {
+              panic ("SVA: Making kernel code writeable: %lx %lx\n", newVA, newVal);
+            }
+          }
+#endif
+          retValue = 1;
+          break;
+
+          /* These are explicitly disallowed. */
+        case PG_GHOST:
+          /*
+           * Silently ignore the mapping request. This reduces porting effort
+           * because it's less likely to break something if the kernel
+           * accidentally attempts to map a ghost page (as long as the kernel
+           * doesn't actually try to access it).
+           */
+          printf("SVA: MMU: Kernel attempted to map a ghost page. "
+              "Ignoring and continuing...\n");
+          retValue = 0;
+          break;
+        case PG_SVA:
+          panic("SVA: MMU: Kernel attempted to map an SVA page!");
+          break;
+
+          /* All other mapping types are disallowed. */
+        default:
+          panic("SVA: MMU: Kernel attempted to map a page of unrecognized type! "
+              "paddr: 0x%lx; vaddr: 0x%lx; type: 0x%x",
+              newPA, newVA, newPG->type);
+          break;
+      }
+    } else { /* not an L1 or large page PTE */
+      /*
+       * This is a non-last-level mapping. Verify that it points to the
+       * appropriate type of next-level PTP.
+       */
+      switch (ptePG->type) {
+        case PG_L4:
+          /* 
+           * FreeBSD inserts a self mapping into the pml4, therefore it is
+           * valid to map in an L4 page into the L4.
+           *
+           * TODO: Consider the security implications of allowing an L4 to
+           *       map an L4.
+           */
+          SVA_ASSERT(isL3Pg(newPG) || isL4Pg(newPG), 
+              "SVA: MMU: Mapping non-L3/L4 page into L4.");
+          break;
+        case PG_L3:
+          SVA_ASSERT(isL2Pg(newPG),
+              "SVA: MMU: Mapping non-L2 page into L3.");
+          break;
+        case PG_L2:
+          SVA_ASSERT(isL1Pg(newPG),
+              "SVA: MMU: Mapping non-L1 page into L2.");
+          break;
+        /* L1 mappings are always last-level, no case needed.
+         * (We couldn't be in this "else" branch if it were true.)
+         */
+
+        case PG_EPTL4:
+          SVA_ASSERT(isEPTL3Pg(newPG),
+              "SVA: MMU: Mapping non-L3 EPT page into EPT L4.");
+          break;
+        case PG_EPTL3:
+          SVA_ASSERT(isEPTL2Pg(newPG),
+              "SVA: MMU: Mapping non-L2 EPT page into EPT L3.");
+          break;
+        case PG_EPTL2:
+          SVA_ASSERT(isEPTL1Pg(newPG),
+              "SVA: MMU: Mapping non-L1 EPT page into EPT L1.");
+          break;
+        /* L1 mappings are always last-level, no case needed. */
+
+        default:
+          SVA_ASSERT_UNREACHABLE(
+              "SVA: MMU: attempted to use a page table update intrinsic on "
+              "a page that isn't a PTP!");
+          break;
+      }
+    } /* end else (not editing L1 or large-page PTP) */
+
+    /* Don't allow existing kernel code mappings to be changed/removed. */
+    if (origPA != newPA) {
+      if (isCodePg(origPG)) {
+        SVA_ASSERT((*page_entry & PG_U), "SVA: MMU: Kernel attempted to "
+            "modify a kernel-space code page mapping!");
+      }
     }
 
     /*
-     * Verify that that the mapping matches the correct type of page
-     * allowed to be mapped into this page table. Verify that the new
-     * PTP is of the correct type given the page level of the page
-     * entry. 
+     * TODO: actually implement the checks described here. This comment has
+     * been around for a while but doesn't actually correspond to any code.
+     *
+     * If the new mapping is set for user access, but the VA being used is to
+     * kernel space, fail. Also capture in this check is if the new mapping is
+     * set for super user access, but the VA being used is to user space, fail.
+     *
+     * 3 things to assess for matches: 
+     *  - U/S Flag of new mapping
+     *  - Type of the new mapping frame
+     *  - Type of the PTE frame
+     * 
+     * Ensures the new mapping U/S flag matches the PT page frame type and the
+     * mapped in frame's page type, as well as no mapping kernel code pages
+     * into userspace.
      */
-    switch (ptePG->type) {
-      case PG_L1:
-        if (!isFramePg(newPG)) {
-          /* If it is a ghost frame, stop with an error */
-          if (vg && isGhostPG (newPG)) panic ("SVA: MMU: Mapping ghost page!\n");
-
-          /*
-           * If it is a page table page, just ensure that it is not writeable.
-           * The kernel may be modifying the direct map, and we will permit
-           * that as long as it doesn't make page tables writeable.
-           *
-           * Note: The SVA VM really should have its own direct map that the
-           *       kernel cannot use or modify, but that is too much work, so
-           *       we make this compromise.
-           */
-          if ((newPG->type >= PG_L1) && (newPG->type <= PG_L4)) {
-            retValue = 1;
-          } else {
-            panic ("SVA: MMU: Map bad page type into L1: %x\n", newPG->type);
-          }
-        }
-
-        break;
-
-      case PG_L2:
-        if (newVal & PG_PS) {
-          if (!isFramePg(newPG)) {
-            /* If it is a ghost frame, stop with an error */
-            if (vg && isGhostPG (newPG)) panic ("SVA: MMU: Mapping ghost page!\n");
-
-            /*
-             * If it is a page table page, just ensure that it is not writeable.
-             * The kernel may be modifying the direct map, and we will permit
-             * that as long as it doesn't make page tables writeable.
-             *
-             * Note: The SVA VM really should have its own direct map that the
-             *       kernel cannot use or modify, but that is too much work, so
-             *       we make this compromise.
-             */
-            if ((newPG->type >= PG_L1) && (newPG->type <= PG_L4)) {
-              retValue = 1;
-            } else {
-              panic ("SVA: MMU: Map bad page type into L2: %x\n", newPG->type);
-            }
-          }
-        } else {
-          SVA_ASSERT (isL1Pg(newPG), "MMU: Mapping non-L1 page into L2.");
-        }
-        break;
-
-      case PG_L3:
-        if (newVal & PG_PS) {
-          if (!isFramePg(newPG)) {
-            /* If it is a ghost frame, stop with an error */
-            if (vg && isGhostPG (newPG)) panic ("SVA: MMU: Mapping ghost page!\n");
-
-            /*
-             * If it is a page table page, just ensure that it is not writeable.
-             * The kernel may be modifying the direct map, and we will permit
-             * that as long as it doesn't make page tables writeable.
-             *
-             * Note: The SVA VM really should have its own direct map that the
-             *       kernel cannot use or modify, but that is too much work, so
-             *       we make this compromise.
-             */
-            if ((newPG->type >= PG_L1) && (newPG->type <= PG_L4)) {
-              retValue = 1;
-            } else {
-              panic ("SVA: MMU: Map bad page type into L2: %x\n", newPG->type);
-            }
-          }
-        } else {
-          SVA_ASSERT (isL2Pg(newPG), "MMU: Mapping non-L2 page into L3.");
-        }
-        break;
-
-      case PG_L4:
-        /* 
-         * FreeBSD inserts a self mapping into the pml4, therefore it is
-         * valid to map in an L4 page into the L4.
-         *
-         * TODO: Consider the security implications of allowing an L4 to map
-         *       an L4.
-         */
-        SVA_ASSERT (isL3Pg(newPG) || isL4Pg(newPG), 
-                    "MMU: Mapping non-L3/L4 page into L4.");
-        break;
-
-      default:
-        break;
-    }
-  }
-
-  if(isCodePg (newPG)) {
-    retValue = 1;
-  }
-
-  /*
-   * If the new mapping is set for user access, but the VA being used is to
-   * kernel space, fail. Also capture in this check is if the new mapping is
-   * set for super user access, but the VA being used is to user space, fail.
-   *
-   * 3 things to assess for matches: 
-   *  - U/S Flag of new mapping
-   *  - Type of the new mapping frame
-   *  - Type of the PTE frame
-   * 
-   * Ensures the new mapping U/S flag matches the PT page frame type and the
-   * mapped in frame's page type, as well as no mapping kernel code pages
-   * into userspace.
-   */
-  
-  /* 
-   * If the original PA is not equivalent to the new PA then we are creating
-   * an entirely new mapping, thus make sure that this is a valid new page
-   * reference. Also verify that the reference counts to the old page are
-   * sane, i.e., there is at least a current count of 1 to it. 
-   */
-  if (origPA != newPA) {
-    /* 
-     * If the old mapping was to a code page then we know we shouldn't be
-     * pointing this entry to another code page, thus fail.
-     */
-    if (isCodePg (origPG)) {
-      SVA_ASSERT ((*page_entry & PG_U),
-                  "Kernel attempting to modify code page mapping");
-    }
-  }
+  } /* end if (new mapping is present) */
 
   return retValue;
 }
@@ -702,12 +735,16 @@ initDeclaredPage (unsigned long frameAddr) {
  *  of the verification code is consistent regardless of which level page
  *  update we are doing. 
  *
+ *  Also works for extended page table (EPT) updates.
+ *  TODO: doesn't fully work yet, still need to extend __do_mmu_update() and
+ *        setMappingReadOnly()
+ *
  * Inputs:
  *  - pageEntryPtr : reference to the page table entry to insert the mapping
  *      into
  *  - val : new entry value
  */
-static inline void
+void
 __update_mapping (pte_t * pageEntryPtr, page_entry_t val) {
   /* 
    * If the given page update is valid then store the new value to the page
@@ -2952,8 +2989,8 @@ sva_remove_page (uintptr_t paddr) {
       break;
 
     default:
-      /* Restore interrupts */
       panic("SVA: undeclare bad page type: %lx %lx\n", paddr, pgDesc->type);
+      /* Restore interrupts and return to kernel page tables */
       sva_exit_critical(rflags);
       usersva_to_kernel_pcid();
       record_tsc(sva_remove_page_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
@@ -3070,7 +3107,7 @@ sva_remove_mapping(page_entry_t * pteptr) {
   page_desc_t *pgDesc = getPageDescPtr(*pteptr);
 
   /* Update the page table mapping to zero */
-  __update_mapping (pteptr, ZERO_MAPPING);
+  __update_mapping(pteptr, ZERO_MAPPING);
 
 #ifdef SVA_ASID_PG
   uintptr_t phys = getPhysicalAddr(pteptr);
@@ -3088,7 +3125,7 @@ sva_remove_mapping(page_entry_t * pteptr) {
   
 
   /* Restore interrupts */
-  sva_exit_critical (rflags);
+  sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
   record_tsc(sva_remove_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
@@ -3105,11 +3142,11 @@ sva_remove_mapping(page_entry_t * pteptr) {
  *  not marked as global.
  *
  *  This function makes different checks to ensure the mapping
- *  does not bypass the type safety proved by the compiler.
+ *  does not bypass the type safety proven by the compiler.
  *
  * Inputs:
  *  pteptr - The location within the L1 page in which the new translation
- *           should be place.
+ *           should be placed.
  *  val    - The new translation to insert into the page table.
  */
 void
@@ -3160,11 +3197,11 @@ sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned lon
  *  a direct translation from a virtual page to a physical page.
  *
  *  This function makes different checks to ensure the mapping
- *  does not bypass the type safety proved by the compiler.
+ *  does not bypass the type safety proven by the compiler.
  *
  * Inputs:
  *  pteptr - The location within the L1 page in which the new translation
- *           should be place.
+ *           should be placed.
  *  val    - The new translation to insert into the page table.
  */
 void
@@ -3183,9 +3220,9 @@ sva_update_l1_mapping(pte_t * pteptr, page_entry_t val) {
    * Ensure that the PTE pointer points to an L1 page table.  If it does not,
    * then report an error.
    */
-  page_desc_t * ptDesc = getPageDescPtr (getPhysicalAddr(pteptr));
+  page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pteptr));
   if ((ptDesc->type != PG_L1) && (!disableMMUChecks)) {
-    panic ("SVA: MMU: update_l1 not an L1: %lx %lx: %lx\n", pteptr, val, ptDesc->type);
+    panic("SVA: MMU: update_l1 not an L1: %lx %lx: %lx\n", pteptr, val, ptDesc->type);
   }
 
   /*
@@ -3194,7 +3231,7 @@ sva_update_l1_mapping(pte_t * pteptr, page_entry_t val) {
   __update_mapping(pteptr, val);
 
   /* Restore interrupts */
-  sva_exit_critical (rflags);
+  sva_exit_critical(rflags);
 
   usersva_to_kernel_pcid();
 
@@ -3225,9 +3262,9 @@ sva_update_l2_mapping(pde_t * pdePtr, page_entry_t val) {
    * Ensure that the PTE pointer points to an L1 page table.  If it does not,
    * then report an error.
    */
-  page_desc_t * ptDesc = getPageDescPtr (getPhysicalAddr (pdePtr));
+  page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pdePtr));
   if ((ptDesc->type != PG_L2) && (!disableMMUChecks)) {
-    panic ("SVA: MMU: update_l2 not an L2: %lx %lx: type=%lx count=%lx\n", pdePtr, val, ptDesc->type, ptDesc->count);
+    panic("SVA: MMU: update_l2 not an L2: %lx %lx: type=%lx count=%lx\n", pdePtr, val, ptDesc->type, ptDesc->count);
   }
 
   /*
@@ -3236,7 +3273,7 @@ sva_update_l2_mapping(pde_t * pdePtr, page_entry_t val) {
   __update_mapping(pdePtr, val);
 
   /* Restore interrupts */
-  sva_exit_critical (rflags);
+  sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
   record_tsc(sva_update_l2_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
   return;
@@ -3260,15 +3297,15 @@ void sva_update_l3_mapping(pdpte_t * pdptePtr, page_entry_t val) {
    * Ensure that the PTE pointer points to an L1 page table.  If it does not,
    * then report an error.
    */
-  page_desc_t * ptDesc = getPageDescPtr (getPhysicalAddr (pdptePtr));
+  page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pdptePtr));
   if ((ptDesc->type != PG_L3) && (!disableMMUChecks)) {
-    panic ("SVA: MMU: update_l3 not an L3: %lx %lx: %lx\n", pdptePtr, val, ptDesc->type);
+    panic("SVA: MMU: update_l3 not an L3: %lx %lx: %lx\n", pdptePtr, val, ptDesc->type);
   }
 
   __update_mapping(pdptePtr, val);
 
   /* Restore interrupts */
-  sva_exit_critical (rflags);
+  sva_exit_critical(rflags);
 
   usersva_to_kernel_pcid();
   record_tsc(sva_update_l3_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
@@ -3293,9 +3330,9 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
    * Ensure that the PTE pointer points to an L1 page table.  If it does not,
    * then report an error.
    */
-  page_desc_t * ptDesc = getPageDescPtr (getPhysicalAddr (pml4ePtr));
+  page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pml4ePtr));
   if ((ptDesc->type != PG_L4) && (!disableMMUChecks)) {
-    panic ("SVA: MMU: update_l4 not an L4: %lx %lx: %lx\n", pml4ePtr, val, ptDesc->type);
+    panic("SVA: MMU: update_l4 not an L4: %lx %lx: %lx\n", pml4ePtr, val, ptDesc->type);
   }
 
 
@@ -3309,7 +3346,7 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
     pml4e_t * kernel_pml4ePtr = (pml4e_t *)((uintptr_t) getVirtual(other_cr3) | index); 
     page_desc_t * kernel_ptDesc = getPageDescPtr(other_cr3);
     if((kernel_ptDesc->type != PG_L4) && (!disableMMUChecks)){
-           panic ("SVA: MMU: update_l4 kernel or sva version pte not an L4: %lx %lx: %lx\n", kernel_pml4ePtr, val, kernel_ptDesc->type);
+           panic("SVA: MMU: update_l4 kernel or sva version pte not an L4: %lx %lx: %lx\n", kernel_pml4ePtr, val, kernel_ptDesc->type);
     }
 
     if(((index >> 3) == PML4PML4I) && ((val & PG_FRAME) == (getPhysicalAddr(pml4ePtr) & PG_FRAME)))
@@ -3319,7 +3356,7 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
 #endif
 
   /* Restore interrupts */
-  sva_exit_critical (rflags);
+  sva_exit_critical(rflags);
 
   usersva_to_kernel_pcid();
 

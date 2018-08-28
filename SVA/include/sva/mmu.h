@@ -131,6 +131,18 @@ SVA_ASSERT (unsigned char passed, char * str) {
 }
 
 /*
+ * Function: SVA_ASSERT_UNREACHABLE()
+ *
+ * Description:
+ *  An assert that unconditionally fails. Used to assert that a particular
+ *  code path should never be reached.
+ */
+static inline void
+SVA_ASSERT_UNREACHABLE (char * str) {
+  SVA_ASSERT(0, str);
+}
+
+/*
  *****************************************************************************
  * Define structures used in the SVA MMU interface.
  *****************************************************************************
@@ -274,6 +286,13 @@ extern page_desc_t page_desc[numPageDescEntries];
 #define NBPML4      (1UL<<PML4SHIFT)/* bytes/page map lev4 table */
 #define PML4MASK    (NBPML4-1)
 
+/*
+ * Note (Ethan Johnson, 8/23/18): I'm not sure if the following lines should
+ * be included in the "FreeBSD code block". They were added in a 10/9/17
+ * commit by Xiaowan Dong (hash 8339693, note "COW on ghost memory"), so they
+ * may be original content written by the SVA research group and not part of
+ * the FreeBSD-copyrighted section.
+ */
 /* Page fault code flags*/
 #define PGEX_P      0x01    /* Protection violation vs. not present */
 #define PGEX_W      0x02    /* during a Write cycle */
@@ -281,6 +300,11 @@ extern page_desc_t page_desc[numPageDescEntries];
 /* Fork code flags */
 #define RFPROC      (1<<4)  /* change child (else changes curproc) */
 #define RFMEM       (1<<5)  /* share `address space' */
+/*
+ * ===========================================================================
+ * END FreeBSD CODE BLOCK
+ * ===========================================================================
+ */
 
 /*
  * NDMPML4E is the number of PML4 entries that are used to implement the
@@ -294,11 +318,21 @@ extern page_desc_t page_desc[numPageDescEntries];
 /* ASID/page table switch*/
 #define PML4PML4I   (NPML4EPG/2)    /* Index of recursive pml4 mapping */
 #define PML4_SWITCH_DISABLE 0x10    /*Disable pmle4 page table page switch in Trap() handler*/
-/*
- * ===========================================================================
- * END FreeBSD CODE BLOCK
- * ===========================================================================
- */
+
+/* EPT page table entry flags */
+#define PG_EPT_R    0x1     /* R    Read                */
+#define PG_EPT_W    0x2     /* W    Write               */
+#define PG_EPT_X    0x4     /* X    Execute             */
+                            /* (only for supervisor accesses if mode-based
+                             * control enabled) */
+#define PG_EPT_IPAT 0x40    /* IPAT Ignore PAT memory type */
+#define PG_EPT_PS   PG_PS   /* PS   Page size           */
+                            /* (0x80, same as regular page tables) */
+#define PG_EPT_A    0x100   /* A    Accessed            */
+#define PG_EPT_D    0x200   /* D    Dirty               */
+#define PG_EPT_XU   0x400   /* XU   Execute (user-mode) */
+                            /* (only if mode-based execute control enabled) */
+#define PG_EPT_SVE  (1ul<<63) /* SVE Suppress EPT-violation #VE (if enabled) */
 
 extern uintptr_t getPhysicalAddr (void * v);
 extern unsigned char
@@ -439,8 +473,39 @@ get_ptePaddr (pde_t * pde, uintptr_t vaddr) {
 
 /* Functions for querying information about a page table entry */
 static inline unsigned char
-isPresent (uintptr_t * pte) {
-  return (*pte & 0x1u) ? 1u : 0u;
+isPresent (page_entry_t * pte) {
+  return (*pte & PG_V) ? 1u : 0u;
+}
+static inline unsigned char
+isPresentEPT (page_entry_t * epte) {
+  /*
+   * EPT page table entries don't have a "valid" flag. Instead, a mapping is
+   * considered present if and only if any of the read, write, or execute
+   * flags are set to 1.
+   */
+  return (*epte & PG_EPT_R & PG_EPT_W & PG_EPT_X) ? 1u : 0u;
+  /*
+   * NOTE: if the "mode-based execute control for EPT" VM-execution control
+   * is enabled, the X bit only controls supervisor-mode accesses, and a
+   * separate XU bit controls user-mode execute permissions. Thus, when this
+   * feature is enabled, we need to check all four of the R, W, X, and XU
+   * bits to determine whether the mapping is present.
+   *
+   * However, when this feature is disabled (or unsupported by the hardware),
+   * the XU bit is *ignored* by the processor, we we need to check *only* the
+   * R, W, and X bits.
+   *
+   * This is a brand-new feature recently added by Intel and our sort-of-new
+   * development hardware (Broadwell) doesn't support it, so we do not
+   * currently support it in SVA, i.e., it is assumed to be disabled. Thus we
+   * can unconditionally check just the R, W, and X bits here.
+   *
+   * If/when we support or make use of this feature in SVA in the future, we
+   * will need to change this function to behave as follows *ONLY* when
+   * mode-based execute control is enabled:
+   *
+   *  return (*epte & PG_EPT_R & PG_EPT_W & PG_EPT_X & PG_EPT_XU) ? 1u : 0u;
+   */
 }
 
 /*
@@ -669,6 +734,11 @@ setMappingReadWrite (page_entry_t mapping) {
   return (mapping | PG_RW); 
 }
 
+/*
+ * Mapping update function prototypes.
+ */
+void __update_mapping (pte_t * pageEntryPtr, page_entry_t val);
+
 
 /*
  *****************************************************************************
@@ -709,6 +779,10 @@ static inline int isL1Pg (page_desc_t *page) { return page->type == PG_L1; }
 static inline int isL2Pg (page_desc_t *page) { return page->type == PG_L2; }
 static inline int isL3Pg (page_desc_t *page) { return page->type == PG_L3; }
 static inline int isL4Pg (page_desc_t *page) { return page->type == PG_L4; }
+static inline int isEPTL1Pg (page_desc_t *page) { return page->type == PG_EPTL1; }
+static inline int isEPTL2Pg (page_desc_t *page) { return page->type == PG_EPTL2; }
+static inline int isEPTL3Pg (page_desc_t *page) { return page->type == PG_EPTL3; }
+static inline int isEPTL4Pg (page_desc_t * page) { return page->type = PG_EPTL4; }
 static inline int isSVAPg (page_desc_t *page) { return page->type == PG_SVA; }
 static inline int isCodePg (page_desc_t *page) { return page->type == PG_CODE; }
 static inline int isGhostPTP (page_desc_t *page) { return page->ghostPTP; }
