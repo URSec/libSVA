@@ -321,7 +321,8 @@ extern page_desc_t page_desc[numPageDescEntries];
 
 /* EPT page table entry flags */
 #define PG_EPT_R    0x1     /* R    Read                */
-#define PG_EPT_W    0x2     /* W    Write               */
+#define PG_EPT_W    PG_RW   /* W    Write               */
+                            /* (0x2, same as R/W bit in regular page tables) */
 #define PG_EPT_X    0x4     /* X    Execute             */
                             /* (only for supervisor accesses if mode-based
                              * control enabled) */
@@ -506,6 +507,17 @@ isPresentEPT (page_entry_t * epte) {
    *
    *  return (*epte & PG_EPT_R & PG_EPT_W & PG_EPT_X & PG_EPT_XU) ? 1u : 0u;
    */
+}
+static inline unsigned char
+isPresent_maybeEPT (page_entry_t * pte, unsigned char isEPT) {
+  /*
+   * Calls the right isPresent() function depending on whether this is an EPT
+   * mapping.
+   */
+  if (isEPT)
+    return isPresentEPT(pte);
+  else
+    return isPresent(pte);
 }
 
 /*
@@ -702,6 +714,9 @@ pageVA(page_desc_t pg){
 /*
  * Description:
  *  This function takes a page table mapping and set's the flag to read only. 
+ *
+ *  Also works for extended page table (EPT) updates, because the R bit in
+ *  EPT PTEs is at the same place (#1) as the R/W bit in regular PTEs.
  * 
  * Inputs:
  *  - mapping: the mapping to add read only flag to

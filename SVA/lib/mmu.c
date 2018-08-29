@@ -118,11 +118,16 @@ page_desc_t page_desc[numPageDescEntries];
  *  Given a page table entry value, return the page description associate with
  *  the frame being addressed in the mapping.
  *
+ *  Also accepts a physical address pointer to any location in the frame in
+ *  lieu of a PTE value, since (either way) we will mask off the higher and
+ *  lower bits to yield the 4 kB-aligned frame pointer.
+ *
  * Inputs:
  *  mapping: the mapping with the physical address of the referenced frame
+ *           (or a physical address pointing anywhere within the frame)
  *
- * Return:
- *  Pointer to the page_desc for this frame
+ * Return value:
+ *  Pointer to the page_desc for this frame.
  */
 page_desc_t * getPageDescPtr(unsigned long mapping) {
   unsigned long frameIndex = (mapping & PG_FRAME) / pageSize;
@@ -180,38 +185,37 @@ init_mmu () {
  *
  * Side Effect:
  *  - This function enables system wide write protection in CR0. 
- *    
- *
  */
 static inline void
 page_entry_store (unsigned long *page_entry, page_entry_t newVal) {
   uint64_t tsc_tmp; 
-  if(tsc_read_enable_sva)
+  if (tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
 #ifdef SVA_DMAP
-  uintptr_t phys;
-  unsigned long* page_entry_svadm;
-  page_desc_t * pgDescPtr; 
+  uintptr_t ptePA = getPhysicalAddr(page_entry);
+  unsigned long *page_entry_svadm = (unsigned long *) getVirtualSVADMAP(ptePA);
+  page_desc_t *ptePG = getPageDescPtr(ptePA);
 
-  phys = getPhysicalAddr(page_entry);
-  page_entry_svadm = (unsigned long*)getVirtualSVADMAP(phys);
-  //printf("page_entry = 0x%lx, page_entry_svadm = 0x%lx\n", page_entry, page_entry_svadm);  
-  pgDescPtr = getPageDescPtr(phys);
+  /*
+   * If we are setting a mapping within SVA's direct map, ensure it is a
+   * writable mapping.
+   *
+   * (EJJ 8/28/18: Why is this code needed? I don't see anywhere in the SVA
+   * source code where page_entry_store() would be called such that
+   * ptePG->dmap would be true. It appears that SVA doesn't utilize
+   * page_entry_store() when it sets up its direct map.)
+   */
+  if (ptePG->dmap) 
+    newVal |= PG_RW;
 
-  if(pgDescPtr->dmap)
-  {
-	newVal |= PG_RW;
-  }
-
-    
   /* Write the new value to the page_entry */
   *page_entry_svadm = newVal;
 
 #else
   /* Disable page protection so we can write to the referencing table entry */
   unprotect_paging();
-  
+
   /* Write the new value to the page_entry */
   *page_entry = newVal;
 
@@ -219,7 +223,7 @@ page_entry_store (unsigned long *page_entry, page_entry_t newVal) {
   protect_paging();    
 #endif
 
-    record_tsc(page_entry_store_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  record_tsc(page_entry_store_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
 
 /*
@@ -254,15 +258,11 @@ static inline unsigned char
 pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
   /* Collect associated information for the existing mapping */
   unsigned long origPA = *page_entry & PG_FRAME;
-  unsigned long origFrame = origPA >> PAGESHIFT;
-  uintptr_t origVA = (uintptr_t) getVirtual(origPA);
-  page_desc_t *origPG = &page_desc[origFrame];
+  page_desc_t *origPG = getPageDescPtr(origPA);
 
   /* Get associated information for the new page being mapped */
   unsigned long newPA = newVal & PG_FRAME;
-  unsigned long newFrame = newPA >> PAGESHIFT;
-  uintptr_t newVA = (uintptr_t) getVirtual(newPA);
-  page_desc_t *newPG = &page_desc[newFrame];
+  page_desc_t *newPG = getPageDescPtr(newPA);
 
   /* Get the page table page descriptor. */
   uintptr_t ptePAddr = getPhysicalAddr(page_entry);
@@ -328,7 +328,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
    * If we aren't mapping a new page then we can skip several checks, and in
    * some cases we must, otherwise the checks will fail.
    */
-  if (isEPT ? isPresentEPT(&newVal) : isPresent(&newVal)) {
+  if (isPresent_maybeEPT(&newVal, isEPT)) {
     /*
      * If this is a last-level mapping (L1 or large page with PS bit set),
      * verify that the mapping points to physical memory the OS is allowed to
@@ -462,8 +462,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
           /* All other mapping types are disallowed. */
         default:
           panic("SVA: MMU: Kernel attempted to map a page of unrecognized type! "
-              "paddr: 0x%lx; vaddr: 0x%lx; type: 0x%x",
-              newPA, newVA, newPG->type);
+              "paddr: 0x%lx; type: 0x%x", newPA, newPG->type);
           break;
       }
     } else { /* not an L1 or large page PTE */
@@ -558,18 +557,17 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
  *
  * Inputs:
  *  mapping - The new mapping to be inserted in x86_64 page table format.
+ *  isEPT - Whether we are updating a mapping in an extended page table.
  */
 static inline void
-updateNewPageData(page_entry_t mapping) {
+updateNewPageData(page_entry_t mapping, unsigned char isEPT) {
   uintptr_t newPA = mapping & PG_FRAME;
-  unsigned long newFrame = newPA >> PAGESHIFT;
-  uintptr_t newVA = (uintptr_t) getVirtual(newPA);
   page_desc_t *newPG = getPageDescPtr(mapping);
 
   /*
    * If the new mapping is valid, update the counts for it.
    */
-  if (mapping & PG_V) {
+  if (isPresent_maybeEPT(&mapping, isEPT)) {
 #if 0
     /*
      * If the new page is to a page table page and this is the first reference
@@ -591,11 +589,6 @@ updateNewPageData(page_entry_t mapping) {
     SVA_ASSERT (pgRefCount(newPG) < ((1u << 13) - 1), 
                 "MMU: overflow for the mapping count");
     newPG->count++;
-
-    /* 
-     * Set the VA of this entry if it is the first mapping to a page
-     * table page.
-     */
   }
 
   return;
@@ -609,24 +602,23 @@ updateNewPageData(page_entry_t mapping) {
  *  the mapping. 
  * 
  * Inputs:
- *  mapping - An x86_64 page table entry describing the old mapping of the page
+ *  mapping - An x86_64 page table entry describing the old mapping of the page.
+ *  isEPT - Whether we are updating a mapping in an extended page table.
  */
 static inline void
-updateOrigPageData(page_entry_t mapping) {
+updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
   uintptr_t origPA = mapping & PG_FRAME; 
-  unsigned long origFrame = origPA >> PAGESHIFT;
-  page_desc_t *origPG = &page_desc[origFrame];
+  page_desc_t *origPG = getPageDescPtr(origPA);
 
   /* 
    * Only decrement the mapping count if the page has an existing valid
    * mapping.  Ensure that we don't drop the reference count below zero.
    */
-  if ((mapping & PG_V) && (origPG->count)) {
+  if (isPresent_maybeEPT(&mapping, isEPT) && (origPG->count)) {
     --(origPG->count);
+
     if(origPG->count == 1)
-    {
-	invltlb_all();
-    }
+      invltlb_all();
   }
 
   return;
@@ -636,18 +628,31 @@ updateOrigPageData(page_entry_t mapping) {
  * Function: __do_mmu_update
  *
  * Description:
- *  If the update has been validated, this function manages metadata by
- *  updating the internal SVA reference counts for pages and then performs the
- *  actual update. 
+ *  This function manages metadata by updating the internal SVA reference
+ *  counts for pages and then performs the actual update. 
+ *
+ *  Also works for extended page table (EPT) updates. Whether a regular or
+ *  extended page table is being updated is inferred from the SVA frame type
+ *  of the PTP being modified.
+ *
+ * Assumption:
+ *  This function should only be called after the update has been validated
+ *  to ensure it is safe (e.g. by pt_update_is_valid()). This is the case in
+ *  the function's only current caller, __update_mapping().
  *
  * Inputs: 
  *  *page_entry  - VA pointer to the page entry being modified 
- *  newVal       - Representes the mapping to insert into the page_entry
+ *  mapping      - The new mapping to insert into page_entry
  */
 static inline void
 __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
   uintptr_t origPA = *pteptr & PG_FRAME;
   uintptr_t newPA = mapping & PG_FRAME;
+
+  /* Is this an extended page table update? */
+  uintptr_t ptePaddr = getPhysicalAddr(pteptr);
+  page_desc_t *ptePG = getPageDescPtr(ptePaddr);
+  unsigned char isEPT = (ptePG->type >= PG_EPTL1) && (ptePG->type <= PG_EPTL4);
 
   /*
    * If we have a new mapping as opposed to just changing the flags of an
@@ -656,24 +661,26 @@ __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
    * vetted.
    */
   if (newPA != origPA) {
-    updateOrigPageData(*pteptr);
-    updateNewPageData(mapping);
-  } else if ((*pteptr & PG_V) && ((mapping & PG_V) == 0)) {
+    updateOrigPageData(*pteptr, isEPT);
+    updateNewPageData(mapping, isEPT);
+  } else if (isPresent_maybeEPT(pteptr, isEPT)
+      && !isPresent_maybeEPT(&mapping, isEPT)) {
     /*
      * If the old mapping is marked valid but the new mapping is not, then
      * decrement the reference count of the old page.
      */
-    updateOrigPageData(*pteptr);
-  } else if (((*pteptr & PG_V) == 0) && (mapping & PG_V)) {
+    updateOrigPageData(*pteptr, isEPT);
+  } else if (!isPresent_maybeEPT(pteptr, isEPT)
+      && isPresent_maybeEPT(&mapping, isEPT)) {
     /*
      * Contrariwise, if the old mapping is invalid but the new mapping is valid,
      * then increment the reference count of the new page.
      */
-    updateNewPageData(mapping);
+    updateNewPageData(mapping, isEPT);
   }
 
   /* Perform the actual write to into the page table entry */
-  page_entry_store ((page_entry_t *) pteptr, mapping);
+  page_entry_store((page_entry_t *) pteptr, mapping);
   return;
 }
 
@@ -735,9 +742,9 @@ initDeclaredPage (unsigned long frameAddr) {
  *  of the verification code is consistent regardless of which level page
  *  update we are doing. 
  *
- *  Also works for extended page table (EPT) updates.
- *  TODO: doesn't fully work yet, still need to extend __do_mmu_update() and
- *        setMappingReadOnly()
+ *  Also works for extended page table (EPT) updates. Whether a regular or
+ *  extended page table is being updated is inferred from the SVA frame type
+ *  of the PTP being modified.
  *
  * Inputs:
  *  - pageEntryPtr : reference to the page table entry to insert the mapping
@@ -752,12 +759,12 @@ __update_mapping (pte_t * pageEntryPtr, page_entry_t val) {
    */
   switch (pt_update_is_valid((page_entry_t *) pageEntryPtr, val)) {
     case 1:
-      val = setMappingReadOnly (val);
-      __do_mmu_update ((page_entry_t *) pageEntryPtr, val);
+      val = setMappingReadOnly(val);
+      __do_mmu_update((page_entry_t *) pageEntryPtr, val);
       break;
 
     case 2:
-      __do_mmu_update ((page_entry_t *) pageEntryPtr, val);
+      __do_mmu_update((page_entry_t *) pageEntryPtr, val);
       break;
 
     case 0:
