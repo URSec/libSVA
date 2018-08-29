@@ -2149,9 +2149,10 @@ makePTReadOnly (void) {
   uintptr_t paddr;
   for (paddr = 0; paddr < memSize; paddr += pageSize) {
     enum page_type_t pgType = getPageDescPtr(paddr)->type;
+
     if ((PG_L1 <= pgType) && (pgType <= PG_L4)) {
-      page_entry_t * pageEntry = get_pgeVaddr ((uintptr_t)getVirtual(paddr));
-      page_entry_store (pageEntry, setMappingReadOnly(*pageEntry));
+      page_entry_t *pageEntry = get_pgeVaddr((uintptr_t) getVirtual(paddr));
+      page_entry_store(pageEntry, setMappingReadOnly(*pageEntry));
     }
   }
 
@@ -2547,6 +2548,10 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
    *  been a regression, or this code does not work on VirtualBox on Mac OS X
    *  with a 4 GB VM running SVA FreeBSD.  Either way, there is a bug that
    *  needs to be fixed.
+   *
+   *  (EJJ 8/24/18): As another data point, it seems to work fine without the
+   *  hack on my virtual machine, with 2 GB of RAM, running under KVM on
+   *  Linux.
    */
   if (!keepPTWriteableHack) {
     makePTReadOnly();
