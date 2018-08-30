@@ -3026,23 +3026,30 @@ sva_remove_page (uintptr_t paddr) {
 #endif
 
 #ifdef SVA_ASID_PG
-    if(pgDesc->type == PG_L4)
-    {
+    /*
+     * If the PTP being undeclared is a level-4 PTP (non-EPT), undeclare the
+     * kernel's copy of it in addition to the SVA/userspace copy.
+     */
+    if(pgDesc->type == PG_L4) {
       uintptr_t other_cr3 = pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
 
-      if(other_cr3)
-      {  
+      if(other_cr3) {
         page_desc_t *other_pgDesc = getPageDescPtr(other_cr3);
         SVA_ASSERT((other_pgDesc->count <= 2),
-            "the kernel or usersva version pml4 page table page "
+            "the kernel version pml4 page table page "
             "still has reference.\n" );
 
+        /* Mark the page frame as an unused page. */
         other_pgDesc->type = PG_UNUSED;
 
+        /*
+         * Make the page writable again in the kernel's direct map. Be sure
+         * to flush entries pointing to it in the TLBs so that the change
+         * takes effect right away.
+         */
         page_entry_t *other_pte =
           get_pgeVaddr((uintptr_t) getVirtual(other_cr3));
         page_entry_store(other_pte, setMappingReadWrite(*other_pte));
-
         sva_mm_flush_tlb(getVirtual(other_cr3));
 
         other_pgDesc->other_pgPaddr = 0;
@@ -3051,14 +3058,13 @@ sva_remove_page (uintptr_t paddr) {
     }
 #endif
 
-    /*
-     * Mark the page frame as an unused page.
-     */
+    /* Mark the page frame as an unused page. */
     pgDesc->type = PG_UNUSED;
    
     /*
-     * Make the page writeable again.  Be sure to flush the TLBs to make the
-     * change take effect right away.
+     * Make the page writeable again in the kernel's direct map. Be sure to
+     * flush entries pointing to it in the TLBs so that the change takes
+     * effect right away.
      */
     page_entry_store(pte_kdmap, setMappingReadWrite(*pte_kdmap));
     sva_mm_flush_tlb(getVirtual(paddr));
@@ -3066,11 +3072,10 @@ sva_remove_page (uintptr_t paddr) {
     printf("SVA: remove_page: type=%x count %x\n", pgDesc->type, pgDesc->count);
   }
 
-  /* Restore interrupts */
+  /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
   record_tsc(sva_remove_page_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
 }
 
 /*
@@ -3094,11 +3099,10 @@ uintptr_t sva_get_kernel_pml4pg(uintptr_t paddr)
  * Function: sva_remove_mapping()
  *
  * Description:
- *  This function updates the entry to the page table page and is agnostic to
- *  the level of page table. The particular needs for each page table level are
- *  handled in the __update_mapping function. The primary function here is to
- *  set the mapping to zero, if the page was a PTP then zero it's data and set
- *  it to writeable.
+ *  This function clears an entry in a page table page. It is agnostic to the
+ *  level of page table (and whether we are dealing with an extended or
+ *  regular page table). The particular needs for each page table level/type
+ *  are handled in the __update_mapping function.
  *
  * Inputs:
  *  pteptr - The location within the page table page for which the translation
@@ -3108,35 +3112,38 @@ void
 sva_remove_mapping(page_entry_t * pteptr) {
   uint64_t tsc_tmp;
   if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+    tsc_tmp = sva_read_tsc();
 
   kernel_to_usersva_pcid();
-
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
-
-  /* Get the page_desc for the newly declared l4 page frame */
-  page_desc_t *pgDesc = getPageDescPtr(*pteptr);
 
   /* Update the page table mapping to zero */
   __update_mapping(pteptr, ZERO_MAPPING);
 
 #ifdef SVA_ASID_PG
-  uintptr_t phys = getPhysicalAddr(pteptr);
-  page_desc_t * cur_pgDesc = getPageDescPtr(phys);
-  if(cur_pgDesc->type == PG_L4)
-  {
-   uintptr_t other_cr3 = cur_pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
-   if(other_cr3)
-   {
-        page_entry_t * other_pteptr = (page_entry_t *) ((unsigned long) getVirtual(other_cr3) | ((unsigned long) pteptr & vmask));
-        __update_mapping (other_pteptr, ZERO_MAPPING);
-   }
+  /*
+   * If we are removing a mapping in a level-4 page table (non-EPT), remove
+   * it in the kernel's copy of the PML4 in addition to the SVA/userspace
+   * copy.
+   */
+  uintptr_t ptePA = getPhysicalAddr(pteptr);
+  page_desc_t *ptePG = getPageDescPtr(ptePA);
+
+  if(ptePG->type == PG_L4) {
+    uintptr_t other_cr3 = ptePG->other_pgPaddr & ~PML4_SWITCH_DISABLE;
+
+    if(other_cr3) {
+      page_entry_t * other_pteptr = (page_entry_t *)
+        ((unsigned long) getVirtual(other_cr3)
+         | ((unsigned long) pteptr & vmask));
+
+      __update_mapping(other_pteptr, ZERO_MAPPING);
+    }
   }
 #endif
-  
 
-  /* Restore interrupts */
+  /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
   record_tsc(sva_remove_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
