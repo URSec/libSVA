@@ -383,7 +383,8 @@ typedef struct sva_vmx_guest_state {
  * *** Prototypes for VMX intrinsics ***
  */
 size_t sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
-    sva_vmx_guest_state initial_state);
+    sva_vmx_guest_state initial_state,
+    pml4e_t *initial_eptable);
 void sva_freevm(size_t vmid);
 int sva_loadvm(size_t vmid);
 int sva_unloadvm(void);
@@ -431,7 +432,7 @@ void sva_declare_l2_eptpage(uintptr_t frameAddr);
 void sva_declare_l3_eptpage(uintptr_t frameAddr);
 void sva_declare_l4_eptpage(uintptr_t frameAddr);
 void sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val);
-int sva_load_eptable(size_t vmid, pml4e_t *epml4t);
+void sva_load_eptable(size_t vmid, pml4e_t *epml4t);
 uintptr_t sva_save_eptable(size_t vmid);
 
 /* These intrinsics are for use during development.

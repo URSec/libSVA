@@ -31,5 +31,6 @@ typedef uintptr_t pdpte_t;
 typedef uintptr_t pde_t;
 typedef uintptr_t pte_t;
 typedef uintptr_t page_entry_t;
+typedef uintptr_t eptp_t;
 
 #endif /* SVA_MMU_TYPES_H */

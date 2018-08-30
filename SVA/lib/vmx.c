@@ -22,7 +22,10 @@
 #include <stddef.h> // for offsetof()
 
 /**********
- * "Global" static variables (local to this file)
+ * Global variables
+ *
+ * (Some of these are really global; others are static, i.e. local to this
+ * file but not local to a function.)
  *
  * (Eventually, some of these may need to be handled in a more complex way to
  * support SMP. For instance, we might want to store some of them on a
@@ -31,7 +34,7 @@
 /* Indicates whether sva_initvmx() has yet been called by the OS. No SVA-VMX
  * intrinsics may be called until this has been done.
  */
-static unsigned char __attribute__((section("svamem"))) sva_vmx_initialized = 0;
+unsigned char __attribute__((section("svamem"))) sva_vmx_initialized = 0;
 
 /* Physical address of the VMXON region. This is a special region of memory
  * that the active logical processor uses to "support VMX operation" (see
@@ -70,8 +73,7 @@ static uintptr_t __attribute__((section("svamem"))) VMXON_paddr = 0;
  * all entries as unused (and the corresponding VM IDs as free to be
  * assigned).
  */
-static const size_t MAX_VMS = 128;
-static struct vm_desc_t __attribute__((section("svamem"))) vm_descs[MAX_VMS];
+struct vm_desc_t __attribute__((section("svamem"))) vm_descs[MAX_VMS];
 
 /*
  * A structure describing host state for each CPU.
@@ -665,8 +667,13 @@ sva_initvmx(void) {
  *  processor.
  *
  * Arguments:
- *  - initial_state: the initial state of the guest system to be used on the
- *    first launch of the VM.
+ *  - initial_ctrls: the initial control settings that will define the
+ *    parameters under which this VM will operate.
+ *  - initial_state: the initial state of the guest system virtualized by
+ *    this VM.
+ *  - initial_eptable: a (host-virtual) pointer to the initial top-level
+ *    extended page table (EPML4) that will map this VM's guest-physical
+ *    memory space to host-physical frames.
  *
  * Return value:
  *  A positive integer which will be used to identify this virtual
@@ -678,7 +685,8 @@ sva_initvmx(void) {
  */
 size_t
 sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
-    sva_vmx_guest_state initial_state) {
+    sva_vmx_guest_state initial_state,
+    pml4e_t *initial_eptable) {
   DBGPRNT(("sva_allocvm() intrinsic called.\n"));
 
   if (!sva_vmx_initialized) {
@@ -706,13 +714,6 @@ sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
    * especially that we cannot use the value 0, because that is used to tag
    * the host's TLB entries; an attempt to launch a VM with VPID=0 will
    * result in an error.
-   *
-   * FIXME: SVA should be setting the VPID field in the VMCS itself, to
-   * uphold this invariant (and to ensure that the hypervisor can't
-   * mis-configure the TLB tagging to break security barriers between VMs or
-   * between a VM and the host). For now, we are leaving it up to the OS to
-   * set the VPID field with the sva_writevmcs() intrinsic. (Right now we
-   * don't have any field checks in sva_writevmcs() anyway...)
    */
   size_t vmid = -1;
   for (size_t i = 1; i < MAX_VMS; i++) {
@@ -739,6 +740,14 @@ sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
    * Initialize the guest system state (registers, program counter, etc.).
    */
   vm_descs[vmid].state = initial_state;
+  /*
+   * Initialize the Extended Page Table Pointer (EPTP).
+   *
+   * We directly call the helper function that implements the main
+   * functionality of sva_load_eptable(), because we know vmid is valid (but
+   * still need to vet the extended page table pointer).
+   */
+  load_eptable_internal(vmid, initial_eptable);
 
   /*
    * Allocate a physical frame of SVA secure memory from the frame cache to
@@ -1337,6 +1346,8 @@ sva_resumevm(void) {
  *    hypervisor has edited them (using the sva_setvmstate() intrinsic) since
  *    the last time it was run.
  *
+ *  - Loading the extended page table pointer (EPTP) for the VM.
+ *
  *  - Setting various VMCS fields containing host state to be restored on VM
  *    exit. These include the control registers, segment registers, the
  *    kernel program counter and stack pointer, and the MSRs that control
@@ -1347,11 +1358,17 @@ sva_resumevm(void) {
  *    registers (TODO: and probably the floating point and other specialized
  *    computation registers).
  *
+ *  - Restoring guest state that is not automatically loaded by the processor
+ *    on VM entry.
+ *
  *  - Entering guest execution by executing the VMLAUNCH or VMRESUME
  *    instruction, as appropriate.
  *
  *  - Noting the state of RFLAGS after we come back from VMLAUNCH/VMRESUME so
  *    we can pass it to query_vmx_result().
+ *
+ *  - Saving guest state that is not automatically saved by the processor on
+ *    VM exit.
  *
  *  - Restoring all saved host state.
  *
@@ -1477,6 +1494,14 @@ run_vm(unsigned char use_vmresume) {
   else {
     DBGPRNT(("run_vm: VMCS guest-state fields not stale (not updated).\n"));
   }
+
+  /*
+   * Load the VM's extended page table pointer (EPTP) from the VM descriptor.
+   *
+   * This is the extended-paging equivalent of the CR3 register used in
+   * normal paging.
+   */
+  sva_writevmcs(VMCS_EPT_PTR, host_state.active_vm->eptp);
 
   /*
    * Set the host-state-object fields to recognizable nonsense values so that

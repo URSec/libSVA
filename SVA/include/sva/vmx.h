@@ -46,6 +46,8 @@
 /**********
  * Constants and Enumerations
 **********/
+static const size_t MAX_VMS = 128;
+
 /* MSRs (non-VMX-related) */
 static const u_int FEATURE_CONTROL_MSR = 0x3a;
 static const u_int MSR_SYSENTER_CS = 0x174;
@@ -169,6 +171,7 @@ static inline void save_restore_guest_state(unsigned char saverestore);
 static inline int read_write_vmcs_field(
     unsigned char write,
     enum sva_vmcs_field field, uint64_t *data);
+void load_eptable_internal(size_t vmid, pml4e_t *epml4t);
 
 /**********
  * Structures
@@ -293,6 +296,24 @@ typedef struct vm_desc_t {
    * on-demand when the hypervisor wants to see or edit the guest's state.
    */
   sva_vmx_guest_state state;
+
+  /* Extended page-table pointer (EPT) for this VM.
+   *
+   * Set on VM creation by the sva_allocvm() intrinsic, and accessed
+   * thereafter by the sva_load_eptable() and sva_save_eptable() intrinsics.
+   *
+   * This is extended paging's equivalent of the CR3 register. It points to
+   * the top-level (level 4) table in an extended page table hierarchy. This
+   * hierarchy will map guest-physical addresses to host-physical frames.
+   *
+   * This value is loaded by SVA into the VMCS on every VM entry.
+   *   (Note: we might change this behavior to avoid reloading it when it
+   *   hasn't changed if this ends up slowing things down. I don't think
+   *   it will, because loading the EPTP doesn't seem to invalidate any TLB
+   *   entries, but if so, we can use a "stale/not-stale" flag as above to
+   *   hide this optimization from the SVA-OS API user.)
+   */
+  eptp_t eptp;
 } vm_desc_t;
 
 /*
@@ -330,5 +351,11 @@ typedef struct vmx_host_state_t {
   uint64_t r8, r9, r10, r11;
   uint64_t r12, r13, r14, r15;
 } vmx_host_state_t;
+
+/**********
+ * Global variables
+**********/
+extern unsigned char sva_vmx_initialized; /* defined in vmx.c */
+extern struct vm_desc_t vm_descs[MAX_VMS]; /* defined in vmx.c */
 
 #endif /* _SVA_VMX_H */

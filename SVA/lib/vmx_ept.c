@@ -39,6 +39,11 @@
  */
 void
 sva_declare_l1_eptpage(uintptr_t frameAddr) {
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
@@ -95,8 +100,9 @@ sva_declare_l1_eptpage(uintptr_t frameAddr) {
     initDeclaredPage(frameAddr);
   }
 
-  /* Restore interrupts */
+  /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
 }
 
 /*
@@ -113,6 +119,11 @@ sva_declare_l1_eptpage(uintptr_t frameAddr) {
  */
 void
 sva_declare_l2_eptpage(uintptr_t frameAddr) {
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
@@ -169,8 +180,9 @@ sva_declare_l2_eptpage(uintptr_t frameAddr) {
     initDeclaredPage(frameAddr);
   }
 
-  /* Restore interrupts */
+  /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
 }
 
 /*
@@ -187,6 +199,11 @@ sva_declare_l2_eptpage(uintptr_t frameAddr) {
  */
 void
 sva_declare_l3_eptpage(uintptr_t frameAddr) {
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
@@ -243,8 +260,9 @@ sva_declare_l3_eptpage(uintptr_t frameAddr) {
     initDeclaredPage(frameAddr);
   }
 
-  /* Restore interrupts */
+  /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
 }
 
 /*
@@ -261,6 +279,11 @@ sva_declare_l3_eptpage(uintptr_t frameAddr) {
  */
 void
 sva_declare_l4_eptpage(uintptr_t frameAddr) {
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
@@ -317,8 +340,9 @@ sva_declare_l4_eptpage(uintptr_t frameAddr) {
     initDeclaredPage(frameAddr);
   }
 
-  /* Restore interrupts */
+  /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
 }
 
 /*
@@ -355,9 +379,7 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
    * regions.
    */
   kernel_to_usersva_pcid();
-  /*
-   * Disable interrupts so that we appear to execute as a single instruction.
-   */
+  /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
   /*
@@ -390,4 +412,178 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
   /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
+}
+
+/*
+ * Intrinsic: sva_load_eptable()
+ *
+ * Description:
+ *  Sets the current extended page table for a virtual machine.
+ *
+ * Inputs:
+ *  - vmid: the numeric handle of the virtual machine whose extended page
+ *    table should be set.
+ *  - epml4t: a (host-virtual) pointer to the top-level extended page table
+ *    (EPML4) that the VM should use.
+ */
+void
+sva_load_eptable(size_t vmid, pml4e_t *epml4t) {
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+
+  if (!sva_vmx_initialized) {
+    panic("Fatal error: must call sva_initvmx() before any other "
+          "SVA-VMX intrinsic.\n");
+  }
+
+  /* Bounds check on vmid.
+   *
+   * (vmid is unsigned, so this also checks for negative values.)
+   */
+  if (vmid >= MAX_VMS) {
+    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  }
+
+  /* If this VM descriptor indicated by this ID has a null VMCS pointer, it
+   * is not a valid descriptor. (i.e., it is an empty slot not assigned to
+   * any VM)
+   */
+  if (!vm_descs[vmid].vmcs_paddr) {
+    panic("Fatal error: tried to reference an unallocated VM!\n");
+  }
+
+  /*
+   * Call a helper function which vets the EPML4 pointer and sets the EPTP in
+   * the VM descriptor.
+   */
+  load_eptable_internal(vmid, epml4t);
+
+  /* Restore interrupts and return to the kernel page tables. */
+  sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
+}
+
+/*
+ * Helper function: load_eptable_internal()
+ *
+ * Description:
+ *  Like sva_load_eptable(), but skips checks on vmid.
+ *
+ *  Verifies that epml4t points to a valid declared EPML4 frame and sets the
+ *  EPTP in the VM descriptor to point to it.
+ *
+ *  Used to share code between sva_load_eptable() and sva_allocvm(), which
+ *  also needs to set the EPTP from an untrusted value, but knows it has a
+ *  valid vmid (because it generated that ID).
+ *
+ * Preconditions:
+ *  - Must be called by an SVA intrinsic, i.e., interrupts should be disabled
+ *    and the SVA/userspace page tables should be active.
+ *
+ *  - vmid must be valid (i.e., in-bounds and pointing to an active VM).
+ */
+void
+load_eptable_internal(size_t vmid, pml4e_t *epml4t) {
+  /*
+   * Verify that the given extended page table pointer points to a valid
+   * EPML4 page-table page (i.e., one properly declared with
+   * sva_declare_l4_eptpage()).
+   */
+  uintptr_t epml4t_paddr = getPhysicalAddr(epml4t);
+  page_desc_t *ptDesc = getPageDescPtr(epml4t_paddr);
+  if ((ptDesc->type != PG_EPTL4) && !disableMMUChecks) {
+    panic("SVA: MMU: Attempted to load an extended page table that wasn't "
+        "registered with SVA as an EPML4 frame! "
+        "vaddr: 0x%lx; paddr: 0x%lx; SVA frame type: %d\n",
+        epml4t, epml4t_paddr, ptDesc->type);
+  }
+
+  /*
+   * Construct the value to load into the VMCS's Extended Page Table Pointer
+   * (EPTP) field.
+   *
+   * Similar to the CR3 register for normal paging, the EPTP contains the
+   * 4 kB-aligned host-physical address (sans 12 least significant bits,
+   * which are always zero due to the alignment) of the top-level extended
+   * page table in bits 12:MAXPHYADDR. The other bits are used for various
+   * settings controlling how the EPT paging hierarchy is interpreted.
+   *
+   * We set the following fields (which, as of this writing, are all of the
+   * defined fields):
+   *
+   *  - Bits 0-2: EPT paging structures memory type = 6 (writeback, i.e., no
+   *              unusual caching modes are used for the page tables)
+   *
+   *  - Bits 3-5: EPT page-walk length minus 1. Since we are using 4-level
+   *              paging, we set this to 3. (Currently, 4-level paging is the
+   *              *only* mode supported for EPT; this field exists to
+   *              facilitate adding more levels in future processors.)
+   *
+   *  - Bit 6:    Enable accessed and dirty flags for EPT. We enable this.
+   *
+   * Per Intel's spec, all other bits are reserved and must be set to 0. This
+   * yields a mask of:
+   *              1 011 110   = 0x5e
+   */
+  eptp_t eptp_val = 0x5e | epml4t_paddr;
+
+  /* Store the EPTP value in the VM descriptor. */
+  vm_descs[vmid].eptp = eptp_val;
+}
+
+/*
+ * Intrinsic: sva_save_eptable()
+ *
+ * Description:
+ *  Get the host-physical address of top-level extended page table currently
+ *  in use by a virtual machine.
+ *
+ * Inputs:
+ *  - vmid: the numeric handle of the virtual machine whose extended page
+ *    table is being queried.
+ */
+uintptr_t
+sva_save_eptable(size_t vmid) {
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+
+  /* Bounds check on vmid.
+   *
+   * (vmid is unsigned, so this also checks for negative values.)
+   */
+  if (vmid >= MAX_VMS) {
+    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  }
+
+  /* If this VM descriptor indicated by this ID has a null VMCS pointer, it
+   * is not a valid descriptor. (i.e., it is an empty slot not assigned to
+   * any VM)
+   */
+  if (!vm_descs[vmid].vmcs_paddr) {
+    panic("Fatal error: tried to reference an unallocated VM!\n");
+  }
+
+  /* Get the current EPTP value from the VM descriptor. */
+  eptp_t eptp = vm_descs[vmid].eptp;
+  /*
+   * Mask off the flags in the EPTP to get the host-physical address of the
+   * top-level table.
+   */
+  uintptr_t epml4t_paddr = eptp & PG_FRAME;
+
+  /* Restore interrupts and return to the kernel page tables. */
+  sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
+
+  return epml4t_paddr;
 }
