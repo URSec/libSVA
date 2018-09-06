@@ -440,54 +440,7 @@ uintptr_t sva_save_eptable(size_t vmid);
  * interface.
  */
 unsigned char sva_initvmx(void);
-/* sva_print_vmx_msrs() is defined in debug.c. */
-void sva_print_vmx_msrs(void);
-
-typedef struct sva_vmx_ept_hier {
-  /* Physical address of the top (fourth)-level EPT page table page, i.e.,
-   * the EPT PML4 table.
-   */
-  uintptr_t epml4t_paddr;
-
-  /* Physical address of the third-level EPT page table page, i.e., the EPT
-   * Page Directory Pointer Table (PDPT).
-   */
-  uintptr_t epdpt_paddr;
-
-  /* Physical address of the second-level EPT page table page, i.e., the EPT
-   * Page Directory (PD).
-   */
-  uintptr_t epd_paddr;
-
-  /* Physical address of the lowest (first)-level EPT page table page, i.e.,
-   * the EPT Page Table (PT).
-   */
-  uintptr_t ept_paddr;
-
-  /* Host-physical addresses of the 16 pages which are mapped into the
-   * guest's physical address space.
-   */
-  uintptr_t guestpage_host_paddrs[16];
-
-  /* Guest-physical addresses of the 16 pages mapped into the guest's
-   * physical address space. (They are mapped contiguously, so these
-   * addresses just count up by 0x1000.)
-   */
-  uintptr_t guestpage_guest_paddrs[16];
-
-  /* Guest-virtual addresses of the 16 pages in the guest-virtual mapping
-   * which are backed by the 16 respective guest-physical pages. (These are
-   * also mapped contiguously, i.e. the addresses count up by 0x1000.)
-   *
-   * (The mapped guest-virtual space is larger, but not all of its pages
-   * correspond to guest-physical addresses that are present in the EPT map.)
-   */
-  uintptr_t guestpage_guest_vaddrs[16];
-} sva_vmx_ept_hier;
-sva_vmx_ept_hier sva_set_up_ept(void);
-
-void sva_print_guest_stack(sva_vmx_ept_hier hier);
-/* Defined in debug.c */
-void print_vmcs_field_name(enum sva_vmcs_field);
+void sva_print_vmx_msrs(void); /* defined in debug.c */
+void print_vmcs_field_name(enum sva_vmcs_field); /* defined in debug.c */
 
 #endif /* _SVA_VMX_INTRINSICS_H */
