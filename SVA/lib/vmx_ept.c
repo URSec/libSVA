@@ -367,8 +367,8 @@ sva_declare_l4_eptpage(uintptr_t frameAddr) {
  *  surface. We could/should unify those into a single intrinsic.)
  *
  * Inputs:
- *  epteptr - The location within the page table page in which the new
- *            translation should be placed.
+ *  epteptr - A (host-virtual) pointer to the location within the page table
+ *            page in which the new translation should be placed.
  *  val     - The new translation (page-table entry) to insert into the
  *            extended page table.
  */

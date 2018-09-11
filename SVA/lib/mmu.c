@@ -340,7 +340,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
      * NOTE: PG_PS and PG_EPT_PS are the same bit (#7), so we can use the
      * same check for both regular and extended page tables.
      */
-    if (ptePG->type == PG_L1 || (newVal & PG_PS)) {
+    if (ptePG->type == PG_L1 || ptePG->type == PG_EPTL1 || (newVal & PG_PS)) {
       /*
        * The OS is only allowed to create mappings to certain types of frames
        * (e.g., unused, kernel data, or user data frames). Some frame types
@@ -360,6 +360,45 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
           break;
 
           /* These are allowed, but forced to be non-writable. */
+        case PG_CODE:
+          /*
+           * NOTE (EJJ 8/25/18): This code was included in this function
+           * before I refactored it. Based on the original comment, it
+           * *appeared* to be intended to *allow* writable mappings to code
+           * pages if they were in userspace. However, it was superseded by
+           * another check which explicitly made all code-page mappings
+           * non-writable (which is reflected in this switch table here in
+           * the refactored code).
+           *
+           * If not for the superseding check, I believe this would have been
+           * a security hole, since giving the kernel the power to make
+           * writable mappings in userspace to any code page is as good as
+           * allowing the kernel to make its own writable code page mappings.
+           *
+           * Perhaps what was intended (but incorrectly implemented) was to
+           * allow writable mappings to code pages which have been declare to
+           * SVA as being for use in userspace? (In any case, SVA doesn't
+           * presently have a frame type to represent that.)
+           *
+           * I've included the code here, commented-out, for posterity in
+           * case it existed for a reason which remains relevant. Please note
+           * that it will not simply "work" if you uncomment it, because this
+           * case falls through to "retValue = 1" (force non-writable) below,
+           * which matches the *actual* behavior of the pre-refactoring code
+           * (due to a superseding check which blanketly disallowed writable
+           * code-page mappings).
+           *
+           *    Original comment:
+           * New mappings to code pages are permitted as long as they are
+           * either for user-space pages or do not permit write access.
+           */
+#if 0
+          if (isCodePg(newPG)) {
+            if ((newVal & (PG_RW | PG_U)) == (PG_RW)) {
+              panic ("SVA: Making kernel code writeable: %lx %lx\n", newVA, newVal);
+            }
+          }
+#endif
         case PG_L1:
         case PG_L2:
         case PG_L3:
@@ -401,45 +440,6 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
         case PG_EPTL2:
         case PG_EPTL3:
         case PG_EPTL4:
-        case PG_CODE:
-          /*
-           * NOTE (EJJ 8/25/18): This code was included in this function
-           * before I refactored it. Based on the original comment, it
-           * *appeared* to be intended to *allow* writable mappings to code
-           * pages if they were in userspace. However, it was superseded by
-           * another check which explicitly made all code-page mappings
-           * non-writable (which is reflected in this switch table here in
-           * the refactored code).
-           *
-           * If not for the superseding check, I believe this would have been
-           * a security hole, since giving the kernel the power to make
-           * writable mappings in userspace to any code page is as good as
-           * allowing the kernel to make its own writable code page mappings.
-           *
-           * Perhaps what was intended (but incorrectly implemented) was to
-           * allow writable mappings to code pages which have been declare to
-           * SVA as being for use in userspace? (In any case, SVA doesn't
-           * presently have a frame type to represent that.)
-           *
-           * I've included the code here, commented-out, for posterity in
-           * case it existed for a reason which remains relevant. Please note
-           * that it will not simply "work" if you uncomment it, because this
-           * case falls through to "retValue = 1" (force non-writable) below,
-           * which matches the *actual* behavior of the pre-refactoring code
-           * (due to a superseding check which blanketly disallowed writable
-           * code-page mappings).
-           *
-           *    Original comment:
-           * New mappings to code pages are permitted as long as they are
-           * either for user-space pages or do not permit write access.
-           */
-#if 0
-          if (isCodePg(newPG)) {
-            if ((newVal & (PG_RW | PG_U)) == (PG_RW)) {
-              panic ("SVA: Making kernel code writeable: %lx %lx\n", newVA, newVal);
-            }
-          }
-#endif
           retValue = 1;
           break;
 

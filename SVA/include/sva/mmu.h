@@ -484,7 +484,10 @@ isPresentEPT (page_entry_t * epte) {
    * considered present if and only if any of the read, write, or execute
    * flags are set to 1.
    */
-  return (*epte & PG_EPT_R & PG_EPT_W & PG_EPT_X) ? 1u : 0u;
+  if ((*epte & PG_EPT_R) || (*epte & PG_EPT_W) || (*epte & PG_EPT_X))
+    return 1;
+  else
+    return 0;
   /*
    * NOTE: if the "mode-based execute control for EPT" VM-execution control
    * is enabled, the X bit only controls supervisor-mode accesses, and a
@@ -505,7 +508,11 @@ isPresentEPT (page_entry_t * epte) {
    * will need to change this function to behave as follows *ONLY* when
    * mode-based execute control is enabled:
    *
-   *  return (*epte & PG_EPT_R & PG_EPT_W & PG_EPT_X & PG_EPT_XU) ? 1u : 0u;
+   *  if ((*epte & PG_EPT_R) || (*epte & PG_EPT_W) || (*epte & PG_EPT_X)
+   *      || (*epte & PG_EPT_XU))
+   *    return 1;
+   *  else
+   *    return 0;
    */
 }
 static inline unsigned char
