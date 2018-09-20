@@ -250,9 +250,33 @@ void X86CFIOptPass::insertCheckCall64r(MachineBasicBlock& MBB, MachineInstr* MI,
   assert(MI->getOpcode() == X86::CALL64r && "opcode: CALL64r expected");
 
   //
-  // Add an instruction to perform the label check.
+  // Get the register operand that is holding the target of the call.
   //
   unsigned reg = MI->getOperand(0).getReg();
+
+  //
+  // Rotate the upper 32-bits to the lower 32-bits so that we can bit-mask
+  // using a constant 32-bit immediate operand.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::ROR64ri),reg).addReg(reg).addImm(32);
+
+  //
+  // Mask the target to ensure that it points into the kernel code segment.
+  // This requires that we use a logical OR to set most of the bits and then
+  // a separate instruction to set the most significant bit.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::OR64ri32),reg).addReg(reg).addImm(0x7fffff80);
+  BuildMI(MBB,MI,dl,TII->get(X86::BTS64ri8),reg).addImm(31);
+
+  //
+  // Rotate the pointer so that the higer-order word is back in the
+  // upper-level bits.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::ROL64ri),reg).addReg(reg).addImm(32);
+
+  //
+  // Add an instruction to perform the label check.
+  //
   addCheckInstruction (MBB,MI,dl,TII, reg);
 
   // JNE_4 EMBB
@@ -311,6 +335,27 @@ void X86CFIOptPass::insertCheckCall64m(MachineBasicBlock& MBB, MachineInstr* MI,
   .addReg(MI->getOperand(4).getReg());
 
   //
+  // Rotate the upper 32-bits to the lower 32-bits so that we can bit-mask
+  // using a constant 32-bit immediate operand.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::ROR64ri),X86::RAX).addReg(X86::RAX).addImm(32);
+
+  //
+  // Mask the target to ensure that it points into the kernel code segment.
+  // This requires that we use a logical OR to set most of the bits and then
+  // a separate instruction to set the most significant bit.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::OR64ri32),X86::RAX).addReg(X86::RAX).addImm(0x7fffff80);
+  BuildMI(MBB,MI,dl,TII->get(X86::BTS64ri8),X86::RAX).addImm(31);
+
+  //
+  // Rotate the pointer so that the higer-order word is back in the
+  // upper-level bits.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::ROL64ri),X86::RAX).addReg(X86::RAX).addImm(32);
+
+
+  //
   // Add an instruction to perform the label check.
   //
   addCheckInstruction (MBB,MI,dl,TII, X86::RAX);
@@ -362,9 +407,33 @@ void X86CFIOptPass::insertCheckJmp64r(MachineBasicBlock& MBB, MachineInstr* MI,
   assert(MI->getOpcode() == X86::JMP64r && "opcode: JMP64r expected");
 
   //
-  // Add an instruction to perform the label check.
+  // Find the register operand holding the target of the jump.
   //
   const unsigned reg = MI->getOperand(0).getReg();
+
+  //
+  // Rotate the upper 32-bits to the lower 32-bits so that we can bit-mask
+  // using a constant 32-bit immediate operand.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::ROR64ri),reg).addReg(reg).addImm(32);
+
+  //
+  // Mask the target to ensure that it points into the kernel code segment.
+  // This requires that we use a logical OR to set most of the bits and then
+  // a separate instruction to set the most significant bit.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::OR64ri32),reg).addReg(reg).addImm(0x7fffff80);
+  BuildMI(MBB,MI,dl,TII->get(X86::BTS64ri8),reg).addImm(31);
+
+  //
+  // Rotate the pointer so that the higer-order word is back in the
+  // upper-level bits.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::ROL64ri),reg).addReg(reg).addImm(32);
+
+  //
+  // Add an instruction to perform the label check.
+  //
   addCheckInstruction (MBB,MI,dl,TII, reg);
 
   // JNE_4 EMBB
@@ -493,6 +562,26 @@ void X86CFIOptPass::insertCheckTailJmpm(MachineBasicBlock& MBB,
     .addReg(MI->getOperand(0).getReg()).addImm(MI->getOperand(1).getImm())
     .addReg(MI->getOperand(2).getReg()).addOperand(MI->getOperand(3))
     .addReg(MI->getOperand(4).getReg());
+
+    //
+    // Rotate the upper 32-bits to the lower 32-bits so that we can bit-mask
+    // using a constant 32-bit immediate operand.
+    //
+    BuildMI(MBB,MI,dl,TII->get(X86::ROR64ri),X86::RCX).addReg(X86::RCX).addImm(32);
+
+    //
+    // Mask the target to ensure that it points into the kernel code segment.
+    // This requires that we use a logical OR to set most of the bits and then
+    // a separate instruction to set the most significant bit.
+    //
+    BuildMI(MBB,MI,dl,TII->get(X86::OR64ri32),X86::RCX).addReg(X86::RCX).addImm(0x7fffff80);
+    BuildMI(MBB,MI,dl,TII->get(X86::BTS64ri8),X86::RCX).addImm(31);
+
+    //
+    // Rotate the pointer so that the higer-order word is back in the
+    // upper-level bits.
+    //
+    BuildMI(MBB,MI,dl,TII->get(X86::ROL64ri),X86::RCX).addReg(X86::RCX).addImm(32);
   } else {
     BuildMI(MBB,MI,dl,TII->get(X86::MOV32rm), X86::ECX)
     .addReg(MI->getOperand(0).getReg()).addImm(MI->getOperand(1).getImm())
@@ -530,9 +619,33 @@ void X86CFIOptPass::insertCheckTailJmpr(MachineBasicBlock& MBB, MachineInstr* MI
           MI->getOpcode() == X86::TAILJMPr64) && "opcode TAILJMPr expected");
 
   //
-  // Add an instruction to perform the label check.
+  // Find the register holding the target of the jump.
   //
   unsigned reg = MI->getOperand(0).getReg();
+
+  //
+  // Rotate the upper 32-bits to the lower 32-bits so that we can bit-mask
+  // using a constant 32-bit immediate operand.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::ROR64ri),reg).addReg(reg).addImm(32);
+
+  //
+  // Mask the target to ensure that it points into the kernel code segment.
+  // This requires that we use a logical OR to set most of the bits and then
+  // a separate instruction to set the most significant bit.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::OR64ri32),reg).addReg(reg).addImm(0x7fffff80);
+  BuildMI(MBB,MI,dl,TII->get(X86::BTS64ri8),reg).addImm(31);
+
+  //
+  // Rotate the pointer so that the higer-order word is back in the
+  // upper-level bits.
+  //
+  BuildMI(MBB,MI,dl,TII->get(X86::ROL64ri),reg).addReg(reg).addImm(32);
+
+  //
+  // Add an instruction to perform the label check.
+  //
   addCheckInstruction (MBB, MI, dl, TII, reg);
 
   // JNE_4 EMBB
@@ -578,7 +691,7 @@ void X86CFIOptPass::insertCheckJmp64m(MachineBasicBlock& MBB, MachineInstr* MI,
   unsigned killed = 0;
 #endif
 
-  // if the JMP32m kills a register, use it for check
+  // if the JMP64m kills a register, use it for check
   if(killed != 0){
     // MOV64rm, %killed, mem_loc
     BuildMI(MBB,MI,dl,TII->get(X86::MOV64rm),killed)
@@ -640,16 +753,29 @@ void X86CFIOptPass::insertCheckJmp64m(MachineBasicBlock& MBB, MachineInstr* MI,
     else
       abort();
 
-  // pushl %reg
-  BuildMI (MBB,MI,dl,TII->get(X86::PUSH64r)).addReg(reg);
+    //
+    // Save the register on the stack.
+    // pushl %reg
+    //
+    BuildMI (MBB,MI,dl,TII->get(X86::PUSH64r)).addReg(reg);
 
-  // MOV64rm  mem_loc, %reg
-  BuildMI(MBB,MI,dl,TII->get(X86::MOV64rm),reg)
-    .addReg(MI->getOperand(0).getReg())  // base
-    .addImm(MI->getOperand(1).getImm())  // scale
-    .addReg(MI->getOperand(2).getReg())  // index
-    .addOperand(MI->getOperand(3))       // displacement
-    .addReg(MI->getOperand(4).getReg()); //segment register
+    //
+    // Load the bitmask into the register.
+    //
+    BuildMI(MBB,MI,dl,TII->get(X86::MOV32ri),reg).addImm(0x7fffff80);
+    BuildMI(MBB,MI,dl,TII->get(X86::SHL64ri),reg).addReg(reg).addImm(32);
+
+    //
+    // Use a bitwise OR to mask the target (stored in memory) with the mask and
+    // place the result into the register.
+    //
+    BuildMI(MBB,MI,dl,TII->get(X86::OR64rm),reg)
+      .addReg(reg)                         // target register operand
+      .addReg(MI->getOperand(0).getReg())  // base
+      .addImm(MI->getOperand(1).getImm())  // scale
+      .addReg(MI->getOperand(2).getReg())  // index
+      .addOperand(MI->getOperand(3))       // displacement
+      .addReg(MI->getOperand(4).getReg()); //segment register
 
     //
     // Add an instruction to perform the label check.
@@ -661,7 +787,7 @@ void X86CFIOptPass::insertCheckJmp64m(MachineBasicBlock& MBB, MachineInstr* MI,
 
     // JNE_4 EMBB
     BuildMI(MBB,MI,dl,TII->get(X86::JNE_4)).addMBB(EMBB);
-  } 
+  }
 }
 
 //
@@ -696,25 +822,22 @@ void X86CFIOptPass::insertCheckRet(MachineBasicBlock& MBB,
     // 64-bit value and can't mask against a 64-bit immediate.  Note that we
     // need to use a shift:
     //
-    // movl $0xffffff80, %rdx
-    // shq $32, %rdx
+    // movl $0xffffff80, %rcx
+    // shq $32, %rcx
     //
-    // We use %rdx since it is not used for return values.
+    // We use %rcx since it is not used for return values.
     //
-    BuildMI(MBB,MI,dl,TII->get(X86::MOV32ri),X86::EDX).addImm(0xffffff80);
-    BuildMI(MBB,MI,dl,TII->get(X86::SHL64ri),X86::RDX).addReg(X86::RDX).addImm(32);
+    BuildMI(MBB,MI,dl,TII->get(X86::MOV32ri),X86::ECX).addImm(0xffffff80);
+    BuildMI(MBB,MI,dl,TII->get(X86::SHL64ri),X86::RCX).addReg(X86::RCX).addImm(32);
 
     //
     // Fetch the return address from the stack and OR it with the bitmask.  We
     // use %rcx because the callee does not need to preserve it for the caller:
     //
-    // movq (%rsp), %rcx,
-    // orq (%rsp), %rcx,
+    // orq (%rsp), %rcx
     //
-    BuildMI(MBB,MI,dl,TII->get(X86::MOV64rm), X86::RCX)
-    .addReg(X86::RSP).addImm(1).addReg(0).addImm(0).addReg(0);
-    BuildMI(MBB,MI,dl,TII->get(X86::OR64rr), X86::RCX)
-    .addReg(X86::RCX).addReg(X86::RDX);
+    BuildMI(MBB,MI,dl,TII->get(X86::OR64rm), X86::RCX)
+    .addReg(X86::RCX).addReg(X86::RSP).addImm(1).addReg(0).addImm(0).addReg(0);
 
     //
     // Adjust the stack pointer to remove the return address:
