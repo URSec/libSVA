@@ -186,17 +186,19 @@ get_frame_from_os(void) {
   /* Flush the frame's (former) kernel direct mapping from the TLB. */
   sva_mm_flush_tlb((void*)kerndmap_vaddr);
 
-  /* Verify that there are no other mappings to the frame (except SVA's
+  /*
+   * Verify that there are no other mappings to the frame (except SVA's
    * direct map).
    *
    * We can use SVA's refcount for this because all non-direct mappings are
    * established through intrinsics that update it.
    */
   page_desc_t * page = getPageDescPtr(paddr);
-  if (page->count > 0) {
+  if (page->count > 1) {
     panic("SVA: OS gave us a frame for secure memory which is still mapped "
-        "somewhere else. The OS is lying to us and has been terminated with "
-        "extreme prejudice. Frame physical address: 0x%lx\n", paddr);
+        "somewhere else (in %d places). The OS is lying to us and has been "
+        "terminated with extreme prejudice. Frame physical address: 0x%lx\n",
+        page->count - 1, paddr);
   }
 
   /* Set the page_desc entry for this frame to type PG_SVA. */

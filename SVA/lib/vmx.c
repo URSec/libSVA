@@ -1138,9 +1138,11 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
  */
 int
 sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
+#if 0
   DBGPRNT(("sva_writevmcs() intrinsic called with field="));
   print_vmcs_field_name(field);
   DBGPRNT((" (0x%lx), data=0x%lx\n", field, data));
+#endif
 
   if (!sva_vmx_initialized) {
     panic("Fatal error: must call sva_initvmx() before any other "
@@ -1638,14 +1640,20 @@ run_vm(unsigned char use_vmresume) {
 
   /* Get the TR base address from the GDT */
   uint16_t tr_gdt_index = (tr_sel >> 3);
+#if 0
   DBGPRNT(("TR selector: 0x%hx; index in GDT: 0x%hx\n", tr_sel, tr_gdt_index));
+#endif
   uint32_t * gdt = (uint32_t*) gdt_base;
+#if 0
   DBGPRNT(("GDT base address: 0x%lx\n", (uint64_t)gdt));
+#endif
   uint32_t * tr_gdt_entry = gdt + (tr_gdt_index * 2);
 
+#if 0
   DBGPRNT(("TR entry address: 0x%lx\n", (uint64_t)tr_gdt_entry));
   DBGPRNT(("TR entry low 32 bits: 0x%x\n", tr_gdt_entry[0]));
   DBGPRNT(("TR entry high 32 bits: 0x%x\n", tr_gdt_entry[1]));
+#endif
 
   static const uint32_t SEGDESC_BASEADDR_31_24_MASK = 0xff000000;
   static const uint32_t SEGDESC_BASEADDR_23_16_MASK = 0xff;
@@ -1665,7 +1673,9 @@ run_vm(unsigned char use_vmresume) {
   uint32_t tr_baseaddr_31_0 = tr_baseaddr_31_16 | tr_baseaddr_15_0;
   uint64_t tr_baseaddr_63_32 = ((uint64_t)tr_gdt_entry[2] << 32);
   uint64_t tr_baseaddr = tr_baseaddr_63_32 | ((uint64_t)tr_baseaddr_31_0);
+#if 0
   DBGPRNT(("Reconstructed TR base address: 0x%lx\n", tr_baseaddr));
+#endif
   /* Write our hard-earned TR base address to the VMCS... */
   sva_writevmcs(VMCS_HOST_TR_BASE, tr_baseaddr);
 

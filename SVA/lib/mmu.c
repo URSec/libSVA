@@ -1858,7 +1858,7 @@ sva_load_cr0 (unsigned long val) {
  *    non set entries could be identified as holding valid mappings, which
  *    would then cause this function to traverse down truly invalid page table
  *    pages. In FreeBSD this isn't an issue given the way they initialize the
- *    static mapping, but could be a problem given differnet intialization
+ *    static mapping, but could be a problem given different intialization
  *    methods.
  *
  *  - Add code to mark direct map page table pages to prevent the OS from
@@ -2034,8 +2034,8 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
    * walk on all sub entries.
    */
   for (i = 0; i < numSubLevelPgEntries; i++){
-   if ((pageLevel == PG_L4) && (i == 256))
-	continue;
+    if ((pageLevel == PG_L4) && (i == 256))
+      continue;
 #if 0
     /*
      * Do not process any entries that implement the direct map.  This prevents
@@ -2045,11 +2045,8 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
       continue;
     }
 #endif
-#if OBSOLETE
-    //pagePtr += (sizeof(page_entry_t) * i);
-    //page_entry_t *nextEntry = pagePtr;
-#endif
-    page_entry_t * nextEntry = & pagePtr[i];
+
+    page_entry_t *nextEntry = &pagePtr[i];
 
 #if DEBUG_INIT >= 5
     printf("%sPagePtr in loop: %p, val: 0x%lx\n", indent, nextEntry, *nextEntry);
@@ -2069,18 +2066,18 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
        * the recursive page table traversals. Now we just mark the leaf page
        * descriptors.
        */
-      if (pageLevel == PG_L1){
+      if (pageLevel == PG_L1) {
 #if DEBUG_INIT >= 2
-          printf("%sInitializing leaf entry: pteaddr: %p, mapping: 0x%lx\n",
-                  indent, nextEntry, *nextEntry);
+        printf("%sInitializing leaf entry: pteaddr: %p, mapping: 0x%lx\n",
+            indent, nextEntry, *nextEntry);
 #endif
       } else {
 #if DEBUG_INIT >= 2
-      printf("%sProcessing:pte addr: %p, newPgAddr: %p, mapping: 0x%lx\n",
-              indent, nextEntry, (*nextEntry & PG_FRAME), *nextEntry ); 
+        printf("%sProcessing:pte addr: %p, newPgAddr: %p, mapping: 0x%lx\n",
+            indent, nextEntry, (*nextEntry & PG_FRAME), *nextEntry ); 
 #endif
-          declare_ptp_and_walk_pt_entries(nextEntry,
-                  numSubLevelPgEntries, subLevelPgType); 
+        declare_ptp_and_walk_pt_entries(nextEntry,
+            numSubLevelPgEntries, subLevelPgType); 
       }
     } 
 #if DEBUG_INIT >= 1
@@ -2434,13 +2431,11 @@ void * DMPDphys, void * DMPTphys, int ndmpdp, int ndm1g)
   }
 
 
-  for(i = 0; i < NDMPML4E; i++)
-  {
+  for(i = 0; i < NDMPML4E; i++) {
     sva_declare_dmap_page((unsigned long)DMPDPphys + (i << PAGE_SHIFT));
   }
 
-  for(i = 0; i < ndmpdp - ndm1g; i ++)
-  {
+  for(i = 0; i < ndmpdp - ndm1g; i ++) {
     sva_declare_dmap_page((unsigned long)DMPDphys + (i << PAGE_SHIFT));
   }
 
@@ -2522,6 +2517,23 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
   /* Walk the kernel page tables and initialize the sva page_desc */
   declare_ptp_and_walk_pt_entries(kpml4eVA, nkpml4e, PG_L4);
 
+  /*
+   * Increment each physical page's refcount in the page_desc by 2 to reflect
+   * the fact that it's referenced by both the kernel's and SVA's direct
+   * maps.
+   *
+   * SVA's direct map is not part of the kernel's page tables so it is not
+   * seen by declare_ptp_and_walk_pt_entries().
+   *
+   * FIXME: I'm not really sure why the page-table walk isn't picking up the
+   * references from the kernel's direct map. There's some code that that,
+   * per the comments, is supposed to skip over kernel DMAP references (to
+   * avoid setting all the memory referenced by the DMAP as PG_TKDATA), but
+   * it's commented out.
+   */
+  for (unsigned long i = 0; i < numPageDescEntries; i++)
+    page_desc[i].count += 2;
+
   /* TODO: Set page_desc pages as SVA pages */
 
   /* Identify kernel code pages and intialize the descriptors */
@@ -2567,14 +2579,15 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
 #ifdef SVA_DMAP  
   int ptindex;
   unsigned char * p;
-  for(ptindex = 0; ptindex < 1024; ++ptindex)
-  {
-	  if((p = SVAPTPages[ptindex]) == NULL)
-		panic("SVAPTPages[%d] is not allocated\n", ptindex);  
-	  PTPages[ptindex].paddr   = getPhysicalAddr (p);
-	  PTPages[ptindex].vosaddr = getVirtualSVADMAP(PTPages[ptindex].paddr);
-	  if(pgdef)
-	  	removeOSDirectMap(getVirtual(PTPages[ptindex].paddr)); 
+  for(ptindex = 0; ptindex < 1024; ++ptindex) {
+    if((p = SVAPTPages[ptindex]) == NULL)
+      panic("SVAPTPages[%d] is not allocated\n", ptindex);  
+
+    PTPages[ptindex].paddr   = getPhysicalAddr (p);
+    PTPages[ptindex].vosaddr = getVirtualSVADMAP(PTPages[ptindex].paddr);
+
+    if(pgdef)
+      removeOSDirectMap(getVirtual(PTPages[ptindex].paddr)); 
   }
   
 #endif
@@ -2978,6 +2991,8 @@ sva_remove_page (uintptr_t paddr) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
+  unsigned char isEPT; /* whether we are undeclaring an extended page table */
+
   /*
    * Get the last-level page table entry in the kernel's direct map that
    * references this PTP.
@@ -2988,18 +3003,25 @@ sva_remove_page (uintptr_t paddr) {
   page_desc_t *pgDesc = getPageDescPtr(paddr);
 
   /*
-   * Make sure that this is a page table page.  We don't want the system
+   * Make sure that this is a page table page. We don't want the system
    * software to trick us.
+   *
+   * Also take the opportunity to determine whether the PTP being undeclared
+   * is an extended page table.
    */
   switch (pgDesc->type) {
     case PG_L1:
     case PG_L2:
     case PG_L3:
     case PG_L4:
+      isEPT = 0;
+      break;
+
     case PG_EPTL1:
     case PG_EPTL2:
     case PG_EPTL3:
     case PG_EPTL4:
+      isEPT = 1;
       break;
 
     default:
@@ -3027,6 +3049,32 @@ sva_remove_page (uintptr_t paddr) {
   if (pgDesc->count <= 1) {
 #endif
 
+    /*
+     * If any valid mappings remain within the PTP, explicitly remove them to
+     * ensure consistency of SVA's page metadata.
+     *
+     * (Note: NPTEPG = # of entries in a PTP. We assume this is the same at
+     * all levels of the paging hierarchy.)
+     */
+    page_entry_t *ptp_vaddr = (page_entry_t *) getVirtualSVADMAP(paddr);
+    for (int i = 0; i < NPTEPG; i++) {
+      if (isPresent_maybeEPT(&ptp_vaddr[i], isEPT)) {
+        /* Remove the mapping */
+        __update_mapping(&ptp_vaddr[i], ZERO_MAPPING);
+      }
+    }
+
+    /* Mark the page frame as an unused page. */
+    pgDesc->type = PG_UNUSED;
+   
+    /*
+     * Make the page writeable again in the kernel's direct map. Be sure to
+     * flush entries pointing to it in the TLBs so that the change takes
+     * effect right away.
+     */
+    page_entry_store(pte_kdmap, setMappingReadWrite(*pte_kdmap));
+    sva_mm_flush_tlb(getVirtual(paddr));
+
 #ifdef SVA_ASID_PG
     /*
      * If the PTP being undeclared is a level-4 PTP (non-EPT), undeclare the
@@ -3040,6 +3088,19 @@ sva_remove_page (uintptr_t paddr) {
         SVA_ASSERT((other_pgDesc->count <= 2),
             "the kernel version pml4 page table page "
             "still has reference.\n" );
+
+        /*
+         * If any valid mappings remain within the PTP, explicitly remove
+         * them to ensure consistency of SVA's page metadata.
+         */
+        page_entry_t *other_pml4_vaddr =
+          (page_entry_t *) getVirtualSVADMAP(other_cr3);
+        for (int i = 0; i < NPTEPG; i++) {
+          if (isPresent_maybeEPT(&other_pml4_vaddr[i], isEPT)) {
+            /* Remove the mapping */
+            __update_mapping(&other_pml4_vaddr[i], ZERO_MAPPING);
+          }
+        }
 
         /* Mark the page frame as an unused page. */
         other_pgDesc->type = PG_UNUSED;
@@ -3059,19 +3120,9 @@ sva_remove_page (uintptr_t paddr) {
       }
     }
 #endif
-
-    /* Mark the page frame as an unused page. */
-    pgDesc->type = PG_UNUSED;
-   
-    /*
-     * Make the page writeable again in the kernel's direct map. Be sure to
-     * flush entries pointing to it in the TLBs so that the change takes
-     * effect right away.
-     */
-    page_entry_store(pte_kdmap, setMappingReadWrite(*pte_kdmap));
-    sva_mm_flush_tlb(getVirtual(paddr));
   } else {
-    printf("SVA: remove_page: type=%x count %x\n", pgDesc->type, pgDesc->count);
+    printf("SVA: undeclare page with outstanding references: "
+        "type=%d count=%d\n", pgDesc->type, pgDesc->count);
   }
 
   /* Restore interrupts and return to kernel page tables */
