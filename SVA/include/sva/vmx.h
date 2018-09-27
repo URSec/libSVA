@@ -157,7 +157,6 @@ enum vmx_statuscode_t {
 /**********
  * Helper functions
 **********/
-static inline unsigned char * my_getVirtual(uintptr_t physical);
 static inline uint32_t cpuid_1_ecx(void);
 static inline unsigned char cpu_supports_vmx(void);
 static inline unsigned char cpu_supports_smx(void);

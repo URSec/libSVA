@@ -102,39 +102,6 @@ static vmx_host_state_t __attribute__((section("svamem"))) host_state = {
 };
 
 /*
- * Function: my_getVirtual()
- *
- * Description:
- *  A local helper function to abstract around whether SVA_DMAP is defined
- *  (which determines which function should be called to convert a physical
- *  address to a virtual one using the direct map). This function will always
- *  call the correct one.
- */
-static inline unsigned char *
-my_getVirtual(uintptr_t physical) {
-#if 0
-  DBGPRNT(("Called my_getVirtual() with physical address 0x%lx...\n", physical));
-#ifdef SVA_DMAP
-  DBGPRNT(("Using SVA's DMAP.\n"));
-#else
-  DBGPRNT(("Using FreeBSD's DMAP.\n"));
-#endif
-#endif
-
-  unsigned char * r;
-#ifdef SVA_DMAP
-  r = getVirtualSVADMAP(physical);
-#else
-  r = getVirtual(physical);
-#endif
-
-#if 0
-  DBGPRNT(("my_getVirtual() returning 0x%lx...\n", r));
-#endif
-  return r;
-}
-
-/*
  * Function: cpuid_1_ecx()
  *
  * Description:
@@ -596,7 +563,7 @@ sva_initvmx(void) {
    * the VMXON region in any other way." For good measure, though, we'll
    * zero-fill the rest of it.
    */
-  unsigned char * VMXON_vaddr = my_getVirtual(VMXON_paddr);
+  unsigned char * VMXON_vaddr = getVirtualSVADMAP(VMXON_paddr);
 
   DBGPRNT(("Zero-filling VMXON frame...\n"));
   memset(VMXON_vaddr, 0, VMCS_ALLOC_SIZE);
@@ -759,7 +726,7 @@ sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
   vm_descs[vmid].vmcs_paddr = alloc_frame();
 
   /* Zero-fill the VMCS frame, for good measure. */
-  unsigned char * vmcs_vaddr = my_getVirtual(vm_descs[vmid].vmcs_paddr);
+  unsigned char * vmcs_vaddr = getVirtualSVADMAP(vm_descs[vmid].vmcs_paddr);
   memset(vmcs_vaddr, 0, VMCS_ALLOC_SIZE);
 
   /*
