@@ -531,7 +531,8 @@ isPresent_maybeEPT (page_entry_t * pte, unsigned char isEPT) {
  * Function: get_pagetable()
  *
  * Description:
- *  Return a physical address that can be used to access the current page table.
+ *  Return a physical address that can be used to access the current
+ *  top-level page table.
  */
 static inline unsigned char *
 get_pagetable (void) {
@@ -542,11 +543,10 @@ get_pagetable (void) {
   __asm__ __volatile__ ("movq %%cr3, %0\n" : "=r" (cr3));
 
   /*
-   * Shift the value over 12 bits.  The lower-order 12 bits of the page table
-   * pointer are assumed to be zero, and so they are reserved or used by the
-   * hardware.
+   * Mask off the flag bits in CR3, leaving just the 4 kB-aligned physical
+   * address of the top-level page table.
    */
-  return (unsigned char *)((((uintptr_t)cr3) & 0x000ffffffffff000u));
+  return (unsigned char *)(cr3 & PG_FRAME);
 }
 
 /*
@@ -557,17 +557,15 @@ get_pagetable (void) {
 #define MSR_REG_EFER    0xC0000080      /* MSR for EFER register */
 
 static inline uint64_t
-rdmsr(u_int msr)
-{
-    uint32_t low, high;
+rdmsr(u_int msr) {
+  uint32_t low, high;
+  __asm __volatile("rdmsr" : "=a" (low), "=d" (high) : "c" (msr));
 
-    __asm __volatile("rdmsr" : "=a" (low), "=d" (high) : "c" (msr));
-    return (low | ((uint64_t)high << 32));
+  return (low | ((uint64_t)high << 32));
 }
 
 static __inline void
-wrmsr(u_int msr, uint64_t newval)
-{
+wrmsr(u_int msr, uint64_t newval) {
   uint32_t low, high;
   low = newval;
   high = newval >> 32;
@@ -579,7 +577,7 @@ wrmsr(u_int msr, uint64_t newval)
  */
 static void
 _load_cr0(unsigned long val) {
-    __asm __volatile("movq %0,%%cr0" : : "r" (val));
+  __asm __volatile("movq %0,%%cr0" : : "r" (val));
 }
 
 /*
@@ -588,9 +586,8 @@ _load_cr0(unsigned long val) {
  * Description: 
  *  Load the cr3 with the given value passed in.
  */
-static inline void load_cr3(unsigned long data)
-{ 
-    __asm __volatile("movq %0,%%cr3" : : "r" (data) : "memory"); 
+static inline void load_cr3(unsigned long data) {
+  __asm __volatile("movq %0,%%cr3" : : "r" (data) : "memory"); 
 }
 
 /*
@@ -599,55 +596,53 @@ static inline void load_cr3(unsigned long data)
  * Description: 
  *  Load the cr4 with the given value passed in.
  */
-static inline void load_cr4(unsigned long data)
-{
-    __asm __volatile("movq %0,%%cr4" : : "r" (data));
+static inline void load_cr4(unsigned long data) {
+  __asm __volatile("movq %0,%%cr4" : : "r" (data));
 }
 
 static inline u_long
 _rcr0(void) {
-    u_long  data;
-    __asm __volatile("movq %%cr0,%0" : "=r" (data));
-    return (data);
+  u_long data;
+  __asm __volatile("movq %%cr0,%0" : "=r" (data));
+  return (data);
 }
 
 static inline u_long
 _rcr3(void) {
-    u_long  data;
-    __asm __volatile("movq %%cr3,%0" : "=r" (data));
-    return (data);
+  u_long data;
+  __asm __volatile("movq %%cr3,%0" : "=r" (data));
+  return (data);
 }
 
 static inline u_long
 _rcr4(void) {
-    u_long  data;
-    __asm __volatile("movq %%cr4,%0" : "=r" (data));
-    return (data);
+  u_long data;
+  __asm __volatile("movq %%cr4,%0" : "=r" (data));
+  return (data);
 }
 
 static inline uint64_t
 _efer(void) {
-    return rdmsr(MSR_REG_EFER);
+  return rdmsr(MSR_REG_EFER);
 }
 
 /*  
  * Global TLB flush (except for this for pages marked PG_G)
  */ 
 static inline void
-invltlb(void)
-{
-    
-    load_cr3(_rcr3());
+invltlb(void) {
+  load_cr3(_rcr3());
 }
 
 
 /*
  * Flush userspace TLB entries with kernel PCID (PCID 1)
+ *
+ * NOTE: this function has the side effect of changing the active PCID to 1!
  */
 static inline void
-invltlb_kernel(void)
-{
-    load_cr3(_rcr3() | 0x1);
+invltlb_kernel(void) {
+  load_cr3(_rcr3() | 0x1);
 }
 
 /*
@@ -655,37 +650,30 @@ invltlb_kernel(void)
  * Interrupts should have already been disabled when this function is invoked.
  * clear PGE of CR4 first and then write old PGE again to CR4 to flush TLBs
  */
-
 static inline void
-invltlb_all(void)
-{
-    unsigned long cr4;
-    cr4 = _rcr4();
-    load_cr4(cr4 & ~CR4_PGE);
-    load_cr4(cr4);
-    
+invltlb_all(void) {
+  unsigned long cr4;
+  cr4 = _rcr4();
+  load_cr4(cr4 & ~CR4_PGE);
+  load_cr4(cr4);
 }
 
 /*
  * Invalidate all the TLB entries with a specific virtual address
  * (including global entries)
  */
-
 static __inline void
-invlpg(u_long addr)
-{
-
+invlpg(u_long addr) {
   __asm __volatile("invlpg %0" : : "m" (*(char *)addr) : "memory");
-
 }
 
 static inline void
 print_regs(void) {
-    printf("Printing Active Reg Values:\n");
-    printf("\tEFER: %p\n", _efer());
-    printf("\t CR0: %p\n", _rcr0());
-    printf("\t CR3: %p\n", _rcr3());
-    printf("\t CR4: %p\n", _rcr4());
+  printf("Printing Active Reg Values:\n");
+  printf("\tEFER: %p\n", _efer());
+  printf("\t CR0: %p\n", _rcr0());
+  printf("\t CR3: %p\n", _rcr3());
+  printf("\t CR4: %p\n", _rcr4());
 }
 
 /*

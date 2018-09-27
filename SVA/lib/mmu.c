@@ -1715,84 +1715,90 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread)
  */
 void
 sva_mm_load_pgtable (void * pg_ptr) {
-  /* Cast the page table pointer to an integer */
-  uintptr_t pg = (uintptr_t) pg_ptr;
-
-  uintptr_t data = 0;
-   
   uint64_t tsc_tmp;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
-  kernel_to_usersva_pcid();
   /*
-   * Disable interrupts so that we appear to execute as a single instruction.
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
    */
+  kernel_to_usersva_pcid();
+  /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
+
+  /* Cast the page table pointer to an integer */
+  uintptr_t new_pml4 = (uintptr_t) pg_ptr;
+  /*
+   * Ensure there are no extraneous bits set in the page table pointer
+   * (which would be interpreted as flags in CR3). Masking with PG_FRAME will
+   * leave us with just the 4 kB-aligned physical address.
+   *
+   * (These bits aren't *supposed* to be set by the caller, but we can't
+   * trust the system software to be honest.)
+   */
+  new_pml4 &= PG_FRAME;
 
   /*
    * Check that the new page table is an L4 page table page.
    */
-  if ((mmuIsInitialized) && (!disableMMUChecks) && (getPageDescPtr(pg)->type != PG_L4)) {
-    panic ("SVA: Loading non-L4 page into CR3: %lx %x\n", pg, getPageDescPtr (pg)->type);
+  if ((mmuIsInitialized) && (!disableMMUChecks)
+      && (getPageDescPtr(new_pml4)->type != PG_L4)) {
+    panic("SVA: Loading non-L4 page into CR3: %lx %x\n",
+        new_pml4, getPageDescPtr(new_pml4)->type);
   }
+
 #ifdef SVA_ASID_PG
+  /*
+   * Invalidate the TLB's entries for this process in the kernel's address
+   * space (PCID = 1).
+   *
+   * The invltlb_kernel() function has the side effect of changing the active
+   * PCID to 1. We will immediately change it back to 0 (user/SVA) below when
+   * we load the new page table.
+   */
   invltlb_kernel();
-  pg = ((unsigned long) pg & ~((unsigned long)1 << 63)) & ~0xfff;
 #endif
+
   /*
    * Load the new page table.
    */
-  __asm__ __volatile__ ("movq %0, %%cr3\n"
-                        :
-                        : "r" (pg)
-                        : "memory");
+  asm __volatile__ (
+      "movq %0, %%cr3\n"
+      : : "r" (new_pml4)
+      : "memory");
 
   /*
    * Ensure that the secure memory region is still mapped within the current
    * set of page tables.
    */
-  struct SVAThread * threadp = getCPUState()->currentThread;
+  struct SVAThread *threadp = getCPUState()->currentThread;
   if (vg && threadp->secmemSize) {
-    /* 
-     * Unset page protection so that we can write into the top-level page-table
-     * page if necessary.
-     */
-#ifndef SVA_DMAP
-    unprotect_paging();
-#endif
     /*
-     * Get a pointer into the page tables for the secure memory region.
+     * Get a pointer to the section of the new top-level page table that maps
+     * the secure memory region.
      */
-#ifdef SVA_DMAP
-    pml4e_t * secmemp = (pml4e_t *) getVirtualSVADMAP ((uintptr_t)get_pagetable() + secmemOffset);
-#else
-    pml4e_t * secmemp = (pml4e_t *) getVirtual ((uintptr_t)get_pagetable() + secmemOffset);
-#endif
+    pml4e_t *secmemp = (pml4e_t *) getVirtualSVADMAP(
+        (uintptr_t)get_pagetable() + secmemOffset);
+
     /*
-     * Restore the PML4E entry for the secure memory region.
+     * Write the PML4 entry for the secure memory region into the new
+     * top-level page table.
      */
     *secmemp = threadp->secmemPML4e;
-     
-    /* 
-     * Invalidate TLB since we update the PML4E entry for the secure memory region
-     */
-     __asm __volatile("movq %%cr3,%0" : "=r" (data));
-     __asm __volatile("movq %0,%%cr3" : : "r" (data) : "memory");
 
-     /*
-     * Mark the page table pages as read-only again.
+    /* 
+     * Invalidate the TLB's entries for this process since we have updated
+     * the PML4E entry for the secure memory region.
      */
-#ifndef SVA_DMAP
-    protect_paging();
-#endif
+    invltlb();
   }
 
-  /* Restore interrupts */
-  sva_exit_critical (rflags);
+  /* Restore interrupts and return to the kernel page tables. */
+  sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
+
   record_tsc(sva_mm_load_pgtable_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
 }
 
 /*
@@ -2168,28 +2174,55 @@ makePTReadOnly (void) {
   //protect_paging();
 }
 
-/* PCID-related functions: 
+/*
+ * PCID-related functions: 
  * kernel pcid is 1, and user/SVA pcid is 0
  */
 
-void usersva_to_kernel_pcid(void)
-{
+/*
+ * Function: usersva_to_kernel_pcid()
+ *
+ * Description:
+ *  Switch to the kernel's version of the current process's address space
+ *  (which does not include certain protected regions like ghost memory).
+ */
+void usersva_to_kernel_pcid(void) {
 #ifdef SVA_ASID_PG
-  unsigned long cr3;
-  struct SVAThread * curThread;
-  unsigned long pg = 0;
+  unsigned long old_cr3;
+  asm __volatile__ (
+      "movq %%cr3,%0"
+      : "=r" (old_cr3));
 
-  __asm __volatile("movq %%cr3,%0" : "=r" (cr3));
-  if(!(cr3 & 0x1))
-  {
-        page_desc_t * ptDesc = getPageDescPtr(cr3);
-        pg = ptDesc->other_pgPaddr;
-        pg = (pg == 0)? cr3 : pg;
-        cr3 = (pg & ~0xfff) | 0x1 | ((unsigned long)1 << 63);
-        __asm __volatile("movq %0,%%cr3" : : "r" (cr3) : "memory");
+  /*
+   * If the PCID is not already 1 (kernel), set PCID to 1 and switch to the
+   * kernel version of the top-level page table.
+   */
+  if (!(old_cr3 & 0x1)) {
+    /* Get the alternate PML4 address from SVA's page metadata. */
+    page_desc_t *pml4Desc = getPageDescPtr(old_cr3);
+    unsigned long altpml4 = pml4Desc->other_pgPaddr;
 
-	if(tsc_read_enable_sva)
-		as_num ++;
+    /*
+     * If we haven't yet set up the separate PML4 tables for the kernel and
+     * user/SVA, stay with the current value loaded in CR3 (but still reload
+     * CR3 to set the new PCID).
+     */
+    if (altpml4 == 0)
+      altpml4 = old_cr3;
+
+    /* Load CR3 with the new PML4 address and PCID = 1. */
+    unsigned long new_cr3 =
+      (altpml4 & ~0xfff) /* clear PCID field (bits 0-11) */
+      | 0x1 /* set PCID field to 1 */
+      | ((unsigned long)1 << 63) /* ensure XD (bit 63) is set */;
+
+    asm __volatile__ (
+        "movq %0,%%cr3"
+        : : "r" (new_cr3)
+        : "memory");
+
+    if (tsc_read_enable_sva)
+      as_num++;
   }
 #endif
 
@@ -2198,24 +2231,49 @@ void usersva_to_kernel_pcid(void)
 #endif
 }
 
-void kernel_to_usersva_pcid(void)
-{
+/*
+ * Function: kernel_to_usersva_pcid()
+ *
+ * Description:
+ *  Switch to the user/SVA version of the current process's address space
+ *  (which includes certain protected regions, like ghost memory, that are
+ *  not present in the kernel's version).
+ */
+void kernel_to_usersva_pcid(void) {
 #ifdef SVA_ASID_PG
-  unsigned long cr3;
-  struct SVAThread * curThread;
-  unsigned long pg = 0;
+  unsigned long old_cr3;
+  asm __volatile__ (
+      "movq %%cr3,%0"
+      : "=r" (old_cr3));
 
-  __asm __volatile("movq %%cr3,%0" : "=r" (cr3));
-  if(cr3 & 0x1)
-  {
-        page_desc_t * ptDesc = getPageDescPtr(cr3);
-        pg = ptDesc->other_pgPaddr;
-        pg = (pg == 0)? cr3 : pg;
-        cr3 = (pg & ~0xfff) | ((unsigned long)1 << 63);
-        __asm __volatile("movq %0,%%cr3" : : "r" (cr3) : "memory");
+  /*
+   * If the PCID is not already 0 (user/SVA), set PCID to 0 and switch to the
+   * user/SVA version of the top-level page table.
+   */
+  if (old_cr3 & 0x1 /* if PCID != 1, it will be 0 */) {
+    /* Get the alternate PML4 address from SVA's page metadata. */
+    page_desc_t *pml4Desc = getPageDescPtr(old_cr3);
+    unsigned long altpml4 = pml4Desc->other_pgPaddr;
 
-	if(tsc_read_enable_sva)
-		as_num ++;
+    /*
+     * If we haven't yet set up the separate PML4 tables for the kernel and
+     * user/SVA, stay with the current value loaded in CR3 (but still reload
+     * CR3 to set the new PCID).
+     */
+    if (altpml4 == 0)
+      altpml4 = old_cr3;
+
+    unsigned long new_cr3 =
+      (pg & ~0xfff) /* clear PCID field (bits 0-11) */
+      | ((unsigned long)1 << 63) /* ensure XD (bit 63) is set */;
+
+    asm __volatile__ (
+        "movq %0,%%cr3"
+        : : "r" (cr3)
+        : "memory");
+
+    if (tsc_read_enable_sva)
+      as_num++;
   }
 #endif
 

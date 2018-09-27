@@ -535,8 +535,7 @@ load_eptable_internal(
    * (i.e., there is no old PTP).
    */
   if (!is_initial_setting) {
-    uintptr_t old_epml4t_paddr = vm_descs[vmid].eptp & PG_FRAME;
-    page_desc_t *old_ptpDesc = getPageDescPtr(old_epml4t_paddr);
+    page_desc_t *old_ptpDesc = getPageDescPtr(vm_descs[vmid].eptp);
 
     /*
      * Check that the refcount isn't already zero (in which case we'd
