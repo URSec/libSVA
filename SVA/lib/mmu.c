@@ -1748,6 +1748,26 @@ sva_mm_load_pgtable (void * pg_ptr) {
         new_pml4, getPageDescPtr(new_pml4)->type);
   }
 
+  /*
+   * Ensure that the secure memory region is still mapped within the new set
+   * of page tables.
+   */
+  struct SVAThread *threadp = getCPUState()->currentThread;
+  if (vg && threadp->secmemSize) {
+    /*
+     * Get a pointer to the section of the new top-level page table that maps
+     * the secure memory region.
+     */
+    pml4e_t *secmemp =
+      (pml4e_t *) getVirtualSVADMAP(new_pml4 + secmemOffset);
+
+    /*
+     * Write the PML4 entry for the secure memory region into the new
+     * top-level page table.
+     */
+    *secmemp = threadp->secmemPML4e;
+  }
+
 #ifdef SVA_ASID_PG
   /*
    * Invalidate the TLB's entries for this process in the kernel's address
@@ -1762,37 +1782,15 @@ sva_mm_load_pgtable (void * pg_ptr) {
 
   /*
    * Load the new page table.
+   *
+   * This also invalidates all TLB entries for this process in the user/SVA
+   * address space (which, among other necessary effects, ensures that the
+   * secure memory mapping in the PML4 that we updated above is in effect).
    */
   asm __volatile__ (
       "movq %0, %%cr3\n"
       : : "r" (new_pml4)
       : "memory");
-
-  /*
-   * Ensure that the secure memory region is still mapped within the current
-   * set of page tables.
-   */
-  struct SVAThread *threadp = getCPUState()->currentThread;
-  if (vg && threadp->secmemSize) {
-    /*
-     * Get a pointer to the section of the new top-level page table that maps
-     * the secure memory region.
-     */
-    pml4e_t *secmemp = (pml4e_t *) getVirtualSVADMAP(
-        (uintptr_t)get_pagetable() + secmemOffset);
-
-    /*
-     * Write the PML4 entry for the secure memory region into the new
-     * top-level page table.
-     */
-    *secmemp = threadp->secmemPML4e;
-
-    /* 
-     * Invalidate the TLB's entries for this process since we have updated
-     * the PML4E entry for the secure memory region.
-     */
-    invltlb();
-  }
 
   /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
