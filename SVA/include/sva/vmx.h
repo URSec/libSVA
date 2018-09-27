@@ -171,7 +171,8 @@ static inline void save_restore_guest_state(unsigned char saverestore);
 static inline int read_write_vmcs_field(
     unsigned char write,
     enum sva_vmcs_field field, uint64_t *data);
-void load_eptable_internal(size_t vmid, pml4e_t *epml4t);
+void load_eptable_internal(
+    size_t vmid, pml4e_t *epml4t, unsigned char is_initial_setting);
 
 /**********
  * Structures

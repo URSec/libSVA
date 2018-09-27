@@ -747,7 +747,7 @@ sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
    * functionality of sva_load_eptable(), because we know vmid is valid (but
    * still need to vet the extended page table pointer).
    */
-  load_eptable_internal(vmid, initial_eptable);
+  load_eptable_internal(vmid, initial_eptable, 1 /* is initial setting */);
 
   /*
    * Allocate a physical frame of SVA secure memory from the frame cache to
@@ -864,6 +864,22 @@ sva_freevm(size_t vmid) {
     panic("Fatal error: tried to free a VM which is active on the "
         "processor!\n");
   }
+
+  /*
+   * Decrement the refcount for the VM's top-level extended-page-table page
+   * to reflect the fact that this VM is no longer using it.
+   */
+  uintptr_t epml4t_paddr = vm_descs[vmid].eptp & PG_FRAME;
+  page_desc_t *ptpDesc = getPageDescPtr(epml4t_paddr);
+  /*
+   * Check that the refcount isn't already zero (in which case we'd
+   * underflow). If so, our frame metadata has become inconsistent (as a
+   * reference clearly exists).
+   */
+  SVA_ASSERT(pgRefCount(ptpDesc) > 0,
+      "SVA: MMU: frame metadata inconsistency detected "
+      "(attempted to decrement refcount below zero)");
+  ptpDesc->count--;
 
   /* Return the VMCS frame to the frame cache. */
   DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));

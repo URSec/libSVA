@@ -586,8 +586,8 @@ updateNewPageData(page_entry_t mapping, unsigned char isEPT) {
      * Update the reference count for the new page frame. Check that we aren't
      * overflowing the counter.
      */
-    SVA_ASSERT (pgRefCount(newPG) < ((1u << 13) - 1), 
-                "MMU: overflow for the mapping count");
+    SVA_ASSERT(pgRefCount(newPG) < ((1u << 13) - 1), 
+               "SVA: MMU: integer overflow in page refcount");
     newPG->count++;
   }
 
@@ -612,9 +612,18 @@ updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
 
   /* 
    * Only decrement the mapping count if the page has an existing valid
-   * mapping.  Ensure that we don't drop the reference count below zero.
+   * mapping.
    */
-  if (isPresent_maybeEPT(&mapping, isEPT) && (origPG->count)) {
+  if (isPresent_maybeEPT(&mapping, isEPT)) {
+    /*
+     * Check that the refcount isn't already zero (in which case we'd
+     * underflow). If so, our frame metadata has become inconsistent (as
+     * the isPresent check has just established that a reference exists).
+     */
+    SVA_ASSERT(pgRefCount(origPG) > 0,
+        "SVA: MMU: frame metadata inconsistency detected "
+        "(attempted to decrement refcount below zero)");
+
     --(origPG->count);
 
     if(origPG->count == 1)

@@ -461,7 +461,7 @@ sva_load_eptable(size_t vmid, pml4e_t *epml4t) {
    * Call a helper function which vets the EPML4 pointer and sets the EPTP in
    * the VM descriptor.
    */
-  load_eptable_internal(vmid, epml4t);
+  load_eptable_internal(vmid, epml4t, 0 /* is not initial setting */);
 
   /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
@@ -481,27 +481,76 @@ sva_load_eptable(size_t vmid, pml4e_t *epml4t) {
  *  also needs to set the EPTP from an untrusted value, but knows it has a
  *  valid vmid (because it generated that ID).
  *
+ * Inputs:
+ *  - vmid, epml4t: same as sva_load_eptable()
+ *
+ *  - is_initial_setting: boolean indicating whether this is the first time
+ *    the EPTP is being loaded for this VM. (This indicates whether we need
+ *    to decrement the refcount for an existing top-level PTP.)
+ *
  * Preconditions:
  *  - Must be called by an SVA intrinsic, i.e., interrupts should be disabled
  *    and the SVA/userspace page tables should be active.
  *
  *  - vmid must be valid (i.e., in-bounds and pointing to an active VM).
+ *
+ *  - is_initial_setting must come from a trusted source (as it determines
+ *    whether we skip a security check that is invalid the first time the
+ *    extended page table is loaded for a new VM). In general, SVA code
+ *    calling this function should be able to set it as a constant.
+ *      (As the code is currently structured, this is only set to true
+ *      when sva_allocvm() is the caller.)
  */
 void
-load_eptable_internal(size_t vmid, pml4e_t *epml4t) {
+load_eptable_internal(
+    size_t vmid, pml4e_t *epml4t, unsigned char is_initial_setting) {
   /*
    * Verify that the given extended page table pointer points to a valid
-   * EPML4 page-table page (i.e., one properly declared with
+   * top-level extended-page-table page (i.e., one properly declared with
    * sva_declare_l4_eptpage()).
    */
   uintptr_t epml4t_paddr = getPhysicalAddr(epml4t);
-  page_desc_t *ptDesc = getPageDescPtr(epml4t_paddr);
-  if ((ptDesc->type != PG_EPTL4) && !disableMMUChecks) {
+  page_desc_t *ptpDesc = getPageDescPtr(epml4t_paddr);
+  if ((ptpDesc->type != PG_EPTL4) && !disableMMUChecks) {
     panic("SVA: MMU: Attempted to load an extended page table that wasn't "
         "registered with SVA as an EPML4 frame! "
         "vaddr: 0x%lx; paddr: 0x%lx; SVA frame type: %d\n",
-        epml4t, epml4t_paddr, ptDesc->type);
+        epml4t, epml4t_paddr, ptpDesc->type);
   }
+
+  /*
+   * Increment the reference count for the new top-level extended PTP to
+   * reflect that it is now referenced by this VM.
+   *
+   * Check that we aren't overflowing the counter.
+   */
+  SVA_ASSERT(pgRefCount(ptpDesc) < ((1u << 13) - 1),
+             "SVA: MMU: integer overflow in page refcount");
+  ptpDesc->count++;
+
+  /*
+   * Decrement the reference count for the old PTP.
+   *
+   * Skip this if this is the first time we are loading the EPTP for this VM
+   * (i.e., there is no old PTP).
+   */
+  if (!is_initial_setting) {
+    uintptr_t old_epml4t_paddr = vm_descs[vmid].eptp & PG_FRAME;
+    page_desc_t *old_ptpDesc = getPageDescPtr(old_epml4t_paddr);
+
+    /*
+     * Check that the refcount isn't already zero (in which case we'd
+     * underflow). If so, our frame metadata has become inconsistent (as a
+     * reference clearly exists).
+     */
+    SVA_ASSERT(pgRefCount(old_ptpDesc) > 0,
+        "SVA: MMU: frame metadata inconsistency detected "
+        "(attempted to decrement refcount below zero)");
+
+    old_ptpDesc->count--;
+  }
+
+  /* TODO: flush all TLBs with this VM's VPID */
 
   /*
    * Construct the value to load into the VMCS's Extended Page Table Pointer
