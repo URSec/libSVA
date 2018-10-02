@@ -2182,14 +2182,12 @@ makePTReadOnly (void) {
  *
  * Description:
  *  Switch to the kernel's version of the current process's address space
- *  (which does not include certain protected regions like ghost memory).
+ *  (which does not include certain protected regions like ghost memory and
+ *  SVA internal memory).
  */
 void usersva_to_kernel_pcid(void) {
 #ifdef SVA_ASID_PG
-  unsigned long old_cr3;
-  asm __volatile__ (
-      "movq %%cr3,%0"
-      : "=r" (old_cr3));
+  unsigned long old_cr3 = _rcr3();
 
   /*
    * If the PCID is not already 1 (kernel), set PCID to 1 and switch to the
@@ -2214,10 +2212,7 @@ void usersva_to_kernel_pcid(void) {
       | 0x1 /* set PCID field to 1 */
       | ((unsigned long)1 << 63) /* ensure XD (bit 63) is set */;
 
-    asm __volatile__ (
-        "movq %0,%%cr3"
-        : : "r" (new_cr3)
-        : "memory");
+    load_cr3(new_cr3);
 
     if (tsc_read_enable_sva)
       as_num++;
@@ -2234,15 +2229,12 @@ void usersva_to_kernel_pcid(void) {
  *
  * Description:
  *  Switch to the user/SVA version of the current process's address space
- *  (which includes certain protected regions, like ghost memory, that are
- *  not present in the kernel's version).
+ *  (which includes certain protected regions, like ghost memory and SVA
+ *  internal memory, that are not present in the kernel's version).
  */
 void kernel_to_usersva_pcid(void) {
 #ifdef SVA_ASID_PG
-  unsigned long old_cr3;
-  asm __volatile__ (
-      "movq %%cr3,%0"
-      : "=r" (old_cr3));
+  unsigned long old_cr3 = _rcr3();
 
   /*
    * If the PCID is not already 0 (user/SVA), set PCID to 0 and switch to the
@@ -2265,10 +2257,7 @@ void kernel_to_usersva_pcid(void) {
       (pg & ~0xfff) /* clear PCID field (bits 0-11) */
       | ((unsigned long)1 << 63) /* ensure XD (bit 63) is set */;
 
-    asm __volatile__ (
-        "movq %0,%%cr3"
-        : : "r" (cr3)
-        : "memory");
+    load_cr3(new_cr3);
 
     if (tsc_read_enable_sva)
       as_num++;
@@ -2558,18 +2547,18 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
               uintptr_t btext,
               uintptr_t etext) {
   uint64_t tsc_tmp;
-  if(tsc_read_enable_sva)
+  if (tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
   /* Get the virtual address of the pml4e mapping */
 #if USE_VIRT
-  pml4e_t * kpml4eVA = (pml4e_t *) getVirtual( (uintptr_t) kpml4Mapping);
+  pml4e_t * kpml4eVA = (pml4e_t *) getVirtual((uintptr_t) kpml4Mapping);
 #else
   pml4e_t * kpml4eVA = kpml4Mapping;
 #endif
 
   /* Zero out the page descriptor array */
-  memset (page_desc, 0, numPageDescEntries * sizeof(page_desc_t));
+  memset(page_desc, 0, numPageDescEntries * sizeof(page_desc_t));
 
 #if 0
   /*
@@ -2605,18 +2594,25 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
   declare_kernel_code_pages(btext, etext);
 
 #ifdef SVA_ASID_PG
-  load_cr4(_rcr4()|CR4_PCIDE);
-  /* Now load the initial value of the cr3 to complete kernel init */
+  /* Enable processor support for PCIDs. */
+  load_cr4(_rcr4() | CR4_PCIDE);
+
+  /*
+   * Set the PCID field (bits 0-11) in the initial CR3 value to 1 so that we
+   * will start in the kernel's version of the address space (which does not
+   * include certain protected regions like ghost memory and SVA internal
+   * memory).
+   */
   unsigned long kernel_pg = *kpml4Mapping & PG_FRAME;
   kernel_pg = (kernel_pg & ~0xfff) | 0x1;
 #endif
-  unprotect_paging();
+
+  /* Now load the initial value of CR3 to complete kernel init. */
 #ifdef SVA_ASID_PG
   load_cr3(kernel_pg);
 #else
   load_cr3(*kpml4Mapping & PG_FRAME);
 #endif
-  protect_paging();
 
   /*
    * Make existing page table pages read-only.
@@ -2642,16 +2638,14 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
   mmuIsInitialized = 1;
 
 #ifdef SVA_DMAP  
-  int ptindex;
-  unsigned char * p;
-  for(ptindex = 0; ptindex < 1024; ++ptindex) {
-    if((p = SVAPTPages[ptindex]) == NULL)
+  for (int ptindex = 0; ptindex < 1024; ++ptindex) {
+    if (SVAPTPages[ptindex] == NULL)
       panic("SVAPTPages[%d] is not allocated\n", ptindex);  
 
-    PTPages[ptindex].paddr   = getPhysicalAddr (p);
+    PTPages[ptindex].paddr   = getPhysicalAddr(SVAPTPages[ptindex]);
     PTPages[ptindex].vosaddr = getVirtualSVADMAP(PTPages[ptindex].paddr);
 
-    if(pgdef)
+    if (pgdef)
       removeOSDirectMap(getVirtual(PTPages[ptindex].paddr)); 
   }
   
