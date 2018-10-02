@@ -3109,8 +3109,9 @@ sva_remove_page (uintptr_t paddr) {
 #endif
 
     /*
-     * If any valid mappings remain within the PTP, explicitly remove them to
-     * ensure consistency of SVA's page metadata.
+     * If any valid mappings remain within the PTP, decrement the refcounts
+     * of the pages to which they point to reflect that the mappings are
+     * effectively being deleted by undeclaring this PTP.
      *
      * (Note: NPTEPG = # of entries in a PTP. We assume this is the same at
      * all levels of the paging hierarchy.)
@@ -3118,8 +3119,18 @@ sva_remove_page (uintptr_t paddr) {
     page_entry_t *ptp_vaddr = (page_entry_t *) getVirtualSVADMAP(paddr);
     for (int i = 0; i < NPTEPG; i++) {
       if (isPresent_maybeEPT(&ptp_vaddr[i], isEPT)) {
-        /* Remove the mapping */
-        __update_mapping(&ptp_vaddr[i], ZERO_MAPPING);
+        page_desc_t *mappedPage = getPageDescPtr(ptp_vaddr[i]);
+
+        /*
+         * Check that the refcount isn't already zero (in which case we'd
+         * underflow). If so, our frame metadata has become inconsistent (as
+         * the isPresent check has just established that a reference exists).
+         */
+        SVA_ASSERT(pgRefCount(mappedPage) > 0,
+            "SVA: MMU: frame metadata inconsistency detected "
+            "(attempted to decrement refcount below zero)");
+
+        --(mappedPage->count);
       }
     }
 
