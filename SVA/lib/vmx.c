@@ -1051,7 +1051,8 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
           "SVA-VMX intrinsic.\n");
   }
 
-  /* If there is no VM currently active on the processor, return failure.
+  /*
+   * If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
@@ -1061,34 +1062,11 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
     return -1;
   }
 
-#if 0
-  DBGPRNT(("Executing VMREAD instruction...\n"));
-#endif
-  uint64_t rflags;
-  asm __volatile__ (
-      "vmread %%rax, %%rbx\n"
-      "pushfq\n"
-      "popq %0\n"
-      : "=r" (rflags), "=b" (*data)
-      : "a" (field)
-      : "cc"
-      );
-  /* Confirm that the operation succeeded. */
-  if (query_vmx_result(rflags) == VM_SUCCEED) {
-#if 0
-    DBGPRNT(("Successfully read VMCS field.\n"));
-#endif
-
-    /* The specified field has been successfully read into the location
-     * pointed to by "data". Return success.
-     */
-    return 0;
-  } else {
-    DBGPRNT(("Error: failed to read VMCS field.\n"));
-
-    /* Return failure. */
-    return -1;
-  }
+  /*
+   * Perform the read if it won't leak sensitive information to the system
+   * software (or if it can be sanitized).
+   */
+  return readvmcs_checked(field, data);
 }
 
 /*
@@ -1131,7 +1109,8 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
           "SVA-VMX intrinsic.\n");
   }
 
-  /* If there is no VM currently active on the processor, return failure.
+  /*
+   * If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
@@ -1141,32 +1120,11 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
     return -1;
   }
 
-#if 0
-  DBGPRNT(("\tExecuting VMWRITE instruction...\n"));
-#endif
-  uint64_t rflags;
-  asm __volatile__ (
-      "vmwrite %%rax, %%rbx\n"
-      "pushfq\n"
-      "popq %0\n"
-      : "=r" (rflags)
-      : "a" (data), "b" (field)
-      : "cc"
-      );
-  /* Confirm that the operation succeeded. */
-  if (query_vmx_result(rflags) == VM_SUCCEED) {
-#if 0
-    DBGPRNT(("\tSuccessfully wrote VMCS field.\n"));
-#endif
-
-    /* Return success. */
-    return 0;
-  } else {
-    DBGPRNT(("Error: failed to write VMCS field.\n"));
-
-    /* Return failure. */
-    return -1;
-  }
+  /*
+   * Vet the value to be written to ensure that it will not compromise system
+   * security, and perform the write.
+   */
+  return writevmcs_checked(field, data);
 }
 
 /*
@@ -1422,7 +1380,7 @@ run_vm(unsigned char use_vmresume) {
      */
     size_t vmid = host_state.active_vm - vm_descs;
 
-    sva_writevmcs(VMCS_VPID, vmid);
+    writevmcs_unchecked(VMCS_VPID, vmid);
 
     /*
      * Set the "CR3-target count" VM execution control to 0. The value doesn't
@@ -1431,14 +1389,14 @@ run_vm(unsigned char use_vmresume) {
      * value uninitialized, the processor may throw an error on VM entry if the
      * value is greater than 4.
      */
-    sva_writevmcs(VMCS_CR3_TARGET_COUNT, 0);
+    writevmcs_unchecked(VMCS_CR3_TARGET_COUNT, 0);
 
     /* Set VMCS link pointer to indicate that we are not using VMCS shadowing.
      *
      * (SVA currently does not support VM nesting.)
      */
     uint64_t vmcs_link_ptr = 0xffffffffffffffff;
-    sva_writevmcs(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
+    writevmcs_unchecked(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
 
     host_state.active_vm->has_run = 1;
   }
@@ -1484,8 +1442,12 @@ run_vm(unsigned char use_vmresume) {
    *
    * This is the extended-paging equivalent of the CR3 register used in
    * normal paging.
+   *
+   * We can use an unchecked write here because the sva_load_eptable()
+   * intrinsic has already ensured that the EPTP in the VM descriptor points
+   * to a valid top-level extended page table.
    */
-  sva_writevmcs(VMCS_EPT_PTR, host_state.active_vm->eptp);
+  writevmcs_unchecked(VMCS_EPT_PTR, host_state.active_vm->eptp);
 
   /*
    * Set the host-state-object fields to recognizable nonsense values so that
@@ -1509,17 +1471,15 @@ run_vm(unsigned char use_vmresume) {
   /*
    * Save host state in the VMCS that will be restored automatically by the
    * processor on VM exit.
-   *
-   * NOTE: we call our own sva_writevmcs() intrinsic for this.
    */
   DBGPRNT(("run_vm: Saving host state...\n"));
   /* Control registers */
   uint64_t host_cr0 = _rcr0();
-  sva_writevmcs(VMCS_HOST_CR0, host_cr0);
+  writevmcs_unchecked(VMCS_HOST_CR0, host_cr0);
   uint64_t host_cr3 = _rcr3();
-  sva_writevmcs(VMCS_HOST_CR3, host_cr3);
+  writevmcs_unchecked(VMCS_HOST_CR3, host_cr3);
   uint64_t host_cr4 = _rcr4();
-  sva_writevmcs(VMCS_HOST_CR4, host_cr4);
+  writevmcs_unchecked(VMCS_HOST_CR4, host_cr4);
   DBGPRNT(("run_vm: Saved host control registers.\n"));
 
   /* Segment selectors */
@@ -1585,13 +1545,13 @@ run_vm(unsigned char use_vmresume) {
    *        selectors before VM entry, and re-load them on VM exit. But if we
    *        don't need to, it'll just slow things down.
    */
-  sva_writevmcs(VMCS_HOST_ES_SEL, es_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_CS_SEL, cs_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_SS_SEL, ss_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_DS_SEL, ds_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_FS_SEL, fs_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_GS_SEL, gs_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_TR_SEL, tr_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_ES_SEL, es_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_CS_SEL, cs_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_SS_SEL, ss_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_DS_SEL, ds_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_FS_SEL, fs_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_GS_SEL, gs_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_TR_SEL, tr_sel & ~0x7);
   DBGPRNT(("run_vm: Saved host segment selectors.\n"));
 
   /*
@@ -1599,9 +1559,9 @@ run_vm(unsigned char use_vmresume) {
    */
 
   uint64_t fs_base = rdmsr(MSR_FS_BASE);
-  sva_writevmcs(VMCS_HOST_FS_BASE, fs_base);
+  writevmcs_unchecked(VMCS_HOST_FS_BASE, fs_base);
   uint64_t gs_base = rdmsr(MSR_GS_BASE);
-  sva_writevmcs(VMCS_HOST_GS_BASE, gs_base);
+  writevmcs_unchecked(VMCS_HOST_GS_BASE, gs_base);
 
   unsigned char gdtr[10], idtr[10];
   /* The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
@@ -1615,8 +1575,8 @@ run_vm(unsigned char use_vmresume) {
       );
   uint64_t gdt_base = *(uint64_t*)(gdtr + 2);
   uint64_t idt_base = *(uint64_t*)(idtr + 2);
-  sva_writevmcs(VMCS_HOST_GDTR_BASE, gdt_base);
-  sva_writevmcs(VMCS_HOST_IDTR_BASE, idt_base);
+  writevmcs_unchecked(VMCS_HOST_GDTR_BASE, gdt_base);
+  writevmcs_unchecked(VMCS_HOST_IDTR_BASE, idt_base);
   
   DBGPRNT(("run_vm: Saved host FS, GS, GDTR, and IDTR bases.\n"));
 
@@ -1659,17 +1619,17 @@ run_vm(unsigned char use_vmresume) {
   DBGPRNT(("Reconstructed TR base address: 0x%lx\n", tr_baseaddr));
 #endif
   /* Write our hard-earned TR base address to the VMCS... */
-  sva_writevmcs(VMCS_HOST_TR_BASE, tr_baseaddr);
+  writevmcs_unchecked(VMCS_HOST_TR_BASE, tr_baseaddr);
 
   DBGPRNT(("run_vm: Saved host TR base.\n"));
 
   /* Various MSRs */
   uint64_t ia32_sysenter_cs = rdmsr(MSR_SYSENTER_CS);
-  sva_writevmcs(VMCS_HOST_IA32_SYSENTER_CS, ia32_sysenter_cs);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_CS, ia32_sysenter_cs);
   uint64_t ia32_sysenter_esp = rdmsr(MSR_SYSENTER_ESP);
-  sva_writevmcs(VMCS_HOST_IA32_SYSENTER_ESP, ia32_sysenter_esp);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_ESP, ia32_sysenter_esp);
   uint64_t ia32_sysenter_eip = rdmsr(MSR_SYSENTER_EIP);
-  sva_writevmcs(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
   DBGPRNT(("Saved various host MSRs.\n"));
 
   /*
@@ -2128,35 +2088,35 @@ sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate) {
 static inline void
 update_vmcs_ctrls() {
   /* VM execution controls */
-  sva_writevmcs(VMCS_PINBASED_VM_EXEC_CTRLS,
+  writevmcs_checked(VMCS_PINBASED_VM_EXEC_CTRLS,
       host_state.active_vm->ctrls.pinbased_exec_ctrls);
-  sva_writevmcs(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+  writevmcs_checked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
       host_state.active_vm->ctrls.procbased_exec_ctrls1);
-  sva_writevmcs(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+  writevmcs_checked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
       host_state.active_vm->ctrls.procbased_exec_ctrls2);
-  sva_writevmcs(VMCS_VM_ENTRY_CTRLS,
+  writevmcs_checked(VMCS_VM_ENTRY_CTRLS,
       host_state.active_vm->ctrls.entry_ctrls);
-  sva_writevmcs(VMCS_VM_EXIT_CTRLS,
+  writevmcs_checked(VMCS_VM_EXIT_CTRLS,
       host_state.active_vm->ctrls.exit_ctrls);
 
   /* VM entry/exit MSR load/store controls */
-  sva_writevmcs(VMCS_VM_ENTRY_MSR_LOAD_COUNT,
+  writevmcs_checked(VMCS_VM_ENTRY_MSR_LOAD_COUNT,
       host_state.active_vm->ctrls.entry_msr_load_count);
-  sva_writevmcs(VMCS_VM_EXIT_MSR_LOAD_COUNT,
+  writevmcs_checked(VMCS_VM_EXIT_MSR_LOAD_COUNT,
       host_state.active_vm->ctrls.exit_msr_load_count);
-  sva_writevmcs(VMCS_VM_EXIT_MSR_STORE_COUNT,
+  writevmcs_checked(VMCS_VM_EXIT_MSR_STORE_COUNT,
       host_state.active_vm->ctrls.exit_msr_store_count);
 
   /* Event injection and exception controls */
-  sva_writevmcs(VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD,
+  writevmcs_checked(VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD,
       host_state.active_vm->ctrls.entry_interrupt_info);
-  sva_writevmcs(VMCS_EXCEPTION_BITMAP,
+  writevmcs_checked(VMCS_EXCEPTION_BITMAP,
       host_state.active_vm->ctrls.exception_exiting_bitmap);
 
   /* Control register guest/host masks */
-  sva_writevmcs(VMCS_CR0_GUESTHOST_MASK,
+  writevmcs_checked(VMCS_CR0_GUESTHOST_MASK,
       host_state.active_vm->ctrls.cr0_guesthost_mask);
-  sva_writevmcs(VMCS_CR4_GUESTHOST_MASK,
+  writevmcs_checked(VMCS_CR4_GUESTHOST_MASK,
       host_state.active_vm->ctrls.cr4_guesthost_mask);
 }
 
@@ -2358,9 +2318,10 @@ save_restore_guest_state(unsigned char saverestore) {
  *  A local helper function which abstracts around whether we are reading or
  *  writing a VMCS field.
  *
- *  Calls sva_writevmcs() if "rw" is true, otherwise calls sva_readvmcs().
- *  The "data" parameter is appropriately dereferenced if we're calling
- *  sva_writevmcs() (which takes a uint64_t, not a uint64_t*).
+ *  Calls writevmcs_checked() if "rw" is true, otherwise calls
+ *  readvmcs_checked().  The "data" parameter is appropriately dereferenced
+ *  if we're calling writevmcs_checked() (which takes a uint64_t, not a
+ *  uint64_t*).
  *
  *  This is useful so that we don't have to repeat ourselves when writing
  *  code that saves/restores long sequences of VMCS fields. These usually
@@ -2374,26 +2335,184 @@ save_restore_guest_state(unsigned char saverestore) {
  *    read it.
  *
  *  - field: Specifies the VMCS field. Passed through to
- *    sva_read/writevmcs().
+ *    read/writevmcs_checked().
  *
  *  - data: Pointer to the location containing the data to be written, or to
- *    which the data to be read should be stored. For sva_writevmcs(), this
- *    is dereferenced and the value in it is passed on to be written. For
- *    sva_readvmcs(), the address is passed directly and the VMCS field's
- *    contents are stored there.
+ *    which the data to be read should be stored. For writes, this is
+ *    dereferenced and the value in it is passed on to writevmcs_checked() be
+ *    written. For reads, the address is passed directly to
+ *    readvmcs_checked() and the read value is stored there.
  *
  * Return value:
- *  The error code returned by sva_read/writevmcs(), respectively, is passed
- *  through.
+ *  The error code returned by read/writevmcs_checked(), respectively, is
+ *  passed through.
+ *
+ * Preconditions:
+ *  - There must be a VMCS loaded on the processor.
  */
 static inline int
 read_write_vmcs_field(unsigned char write,
     enum sva_vmcs_field field, uint64_t *data) {
   if (write) {
     /* We are writing to the VMCS field. */
-    return sva_writevmcs(field, *data);
+    return writevmcs_checked(field, *data);
   } else {
     /* We are reading from the VMCS field. */
-    return sva_readvmcs(field, data);
+    return readvmcs_checked(field, data);
+  }
+}
+
+/*
+ * Function: readvmcs_checked()
+ *
+ * Description:
+ *  A local helper function which centralizes checks/vetting for VMCS field
+ *  reads.
+ *
+ *  Ensures that the read does not leak sensitive information to untrusted
+ *  system software. Unsafe reads are either rejected outright (with a kernel
+ *  panic or by returning an error code), or sanitized.
+ *
+ * Arguments:
+ *  Same as sva_readvmcs().
+ *
+ * Return value:
+ *  Same as sva_readvmcs().
+ *
+ * Preconditions:
+ *  - There must be a VMCS loaded on the processor.
+ */
+static inline int
+readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
+  /*
+   * If the field does not contain sensitive information, pass it directly
+   * through to the caller.
+   *
+   * Otherwise, sanitize the read value or reject the read.
+   */
+  switch (field) {
+    /* TODO: implement checks. For now we treat all fields as safe. */
+    default:
+      return readvmcs_unchecked(field, data);
+  }
+}
+
+/*
+ * Function: readvmcs_unchecked()
+ *
+ * Description:
+ *  A local helper that directly performs a VMCS field read on the hardware.
+ *  No checks are performed.
+ *
+ *  To be used internally by SVA (e.g., by readvmcs_checked() after it has
+ *  vetted the read).
+ *
+ * Preconditions:
+ *  Same as readvmcs_checked(), plus:
+ *
+ *  - The read must not leak sensitive information to the system software.
+ */
+static inline int
+readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data) {
+  uint64_t rflags;
+  asm __volatile__ (
+      "vmread %%rax, %%rbx\n"
+      "pushfq\n"
+      "popq %0\n"
+      : "=r" (rflags), "=b" (*data)
+      : "a" (field)
+      : "cc"
+      );
+  /* Confirm that the operation succeeded. */
+  if (query_vmx_result(rflags) == VM_SUCCEED) {
+
+    /* The specified field has been successfully read into the location
+     * pointed to by "data". Return success.
+     */
+    return 0;
+  } else {
+    DBGPRNT(("Error: failed to read VMCS field.\n"));
+
+    /* Return failure. */
+    return -1;
+  }
+}
+
+/*
+ * Function: writevmcs_checked()
+ *
+ * Description:
+ *  A local helper function which centralizes checks/vetting for VMCS field
+ *  writes.
+ *
+ *  Verifies that the write can be permitted without compromising the
+ *  integrity of SVA's guarantees; if so, performs the VMCS write. Otherwise,
+ *  the write is rejected or (if feasible) modified to bring it into line
+ *  with security policies.
+ *
+ *  Rejected writes will either result in a kernel panic (if the attempt
+ *  indicates certain compromise of the system) or cause a failure (negative)
+ *  error code to be returned.
+ *
+ * Arguments:
+ *  Same as sva_writevmcs().
+ *
+ * Return value:
+ *  Same as sva_writevmcs().
+ *
+ * Preconditions:
+ *  - There must be a VMCS loaded on the processor.
+ */
+static inline int
+writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
+  /*
+   * If the field is harmless, write it directly.
+   *
+   * Otherwise, modify the write to render it harmless (if we can), or reject
+   * it.
+   */
+  switch (field) {
+    /* TODO: implement checks. For now we treat all fields as safe. */
+    default:
+      return writevmcs_unchecked(field, data);
+  }
+}
+
+
+/*
+ * Function: writevmcs_unchecked()
+ *
+ * Description:
+ *  A local helper that directly performs a VMCS field write on the hardware.
+ *  No checks are performed.
+ *
+ *  To be used internally by SVA when it is known that a write is safe (e.g.,
+ *  by writevmcs_checked() after it has vetted the write).
+ *
+ * Preconditions:
+ *  Same as writevmcs_checked(), plus:
+ *
+ *  - The write must not compromise SVA's security guarantees.
+ */
+static inline int
+writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data) {
+  uint64_t rflags;
+  asm __volatile__ (
+      "vmwrite %%rax, %%rbx\n"
+      "pushfq\n"
+      "popq %0\n"
+      : "=r" (rflags)
+      : "a" (data), "b" (field)
+      : "cc"
+      );
+  /* Confirm that the operation succeeded. */
+  if (query_vmx_result(rflags) == VM_SUCCEED) {
+    /* Return success. */
+    return 0;
+  } else {
+    DBGPRNT(("Error: failed to write VMCS field.\n"));
+
+    /* Return failure. */
+    return -1;
   }
 }
