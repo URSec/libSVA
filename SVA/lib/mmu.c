@@ -3138,11 +3138,22 @@ sva_remove_page (uintptr_t paddr) {
     /*
      * If the PTP being undeclared is a level-4 PTP (non-EPT), undeclare the
      * kernel's copy of it in addition to the SVA/userspace copy.
+     *
+     * (It doesn't matter which one of the two copies we were given as the
+     * parameter to this intrinsic - whichever one we were given, we'll
+     * undeclare the other one here.)
      */
-    if(pgDesc->type == PG_L4) {
+    if (pgDesc->type == PG_L4) {
       uintptr_t other_cr3 = pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
 
-      if(other_cr3) {
+      /*
+       * Only proceed if there actually *is* an alternate PML4 associated
+       * with this one. In general the kernel will set these up together but
+       * SVA doesn't *force* it to do so. (In particular, the alternate PML4
+       * may not exist for the initial set of page tables loaded during
+       * boot.)
+       */
+      if (other_cr3) {
         page_desc_t *other_pgDesc = getPageDescPtr(other_cr3);
         SVA_ASSERT((other_pgDesc->count <= 2),
             "the kernel version pml4 page table page "
@@ -3497,35 +3508,109 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
 
 
 /*
- * Function: sva_create_kernel_pml4pg
+ * Intrisic: sva_create_kernel_pml4pg()
  *
  * Description:
- *   Record the kernel version pml4 page table page in the page descriptor
- * of the orignal (user/sva version) pml4 page table page. The kernel version 
- * does not have the mappings of ghost memory and SVA internal memory. 
- * Currently, for the pure purpose of measuring the overhead of ASID and 
- * page table manipulation, this kernel version pml4 page table page is entirely 
- * the same as the user/sva version to walk around a problem 
- * due to the feature of x86, which automatically saves interrupt context on one stack upon trap/interrupt.
+ *  Record the kernel version of a level-4 page table page (PML4) in the page
+ *  descriptor of the orignal (user/SVA version) level-4 page table page. The
+ *  kernel version does not have the mappings of ghost memory and SVA
+ *  internal memory.
  *
- * Input:
- *   orig_phys - the original pml4 page table page
- *   kernel_phys  - the kernel version pml4 page table page
+ *  Currently, for the pure purpose of measuring the overhead of ASID and
+ *  page table manipulation, the kernel's version of the PML4 page table page
+ *  is entirely the same as the user/SVA version. This avoids challenges due
+ *  to x86's behavior of automatically saving interrupt contexts on one stack
+ *  upon traps/interrupts. However, for a complete/secure SVA implementation,
+ *  mappings to the secure memory regions (plus other sensitive mappings such
+ *  as SVA's direct map) should actually be removed from the kernel's PML4.
+ *
+ * Inputs:
+ *  orig_phys - the original pml4 page table page
+ *  kernel_phys - the kernel version pml4 page table page
  */
+void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   *
+   * Note that this is for the *currently active* page table, which is
+   * generally not the same as the one for which this intrinsic was called to
+   * bifurcate the PML4 - though it could be. If that is the case,
+   * kernel_to_usersva_pcid() will change the PCID but not the PML4 that CR3
+   * points to (since we are already using the user/SVA PML4, it being the
+   * only one currently in existence).
+   */
+  kernel_to_usersva_pcid();
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
 
-void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys)
-{
-   page_desc_t * kernel_ptDesc = getPageDescPtr(kernel_phys);
-   page_desc_t * usersva_ptDesc = getPageDescPtr(orig_phys);
+  page_desc_t *kernel_ptDesc = getPageDescPtr(kernel_phys);
+  page_desc_t *usersva_ptDesc = getPageDescPtr(orig_phys);
 
-   kernel_ptDesc->other_pgPaddr = orig_phys;
-   usersva_ptDesc->other_pgPaddr = kernel_phys | PML4_SWITCH_DISABLE;
+  /*
+   * Ensure that the new kernel PML4 page has been declared to SVA as an L4
+   * PTP frame.
+   */
+  if (kernel_ptDesc->type != PG_L4)
+    panic("SVA: MMU: attempted to use a page as a kernel PML4 that wasn't "
+        "declared to SVA as an L4 PTP frame! "
+        "paddr = 0x%lx\n; type = %d", kernel_phys, kernel_ptDesc->type);
 
+  /*
+   * Ensure that the original PML4 page (i.e. the user/SVA version PML4) that
+   * the new kernel PML4 is being attached to really is itself a PML4.
+   */
+  if (usersva_ptDesc->type != PG_L4)
+    panic("SVA: MMU: attempted to set up a kernel version of a PML4 that "
+        "isn't actually a PML4! Fake original page paddr = 0x%lx, "
+        "type = %d; Kernel PML4 paddr = 0x%lx\n",
+        orig_phys, usersva_ptDesc->type, kernel_phys);
+
+  /*
+   * If the kernel already set up a kernel PML4 for this user/SVA PML4, don't
+   * let it do so again.
+   *
+   * (I'm not sure this would *necessarily* create a security loophole, but
+   * it's certainly not a sane way to configure things and would be a mess to
+   * support, especially w.r.t. refcounts.)
+   */
+  if (usersva_ptDesc->other_pgPaddr != 0)
+    panic("SVA: MMU: attempted to set up a kernel version of a user/SVA PML4 "
+        "that already has a counterpart kernel PML4. paddr = 0x%lx\n",
+        kernel_phys);
+
+  /*
+   * Point the two PML4s' page descriptors' cross-references (the
+   * other_pgPaddr field) to each other.
+   */
+  kernel_ptDesc->other_pgPaddr = orig_phys;
+  usersva_ptDesc->other_pgPaddr = kernel_phys | PML4_SWITCH_DISABLE;
+
+  /* 
+   * Restore interrupts and return to the kernel page tables.
+   *
+   * If this intrinsic just set up a newly-minted kernel PML4 for the
+   * *currently active* page table, then this call to
+   * usersva_to_kernel_pcid() will make that new PML4 active.
+   */
+  sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
 }
 
-void sva_set_kernel_pml4pg_ready(uintptr_t orig_phys)
-{
-  page_desc_t * usersva_ptDesc = getPageDescPtr(orig_phys);
-  usersva_ptDesc->other_pgPaddr = usersva_ptDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
+void sva_set_kernel_pml4pg_ready(uintptr_t orig_phys) {
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
 
+  page_desc_t * usersva_ptDesc = getPageDescPtr(orig_phys);
+  usersva_ptDesc->other_pgPaddr =
+    usersva_ptDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
+
+  /* Restore interrupts and return to the kernel page tables. */
+  sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
 }
