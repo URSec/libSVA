@@ -3593,6 +3593,11 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
   /*
    * Point the two PML4s' page descriptors' cross-references (the
    * other_pgPaddr field) to each other.
+   *
+   * Set the PML4_SWITCH_DISABLE flag in the user/SVA PML4's cross-reference
+   * to inhibit the Trap() handler from attempting to switch to the kernel
+   * PML4 before the kernel has declared it ready by calling
+   * sva_set_kernel_pml4pg_ready().
    */
   kernel_ptDesc->other_pgPaddr = orig_phys;
   usersva_ptDesc->other_pgPaddr = kernel_phys | PML4_SWITCH_DISABLE;
@@ -3608,6 +3613,21 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
   usersva_to_kernel_pcid();
 }
 
+/*
+ * Intrinsic: sva_set_kernel_pml4pg_ready()
+ *
+ * Description:
+ *  Declare that the kernel version of a level-4 page table page (PML4)
+ *  previously set up with sva_create_kernel_pml4pg() is ready for use.
+ *
+ *  Until this is called, the Trap() handler will refrain from switching
+ *  PML4s when it performs an ASID switch.
+ *
+ * Inputs:
+ *  orig_phys - the physical address of the original (user/SVA version)
+ *              level-4 page table page whose kernel counterpart we want to
+ *              mark ready for use
+ */
 void sva_set_kernel_pml4pg_ready(uintptr_t orig_phys) {
   /*
    * Switch to the user/SVA page tables so that we can access SVA memory
@@ -3617,7 +3637,11 @@ void sva_set_kernel_pml4pg_ready(uintptr_t orig_phys) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
-  page_desc_t * usersva_ptDesc = getPageDescPtr(orig_phys);
+  /*
+   * Unset the PML4_SWITCH_DISABLE bit in the user/SVA PML4's pointer to its
+   * kernel counterpart.
+   */
+  page_desc_t *usersva_ptDesc = getPageDescPtr(orig_phys);
   usersva_ptDesc->other_pgPaddr =
     usersva_ptDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
 
