@@ -2550,6 +2550,19 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
   if (tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+
+  /*
+   * This intrinsic should only be called *once*, during system boot.
+   * Attempting to call it again later (e.g. maliciously) would be sheer
+   * insanity and could compromise system security in any number of ways.
+   */
+  SVA_ASSERT(!mmuIsInitialized,
+      "SVA: MMU: The system software attempted to call sva_mmu_init(), but "
+      "the MMU has already been initialized. This must only be done *once* "
+      "during system boot.");
+
   /* Get the virtual address of the pml4e mapping */
 #if USE_VIRT
   pml4e_t * kpml4eVA = (pml4e_t *) getVirtual((uintptr_t) kpml4Mapping);
@@ -2648,8 +2661,11 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
     if (pgdef)
       removeOSDirectMap(getVirtual(PTPages[ptindex].paddr)); 
   }
-  
 #endif
+
+  /* Restore interrupts. */
+  sva_exit_critical(rflags);
+
   record_tsc(sva_mmu_init_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
 
