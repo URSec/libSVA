@@ -586,7 +586,7 @@ updateNewPageData(page_entry_t mapping, unsigned char isEPT) {
      * Update the reference count for the new page frame. Check that we aren't
      * overflowing the counter.
      */
-    SVA_ASSERT(pgRefCount(newPG) < ((1u << 13) - 1), 
+    SVA_ASSERT(pgRefCount(newPG) < ((1u << 13) - 1),
                "SVA: MMU: integer overflow in page refcount");
     newPG->count++;
   }
@@ -624,7 +624,7 @@ updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
         "SVA: MMU: frame metadata inconsistency detected "
         "(attempted to decrement refcount below zero)");
 
-    --(origPG->count);
+    origPG->count--;
 
     if(origPG->count == 1)
       invltlb_all();
@@ -1727,8 +1727,6 @@ sva_mm_load_pgtable (void * pg_ptr) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
-  /* Cast the page table pointer to an integer */
-  uintptr_t new_pml4 = (uintptr_t) pg_ptr;
   /*
    * Ensure there are no extraneous bits set in the page table pointer
    * (which would be interpreted as flags in CR3). Masking with PG_FRAME will
@@ -1737,7 +1735,7 @@ sva_mm_load_pgtable (void * pg_ptr) {
    * (These bits aren't *supposed* to be set by the caller, but we can't
    * trust the system software to be honest.)
    */
-  new_pml4 &= PG_FRAME;
+  uintptr_t new_pml4 = ((uintptr_t) pg_ptr) & PG_FRAME;
 
   /*
    * Check that the new page table is an L4 page table page.
@@ -1768,6 +1766,45 @@ sva_mm_load_pgtable (void * pg_ptr) {
     *secmemp = threadp->secmemPML4e;
   }
 
+  /*
+   * Increment the reference count for the new PML4 page that we're about to
+   * point CR3 to, and decrement it for the old PML4 being switched out.
+   */
+  page_desc_t *newpml4Desc = getPageDescPtr(new_pml4);
+  page_desc_t *oldpml4Desc = getPageDescPtr(_rcr3());
+
+  SVA_ASSERT(pgRefCount(newpml4Desc) < ((1u << 13) - 1),
+      "SVA: MMU: integer overflow in page refcount");
+  newpml4Desc->count++;
+
+  SVA_ASSERT(pgRefCount(oldpml4Desc) > 0,
+      "SVA: MMU: frame metadata inconsistency detected "
+      "(attempted to decrement refcount below zero)");
+  oldpml4Desc->count--;
+
+  /*
+   * Also do this for the respective kernel versions of the PML4s (if they
+   * exist).
+   */
+  if (newpml4Desc->other_pgPaddr) {
+    page_desc_t *kernel_newpml4Desc =
+      getPageDescPtr(newpml4Desc->other_pgPaddr);
+
+    SVA_ASSERT(pgRefCount(kernel_newpml4Desc) < ((1u << 13) - 1),
+        "SVA: MMU: integer overflow in page refcount");
+    kernel_newpml4Desc->count++;
+  }
+
+  if (oldpml4Desc->other_pgPaddr) {
+    page_desc_t *kernel_oldpml4Desc =
+      getPageDescPtr(oldpml4Desc->other_pgPaddr);
+
+    SVA_ASSERT(pgRefCount(oldpml4Desc) > 0,
+        "SVA: MMU: frame metadata inconsistency detected "
+        "(attempted to decrement refcount below zero)");
+    kernel_oldpml4Desc->count--;
+  }
+
 #ifdef SVA_ASID_PG
   /*
    * Invalidate the TLB's entries for this process in the kernel's address
@@ -1787,10 +1824,7 @@ sva_mm_load_pgtable (void * pg_ptr) {
    * address space (which, among other necessary effects, ensures that the
    * secure memory mapping in the PML4 that we updated above is in effect).
    */
-  asm __volatile__ (
-      "movq %0, %%cr3\n"
-      : : "r" (new_pml4)
-      : "memory");
+  load_cr3(new_pml4);
 
   /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
@@ -2606,6 +2640,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
   /* Identify kernel code pages and intialize the descriptors */
   declare_kernel_code_pages(btext, etext);
 
+  unsigned long initial_cr3 = *kpml4Mapping & PG_FRAME;
 #ifdef SVA_ASID_PG
   /* Enable processor support for PCIDs. */
   load_cr4(_rcr4() | CR4_PCIDE);
@@ -2616,16 +2651,28 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
    * include certain protected regions like ghost memory and SVA internal
    * memory).
    */
-  unsigned long kernel_pg = *kpml4Mapping & PG_FRAME;
-  kernel_pg = (kernel_pg & ~0xfff) | 0x1;
+  initial_cr3 = (initial_cr3 & ~0xfff) | 0x1;
 #endif
 
+  /*
+   * Increment the refcount of the initial top-level page table page to
+   * reflect the fact that CR3 will be pointing to it.
+   *
+   * Note that we don't need to increment the refcount for the companion
+   * kernel version of the PML4 (as we do in sva_mm_load_pgtable()) because
+   * it doesn't exist yet for the initial set of page tables loaded here.
+   * (This is guaranteed to be true because we zeroed out the page descriptor
+   * array earlier in this function. If the kernel made any attempt to
+   * improperly set up an alternate PML4 prior to calling sva_mmu_init(), it
+   * would've been wiped away.)
+   */
+  page_desc_t *pml4Desc = getPageDescPtr(initial_cr3);
+  SVA_ASSERT(pgRefCount(pml4Desc) < ((1u << 13) - 1),
+      "SVA: MMU: integer overflow in page refcount");
+  pml4Desc->count++;
+
   /* Now load the initial value of CR3 to complete kernel init. */
-#ifdef SVA_ASID_PG
-  load_cr3(kernel_pg);
-#else
-  load_cr3(*kpml4Mapping & PG_FRAME);
-#endif
+  load_cr3(initial_cr3);
 
   /*
    * Make existing page table pages read-only.
@@ -3552,8 +3599,10 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
  *  as SVA's direct map) should actually be removed from the kernel's PML4.
  *
  * Inputs:
- *  orig_phys - the original pml4 page table page
- *  kernel_phys - the kernel version pml4 page table page
+ *  orig_phys   - the physical address of the original PML4 page table page
+ *                (which will become the user/SVA version)
+ *  kernel_phys - the physical address of the page to be used for the new
+ *                kernel version PML4
  */
 void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
   /*
@@ -3570,6 +3619,13 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
   kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
+
+  /*
+   * Ensure no extraneous bits are set in the PML4 pointers which would be
+   * interpreted as flags in CR3.
+   */
+  orig_phys &= PG_FRAME;
+  kernel_phys &= PG_FRAME;
 
   page_desc_t *kernel_ptDesc = getPageDescPtr(kernel_phys);
   page_desc_t *usersva_ptDesc = getPageDescPtr(orig_phys);
@@ -3617,6 +3673,19 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
    */
   kernel_ptDesc->other_pgPaddr = orig_phys;
   usersva_ptDesc->other_pgPaddr = kernel_phys | PML4_SWITCH_DISABLE;
+
+  /*
+   * If (and only if) the PML4 being bifurcated is the one currently loaded
+   * in CR3, increment the refcount of the new kernel PML4 to keep it
+   * consistent with the user/SVA one (whose refcount was incremented when it
+   * was loaded).
+   */
+  if (orig_phys == (_rcr3() & PG_FRAME)) {
+    SVA_ASSERT(pgRefCount(kernel_ptDesc) < ((1u << 13) - 1),
+        "SVA: MMU: integer overflow in page refcount");
+
+    kernel_ptDesc->count++;
+  }
 
   /* 
    * Restore interrupts and return to the kernel page tables.
