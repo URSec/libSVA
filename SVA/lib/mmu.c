@@ -2254,7 +2254,7 @@ void kernel_to_usersva_pcid(void) {
       altpml4 = old_cr3;
 
     unsigned long new_cr3 =
-      (pg & ~0xfff) /* clear PCID field (bits 0-11) */
+      (altpml4 & ~0xfff) /* clear PCID field (bits 0-11) */
       | ((unsigned long)1 << 63) /* ensure XD (bit 63) is set */;
 
     load_cr3(new_cr3);
