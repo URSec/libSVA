@@ -380,7 +380,10 @@ typedef struct sva_vmx_guest_state {
 } sva_vmx_guest_state;
 
 /*
- * *** Prototypes for VMX intrinsics ***
+ *****************************************************************************
+ * Prototypes for VMX intrinsics implemented in the library
+ *  (vmx.c and vmx_ept.c)
+ *****************************************************************************
  */
 size_t sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
     sva_vmx_guest_state initial_state,

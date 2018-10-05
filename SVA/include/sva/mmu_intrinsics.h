@@ -63,7 +63,7 @@
 
 /*
  *****************************************************************************
- * SVA intrinsics implemented in the library
+ * SVA intrinsics implemented in the library (mmu.c)
  *****************************************************************************
  */
 extern void sva_mm_load_pgtable (void * pg);

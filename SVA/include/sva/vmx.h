@@ -154,6 +154,104 @@ enum vmx_statuscode_t {
   VM_FAIL_VALID
 };
 
+/*
+ * *** Bit-field definitions for VMCS fields **
+ */
+
+/* 32-bit control field: VMCS_PINBASED_VM_EXEC_CTRLS */
+struct vmcs_pinbased_vm_exec_ctrls {
+  unsigned ext_int_exiting : 1;           /* bit 0 */
+
+  unsigned reserved1_2 : 2;               /* bits 1-2 */
+
+  unsigned nmi_exiting : 1;               /* bit 3 */
+
+  unsigned reserved4 : 1;                 /* bit 4 */
+
+  unsigned virtual_nmis : 1;              /* bit 5 */
+  unsigned activate_vmx_preempt_timer : 1; /* bit 6 */
+  unsigned process_posted_ints : 1;       /* bit 7 */
+
+  unsigned reserved8_31 : 24;             /* bits 8-31 */
+} __attribute__((packed));
+
+/* 32-bit control field: VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS */
+struct vmcs_primary_procbased_vm_exec_ctrls {
+  unsigned reserved1 : 2;                 /* bits 0-1 */
+
+  unsigned int_window_exiting : 1;        /* bit 2 */
+  unsigned use_tsc_offsetting : 1;        /* bit 3 */
+
+  unsigned reserved4_6 : 3;               /* bits 4-6 */
+
+  unsigned hlt_exiting : 1;               /* bit 7 */
+
+  unsigned reserved8 : 1;                 /* bit 8 */
+
+  unsigned invlpg_exiting : 1;            /* bit 9 */
+  unsigned mwait_exiting : 1;             /* bit 10 */
+  unsigned rdpmc_exiting : 1;             /* bit 11 */
+  unsigned rdtsc_exiting : 1;             /* bit 12 */
+
+  unsigned reserved13_14 : 2;             /* bits 13-14 */
+
+  unsigned cr3_load_exiting : 1;          /* bit 15 */
+  unsigned cr3_store_exiting : 1;         /* bit 16 */
+
+  unsigned reserved17_18 : 2;             /* bits 17-18 */
+
+  unsigned cr8_load_exiting : 1;          /* bit 19 */
+  unsigned cr8_store_exiting : 1;         /* bit 20 */
+  unsigned use_tpr_shadow : 1;            /* bit 21 */
+  unsigned nmi_window_exiting : 1;        /* bit 22 */
+  unsigned mov_dr_exiting : 1;            /* bit 23 */
+  unsigned uncond_io_exiting : 1;         /* bit 24 */
+  unsigned use_io_bitmaps : 1;            /* bit 25 */
+
+  unsigned reserved26 : 1;                /* bit 26 */
+
+  unsigned monitor_trap_flag : 1;         /* bit 27 */
+  unsigned use_msr_bitmaps : 1;           /* bit 28 */
+  unsigned monitor_exiting : 1;           /* bit 29 */
+  unsigned pause_exiting : 1;             /* bit 30 */
+  unsigned activate_secondary_ctrls : 1;  /* bit 31 */
+} __attribute__((packed));
+
+/* 32-bit control field: VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS */
+struct vmcs_secondary_procbased_vm_exec_ctrls {
+  unsigned virtualize_apic_accesses : 1;  /* bit 0 */
+  unsigned enable_ept : 1;                /* bit 1 */
+  unsigned descriptor_table_exiting : 1;  /* bit 2 */
+  unsigned enable_rdtscp : 1;             /* bit 3 */
+  unsigned virtualize_x2apic_mode : 1;    /* bit 4 */
+  unsigned enable_vpid : 1;               /* bit 5 */
+  unsigned wbinvd_exiting : 1;            /* bit 6 */
+  unsigned unrestricted_guest : 1;        /* bit 7 */
+  unsigned apic_register_virtualization : 1; /* bit 8 */
+  unsigned virtual_int_delivery : 1;      /* bit 9 */
+  unsigned pause_loop_exiting : 1;        /* bit 10 */
+  unsigned rdrand_exiting : 1;            /* bit 11 */
+  unsigned enable_invpcid : 1;            /* bit 12 */
+  unsigned enable_vmfunc : 1;             /* bit 13 */
+  unsigned vmcs_shadowing : 1;            /* bit 14 */
+  unsigned enable_encls_exiting : 1;      /* bit 15 */
+  unsigned rdseed_exiting : 1;            /* bit 16 */
+  unsigned enable_pml : 1;                /* bit 17 */
+  unsigned ept_violation_ve : 1;          /* bit 18 */
+  unsigned conceal_nonroot_from_pt : 1;   /* bit 19 */
+  unsigned enable_xsaves_xrstors : 1;     /* bit 20 */
+
+  unsigned reserved21 : 1;                /* bit 21 */
+
+  unsigned mode_based_exec_ctrl_ept : 1;  /* bit 22 */
+
+  unsigned reserved23_24 : 2;             /* bits 23-24 */
+
+  unsigned use_tsc_scaling : 1;           /* bit 25 */
+
+  unsigned reserved26_31 : 6;             /* bits 26-31 */
+} __attribute__((packed));
+
 /**********
  * Helper functions
 **********/

@@ -2473,6 +2473,33 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
    */
   switch (field) {
     /* TODO: implement checks. For now we treat all fields as safe. */
+    case VMCS_PINBASED_VM_EXEC_CTRLS:
+      {
+        /*
+         * Test code - print out values of controls and fall through to
+         * default case to perform write.
+         */
+        struct vmcs_pinbased_vm_exec_ctrls ctrls;
+        printf("==== Writing VMCS_PINBASED_VM_EXEC_CTRLS ====\n");
+        printf("Size of field: %u bytes (should be 4)\n",
+            sizeof(struct vmcs_pinbased_vm_exec_ctrls));
+
+        /* cast data field to bitfield struct */
+        uint32_t data_lower32 = (uint32_t) data;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = data_lower32;
+
+        printf("External-interrupt exiting: %u\n", ctrls.ext_int_exiting);
+        printf("Reserved bits 1-2: %u\n", ctrls.reserved1_2);
+        printf("NMI exiting: %u\n", ctrls.nmi_exiting);
+        printf("Reserved bit 4: %u\n", ctrls.reserved4);
+        printf("Virtual NMIs: %u\n", ctrls.virtual_nmis);
+        printf("Activate VMX-preemption timer: %u\n",
+            ctrls.activate_vmx_preempt_timer);
+        printf("Process posted interrupts: %u\n", ctrls.process_posted_ints);
+        printf("Reserved bits 8-31: %u\n", ctrls.reserved8_31);
+      }
+
     default:
       return writevmcs_unchecked(field, data);
   }
