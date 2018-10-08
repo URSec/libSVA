@@ -252,6 +252,71 @@ struct vmcs_secondary_procbased_vm_exec_ctrls {
   unsigned reserved26_31 : 6;             /* bits 26-31 */
 } __attribute__((packed));
 
+/* 32-bit control field: VMCS_VM_EXIT_CTRLS */
+struct vmcs_vm_exit_ctrls {
+  unsigned reserved0_1 : 2;               /* bits 0-1 */
+
+  unsigned save_debug_ctrls : 1;          /* bit 2 */
+
+  unsigned reserved3_8 : 6;               /* bits 3-8 */
+
+  unsigned host_addr_space_size : 1;      /* bit 9 */
+
+  unsigned reserved10_11 : 2;             /* bits 10-11 */
+
+  unsigned load_ia32_perf_global_ctrl : 1; /* bit 12 */
+
+  unsigned reserved13_14 : 2;             /* bits 13-14 */
+
+  unsigned ack_int_on_exit : 1;           /* bit 15 */
+
+  unsigned reserved16_17 : 2;             /* bits 16-17 */
+
+  unsigned save_ia32_pat : 1;             /* bit 18 */
+  unsigned load_ia32_pat : 1;             /* bit 19 */
+  unsigned save_ia32_efer : 1;            /* bit 20 */
+  unsigned load_ia32_efer : 1;            /* bit 21 */
+  unsigned save_vmx_preempt_timer : 1;    /* bit 22 */
+  unsigned clear_ia32_bndcfgs : 1;        /* bit 23 */
+  unsigned conceal_vmexit_from_pt : 1;    /* bit 24 */
+
+  unsigned reserved25_31 : 7;             /* bits 25-31 */
+} __attribute__((packed));
+
+/* 32-bit control field: VMCS_VM_ENTRY_CTRLS */
+struct vmcs_vm_entry_ctrls {
+  unsigned reserved0_1 : 2;               /* bits 0-1 */
+
+  unsigned load_debug_ctrls : 1;          /* bit 2 */
+
+  unsigned reserved3_8 : 6;               /* bits 3-8 */
+
+  unsigned ia32e_mode_guest : 1;          /* bit 9 */
+  unsigned entry_to_ssm : 1;              /* bit 10 */
+  unsigned deact_dual_mon_treatment : 1;  /* bit 11 */
+
+  unsigned reserved12 : 1;                /* bit 12 */
+
+  unsigned load_ia32_perf_global_ctrl : 1; /* bit 13 */
+  unsigned load_ia32_pat : 1;             /* bit 14 */
+  unsigned load_ia32_efer : 1;            /* bit 15 */
+  unsigned load_ia32_bndcfgs : 1;         /* bit 16 */
+  unsigned conceal_vmentry_from_pt : 1;   /* bit 17 */
+
+  unsigned reserved18_31 : 14;            /* bits 18-31 */
+} __attribute__((packed));
+
+/* 32-bit control field: VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD */
+struct vmcs_vm_entry_interrupt_info_field {
+  unsigned vector : 8;                    /* bits 0-7 */
+  unsigned int_type : 3;                  /* bits 8-10 */
+  unsigned deliver_error_code : 1;        /* bit 11 */
+
+  unsigned reserved12_30 : 19;            /* bits 12-30 */
+
+  unsigned valid : 1;                     /* bit 31 */
+} __attribute__((packed));
+
 /**********
  * Helper functions
 **********/
