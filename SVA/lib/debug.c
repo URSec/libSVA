@@ -1037,7 +1037,7 @@ print_vmcs_field(enum sva_vmcs_field field, uint64_t value) {
   switch (field) {
     case VMCS_PINBASED_VM_EXEC_CTRLS:
       {
-        /* cast data field to bitfield struct */
+        /* Cast data field to bitfield struct */
         struct vmcs_pinbased_vm_exec_ctrls ctrls;
         uint32_t value_lower32 = (uint32_t) value;
         uint32_t *ctrls_u32 = (uint32_t *) &ctrls;

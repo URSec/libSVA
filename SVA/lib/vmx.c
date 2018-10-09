@@ -2450,9 +2450,8 @@ readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data) {
  *  the write is rejected or (if feasible) modified to bring it into line
  *  with security policies.
  *
- *  Rejected writes will either result in a kernel panic (if the attempt
- *  indicates certain compromise of the system) or cause a failure (negative)
- *  error code to be returned.
+ *  Rejected writes will either result in a kernel panic or cause a failure
+ *  (negative) error code to be returned.
  *
  * Arguments:
  *  Same as sva_writevmcs().
@@ -2472,12 +2471,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
    * it.
    */
   switch (field) {
-    /* TODO: implement checks. For now we treat all fields as safe. */
-
-    case VMCS_PINBASED_VM_EXEC_CTRLS:
-    case VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:
-    case VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS:
-#if 1
+#if 0
       DBGPRNT(("==== Writing VMCS field (checked): "));
       print_vmcs_field_name(field);
       DBGPRNT((" ====\n"));
@@ -2486,7 +2480,56 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
 
       DBGPRNT(("====================\n"));
 #endif
-      /* fall-through to default case */
+
+    /*
+     * TODO: implement remaining checks and switch default case to
+     * fail-closed.
+     */
+
+    case VMCS_PINBASED_VM_EXEC_CTRLS:
+      {
+        /* Cast data field to bitfield struct */
+        struct vmcs_pinbased_vm_exec_ctrls ctrls;
+        uint32_t data_lower32 = (uint32_t) data;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = data_lower32;
+
+        /* Check bit settings */
+        unsigned char is_safe =
+          /*
+           * SVA needs first crack at all interrupts.
+           *
+           * TODO: Some interrupts are probably safe to pass through, and
+           * should be for reasonable guest performance (e.g. the timer
+           * interrupt). If we encounter performance issues we should look
+           * into the interrupt-virtualization features provided by VMX.
+           */
+          ctrls.ext_int_exiting &&
+
+          /* Likewise for NMIs. */
+          ctrls.nmi_exiting &&
+
+          /* NMI virtualization not currently supported by SVA */
+          !ctrls.virtual_nmis &&
+
+          /*
+           * VMX preemption timer must be enabled to prevent the guest from
+           * tying up system resources indefinitely.
+           */
+#if 0 /* our toy hypervisor doesn't know how to use the preemption timer yet */
+          ctrls.activate_vmx_preempt_timer &&
+#endif
+
+          /* APIC virtualization not currently supported by SVA */
+          !ctrls.process_posted_ints;
+
+        if (!is_safe)
+          panic("SVA: Disallowed VMCS pin-based VM-exec controls setting.\n");
+
+        return writevmcs_unchecked(field, data);
+      }
+    case VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:
+    case VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS:
 
     default:
       return writevmcs_unchecked(field, data);
