@@ -177,7 +177,7 @@ struct vmcs_pinbased_vm_exec_ctrls {
 
 /* 32-bit control field: VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS */
 struct vmcs_primary_procbased_vm_exec_ctrls {
-  unsigned reserved1 : 2;                 /* bits 0-1 */
+  unsigned reserved0_1 : 2;                 /* bits 0-1 */
 
   unsigned int_window_exiting : 1;        /* bit 2 */
   unsigned use_tsc_offsetting : 1;        /* bit 3 */

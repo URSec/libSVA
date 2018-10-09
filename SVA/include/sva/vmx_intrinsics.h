@@ -443,7 +443,9 @@ uintptr_t sva_save_eptable(size_t vmid);
  * interface.
  */
 unsigned char sva_initvmx(void);
-void sva_print_vmx_msrs(void); /* defined in debug.c */
-void print_vmcs_field_name(enum sva_vmcs_field); /* defined in debug.c */
+/* Defined in debug.c */
+void sva_print_vmx_msrs(void);
+void print_vmcs_field_name(enum sva_vmcs_field);
+void print_vmcs_field(enum sva_vmcs_field field, uint64_t value);
 
 #endif /* _SVA_VMX_INTRINSICS_H */
