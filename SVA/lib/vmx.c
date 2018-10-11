@@ -2471,16 +2471,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
    * it.
    */
   switch (field) {
-#if 0
-      DBGPRNT(("==== Writing VMCS field (checked): "));
-      print_vmcs_field_name(field);
-      DBGPRNT((" ====\n"));
-
-      print_vmcs_field(field, data);
-
-      DBGPRNT(("====================\n"));
-#endif
-
     /*
      * TODO: implement remaining checks and switch default case to
      * fail-closed.
@@ -2495,6 +2485,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
         *ctrls_u32 = data_lower32;
 
         /* Check bit settings */
+        /* TODO: enforce reserved bits */
         unsigned char is_safe =
           /*
            * SVA needs first crack at all interrupts.
@@ -2529,7 +2520,142 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
         return writevmcs_unchecked(field, data);
       }
     case VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:
+      {
+        /* Cast data field to bitfield struct */
+        struct vmcs_primary_procbased_vm_exec_ctrls ctrls;
+        uint32_t data_lower32 = (uint32_t) data;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = data_lower32;
+
+        /* Check bit settings */
+        /* TODO: enforce reserved bits */
+        unsigned char is_safe =
+          /*
+           * We must unconditionally exit for I/O instructions since SVA
+           * mediates all access to hardware.
+           */
+          ctrls.uncond_io_exiting &&
+
+          /*
+           * I/O bitmaps are irrelevant since we are unconditionally exiting
+           * for I/O instructions. This bit must be 0 because it would
+           * otherwise override the "unconditional I/O exiting" setting which
+           * we enforce above.
+           */
+          !ctrls.use_io_bitmaps &&
+
+          /*
+           * SVA will mitigate all access to MSRs, so we will not use MSR
+           * bitmaps (i.e., we will exit unconditionally for RDMSR/WRMSR).
+           *
+           * If necessary for performance, we can potentially relax this
+           * constraint by allowing guests to read/write certain MSRs
+           * directly that are deemed safe.
+           */
+          !ctrls.use_msr_bitmaps &&
+
+          /*
+           * We must activate the secondary controls because SVA requires
+           * some of the features they control (e.g., EPT).
+           */
+          ctrls.activate_secondary_ctrls;
+
+        if (!is_safe)
+          panic("SVA: Disallowed VMCS primary processor-based VM-exec "
+              "controls setting.\n");
+
+        return writevmcs_unchecked(field, data);
+      }
     case VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS:
+      {
+        /* Cast data field to bitfield struct */
+        struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
+        uint32_t data_lower32 = (uint32_t) data;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = data_lower32;
+
+        /* Check bit settings */
+        /* TODO: enforce reserved bits */
+        unsigned char is_safe =
+          /* APIC virtualization not currently supported by SVA */
+          !ctrls.virtualize_apic_accesses &&
+
+          /*
+           * SVA requires the use of extended page tables (EPT) for guest
+           * memory management.
+           *
+           * While it might be theoretically possible for SVA to support
+           * non-EPT scenarios, guest memory management without EPT is a
+           * royal hack and would be a lot of work to support. It's largely
+           * irrelevant today because VMX-capable hardware has supported EPT
+           * for almost a decade.
+           *
+           * In particular, BHyVe makes the same choice we do to require EPT
+           * as a design decision.
+           */
+          ctrls.enable_ept &&
+
+          /* APIC virtualization not currently supported by SVA */
+          !ctrls.virtualize_x2apic_mode &&
+
+          /*
+           * SVA requires the use of VPIDs (Virtual Processor IDs) to manage
+           * TLB entries for both guest-virtual and EPT mappings.
+           *
+           * Non-VPID scenarios wouldn't be hard to support but it simplifies
+           * our prototype to just assume it's enabled. VPID is a significant
+           * performance improvement (as it avoids the need to do a global
+           * TLB flush on VM entry and exit) so there's no reason that we
+           * wouldn't want to use it on a processor that supports it.
+           *
+           * SVA manages the VPID feature itself (SVA's vmid is used as the
+           * VPID) since it would be security-sensitive if they got mixed up
+           * (because that could allow cached translations from guest
+           * environments to be used by host code).
+           */
+          ctrls.enable_vpid &&
+
+          /* APIC virtualization not currently supported by SVA */
+          !ctrls.apic_register_virtualization &&
+
+          /* APIC virtualization not currently supported by SVA */
+          !ctrls.virtual_int_delivery &&
+
+          /* VM functions not currently supported by SVA */
+          !ctrls.enable_vmfunc &&
+
+          /* VMCS shadowing not currently supported by SVA */
+          !ctrls.vmcs_shadowing &&
+
+          /*
+           * Don't allow the guest to use XSAVES/XRSTORS.
+           *
+           * We don't currently support using these instructions to manage FP
+           * state in the host, so we couldn't maintain correctness if we
+           * allowed guests to use them.
+           */
+          !ctrls.enable_xsaves_xrstors;
+
+        if (!is_safe)
+          panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
+              "controls setting.\n");
+
+        return writevmcs_unchecked(field, data);
+      }
+
+    case VMCS_VM_EXIT_CTRLS:
+    case VMCS_VM_ENTRY_CTRLS:
+    case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
+#if 1
+      DBGPRNT(("==== Writing VMCS field (checked): "));
+      print_vmcs_field_name(field);
+      DBGPRNT((" ====\n"));
+
+      print_vmcs_field(field, data);
+
+      DBGPRNT(("====================\n"));
+      /* fall through to default case */
+#endif
 
     default:
       return writevmcs_unchecked(field, data);
