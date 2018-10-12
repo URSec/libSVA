@@ -1136,6 +1136,113 @@ print_vmcs_field(enum sva_vmcs_field field, uint64_t value) {
 
         break;
       }
+    case VMCS_VM_EXIT_CTRLS:
+      {
+        struct vmcs_vm_exit_ctrls ctrls;
+        uint32_t value_lower32 = (uint32_t) value;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = value_lower32;
+
+        printf("Reserved bits 0-1: %u\n", ctrls.reserved0_1);
+        printf("Save debug controls: %u\n", ctrls.save_debug_ctrls);
+        printf("Reserved bits 3-8: %u\n", ctrls.reserved3_8);
+        printf("Host address-space size: %u\n",
+            ctrls.host_addr_space_size);
+        printf("Reserved bits 10-11: %u\n", ctrls.reserved10_11);
+        printf("Load IA32_PERF_GLOBAL_CTRL: %u\n",
+            ctrls.load_ia32_perf_global_ctrl);
+        printf("Reserved bits 13-14: %u\n", ctrls.reserved13_14);
+        printf("Acknowledge interrupt on exit: %u\n",
+            ctrls.ack_int_on_exit);
+        printf("Reserved bits 16-17: %u\n", ctrls.reserved16_17);
+        printf("Save IA32_PAT: %u\n", ctrls.save_ia32_pat);
+        printf("Load IA32_PAT: %u\n", ctrls.load_ia32_pat);
+        printf("Save IA32_EFER: %u\n", ctrls.save_ia32_efer);
+        printf("Load IA32_EFER: %u\n", ctrls.load_ia32_efer);
+        printf("Save VMX-preemption timer value: %u\n",
+            ctrls.save_vmx_preempt_timer);
+        printf("Clear IA32_BNDCFGS: %u\n", ctrls.clear_ia32_bndcfgs);
+        printf("Conceal VM exits from Intel PT: %u\n",
+            ctrls.conceal_vmexit_from_pt);
+        printf("Reserved bits 25-31: %u\n", ctrls.reserved25_31);
+
+        break;
+      }
+    case VMCS_VM_ENTRY_CTRLS:
+      {
+        struct vmcs_vm_entry_ctrls ctrls;
+        uint32_t value_lower32 = (uint32_t) value;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = value_lower32;
+
+        printf("Reserved bits 0-1: %u\n", ctrls.reserved0_1);
+        printf("Load debug controls: %u\n", ctrls.load_debug_ctrls);
+        printf("Reserved bits 3-8: %u\n", ctrls.reserved3_8);
+        printf("IA-32e mode guest: %u\n", ctrls.ia32e_mode_guest);
+        printf("Entry to SMM: %u\n", ctrls.entry_to_smm);
+        printf("Deactivate dual-monitor treatment of SMM: %u\n",
+            ctrls.deact_dual_mon_treatment);
+        printf("Reserved bit 12: %u\n", ctrls.reserved12);
+        printf("Load IA32_PERF_GLOBAL_CTRL: %u\n",
+            ctrls.load_ia32_perf_global_ctrl);
+        printf("Load IA32_PAT: %u\n", ctrls.load_ia32_pat);
+        printf("Load IA32_EFER: %u\n", ctrls.load_ia32_efer);
+        printf("Load IA32_BNDCFGS: %u\n", ctrls.load_ia32_bndcfgs);
+        printf("Conceal VM entries from Intel PT: %u\n",
+            ctrls.conceal_vmentry_from_pt);
+        printf("Reserved bits 18-31: %u\n", ctrls.reserved18_31);
+
+        break;
+      }
+    case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
+      {
+        struct vmcs_vm_entry_interrupt_info_field ctrls;
+        uint32_t value_lower32 = (uint32_t) value;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = value_lower32;
+
+        printf("Interrupt/exception vector: %u\n", ctrls.vector);
+
+        printf("Interruption type: %u (", ctrls.int_type);
+        switch (ctrls.int_type) {
+          /* See section 24.8.3 of Intel manual */
+          case 0:
+            printf("External interrupt");
+            break;
+          case 1:
+            printf("Reserved");
+            break;
+          case 2:
+            printf("Non-maskable interrupt (NMI)");
+            break;
+          case 3:
+            printf("Hardware exception");
+            break;
+          case 4:
+            printf("Software interrupt");
+            break;
+          case 5:
+            printf("Privileged software exception");
+            break;
+          case 6:
+            printf("Software exception");
+            break;
+          case 7:
+            printf("Other event");
+            break;
+          /*
+           * No default case needed since we have covered all values of this
+           * 3-bit field.
+           */
+        }
+        printf(")\n");
+
+        printf("Deliver error code: %u\n", ctrls.deliver_error_code);
+        printf("Reserved bits 12-30: %u\n", ctrls.reserved12_30);
+        printf("Valid: %u\n", ctrls.valid);
+
+        break;
+      }
 
     default:
       printf("[Unrecognized VMCS field; value = 0x%lx]\n", value);

@@ -2644,9 +2644,94 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
       }
 
     case VMCS_VM_EXIT_CTRLS:
+      {
+        /* Cast data field to bitfield struct */
+        struct vmcs_vm_exit_ctrls ctrls;
+        uint32_t data_lower32 = (uint32_t) data;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = data_lower32;
+
+        /* Check bit settings */
+        /* TODO: enforce reserved bits */
+        unsigned char is_safe =
+          /*
+           * SVA/FreeBSD operates in 64-bit mode, so we must always return to
+           * that on VM exit.
+           */
+          ctrls.host_addr_space_size &&
+
+          /*
+           * Since we currently don't allow guests to change MSRs (or have
+           * their values changed for them by the hypervisor), we do not save
+           * or load any MSRs on VM exit; we know their values are exactly as
+           * we left them on VM entry.
+           */
+          !ctrls.save_ia32_pat &&
+          !ctrls.load_ia32_pat &&
+          !ctrls.save_ia32_efer &&
+          !ctrls.load_ia32_efer &&
+          !ctrls.clear_ia32_bndcfgs;
+
+        if (!is_safe)
+          panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
+              "controls setting.\n");
+
+        return writevmcs_unchecked(field, data);
+      }
     case VMCS_VM_ENTRY_CTRLS:
+      {
+        /* Cast data field to bitfield struct */
+        struct vmcs_vm_entry_ctrls ctrls;
+        uint32_t data_lower32 = (uint32_t) data;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = data_lower32;
+
+        /* Check bit settings */
+        /* TODO: enforce reserved bits */
+        unsigned char is_safe =
+          /*
+           * We do not support SMM (either on the host or in VMs).
+           *
+           * Intel requires that both of these controls be set to 0 for any
+           * VM entry from outside SMM.
+           */
+          !ctrls.entry_to_smm &&
+          !ctrls.deact_dual_mon_treatment &&
+
+          /*
+           * We currently don't allow guests to change any MSRs (or have
+           * their values changed for them by the hypervisor) from whatever
+           * they are set to on the host.
+           *
+           * (Note: the FS_BASE and GS_BASE MSRs are an exception to this
+           * because segment bases are handled through separate VMCS fields.)
+           *
+           * We will probably need to add support for saving/loading MSRs on
+           * VM entry/exit when we port BHyVe to SVA, but for now we don't
+           * have any need for it.
+           *
+           * Note in particular that support for loading IA32_EFER on VM
+           * entry will be necessary to support guests running in anything
+           * other than 64-bit mode.
+           */
+          !ctrls.load_ia32_perf_global_ctrl &&
+          !ctrls.load_ia32_pat &&
+          !ctrls.load_ia32_efer &&
+          !ctrls.load_ia32_bndcfgs;
+
+        if (!is_safe)
+          panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
+              "controls setting.\n");
+
+        return writevmcs_unchecked(field, data);
+      }
     case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
-#if 1
+      {
+        /* This VMCS control is safe to write unconditionally. */
+        return writevmcs_unchecked(field, data);
+      }
+
+#if 0
       DBGPRNT(("==== Writing VMCS field (checked): "));
       print_vmcs_field_name(field);
       DBGPRNT((" ====\n"));

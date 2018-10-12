@@ -292,7 +292,7 @@ struct vmcs_vm_entry_ctrls {
   unsigned reserved3_8 : 6;               /* bits 3-8 */
 
   unsigned ia32e_mode_guest : 1;          /* bit 9 */
-  unsigned entry_to_ssm : 1;              /* bit 10 */
+  unsigned entry_to_smm : 1;              /* bit 10 */
   unsigned deact_dual_mon_treatment : 1;  /* bit 11 */
 
   unsigned reserved12 : 1;                /* bit 12 */
