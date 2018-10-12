@@ -2725,11 +2725,65 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
 
         return writevmcs_unchecked(field, data);
       }
-    case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
-      {
-        /* This VMCS control is safe to write unconditionally. */
-        return writevmcs_unchecked(field, data);
-      }
+
+    /*
+     * These VMCS controls are safe to write unconditionally.
+     */
+    case VMCS_EXCEPTION_BITMAP:
+    case VMCS_GUEST_RIP:
+    case VMCS_GUEST_RSP:
+    case VMCS_GUEST_RFLAGS:
+    case VMCS_GUEST_CR0:
+    case VMCS_GUEST_CR4:
+    case VMCS_GUEST_DR7:
+    case VMCS_GUEST_IA32_DEBUGCTL:
+    case VMCS_GUEST_CR3:
+    case VMCS_GUEST_PDPTE0:
+    case VMCS_GUEST_PDPTE1:
+    case VMCS_GUEST_PDPTE2:
+    case VMCS_GUEST_PDPTE3:
+    case VMCS_GUEST_IA32_SYSENTER_CS:
+    case VMCS_GUEST_IA32_SYSENTER_ESP:
+    case VMCS_GUEST_IA32_SYSENTER_EIP:
+    case VMCS_GUEST_CS_SEL:
+    case VMCS_GUEST_CS_BASE:
+    case VMCS_GUEST_CS_LIMIT:
+    case VMCS_GUEST_CS_ACCESS_RIGHTS:
+    case VMCS_GUEST_SS_SEL:
+    case VMCS_GUEST_SS_BASE:
+    case VMCS_GUEST_SS_LIMIT:
+    case VMCS_GUEST_SS_ACCESS_RIGHTS:
+    case VMCS_GUEST_DS_SEL:
+    case VMCS_GUEST_DS_BASE:
+    case VMCS_GUEST_DS_LIMIT:
+    case VMCS_GUEST_DS_ACCESS_RIGHTS:
+    case VMCS_GUEST_ES_SEL:
+    case VMCS_GUEST_ES_BASE:
+    case VMCS_GUEST_ES_LIMIT:
+    case VMCS_GUEST_ES_ACCESS_RIGHTS:
+    case VMCS_GUEST_FS_SEL:
+    case VMCS_GUEST_FS_BASE:
+    case VMCS_GUEST_FS_LIMIT:
+    case VMCS_GUEST_FS_ACCESS_RIGHTS:
+    case VMCS_GUEST_GS_SEL:
+    case VMCS_GUEST_GS_BASE:
+    case VMCS_GUEST_GS_LIMIT:
+    case VMCS_GUEST_GS_ACCESS_RIGHTS:
+    case VMCS_GUEST_TR_SEL:
+    case VMCS_GUEST_TR_BASE:
+    case VMCS_GUEST_TR_LIMIT:
+    case VMCS_GUEST_TR_ACCESS_RIGHTS:
+    case VMCS_GUEST_GDTR_BASE:
+    case VMCS_GUEST_GDTR_LIMIT:
+    case VMCS_GUEST_IDTR_BASE:
+    case VMCS_GUEST_IDTR_LIMIT:
+    case VMCS_GUEST_LDTR_BASE:
+    case VMCS_GUEST_LDTR_LIMIT:
+    case VMCS_GUEST_LDTR_ACCESS_RIGHTS:
+    case VMCS_GUEST_ACTIVITY_STATE:
+    case VMCS_GUEST_INTERRUPTIBILITY_STATE:
+    case VMCS_GUEST_PENDING_DBG_EXCEPTIONS:
+      return writevmcs_unchecked(field, data);
 
 #if 0
       DBGPRNT(("==== Writing VMCS field (checked): "));
@@ -2746,7 +2800,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
       return writevmcs_unchecked(field, data);
   }
 }
-
 
 /*
  * Function: writevmcs_unchecked()

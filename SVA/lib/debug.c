@@ -894,7 +894,7 @@ print_vmcs_field_name(enum sva_vmcs_field field) {
       printf("VM_EXIT_MSR_STORE_COUNT");
       break;
     case VMCS_VM_EXIT_MSR_LOAD_COUNT:
-      printf("VMCS_EXIT_MSR_LOAD_COUNT");
+      printf("VM_EXIT_MSR_LOAD_COUNT");
       break;
     case VMCS_VM_ENTRY_CTRLS:
       printf("VM_ENTRY_CTRLS");
