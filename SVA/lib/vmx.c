@@ -513,9 +513,8 @@ sva_initvmx(void) {
    * ever set VMCS_ALLOC_SIZE to something different, this code will need to
    * be restructured.
    */
-  /* FIXME: use a proper assertion */
-  if (VMCS_ALLOC_SIZE != X86_PAGE_SIZE)
-    panic("VMCS_ALLOC_SIZE is not the same as X86_PAGE_SIZE!\n");
+  SVA_ASSERT(VMCS_ALLOC_SIZE == X86_PAGE_SIZE,
+      "SVA: error: VMCS_ALLOC_SIZE is not the same as X86_PAGE_SIZE!\n");
 
   /* Set the "enable VMX" bit in CR4. This enables VMX operation, allowing us
    * to enter VMX operation by executing the VMXON instruction. Once we have
@@ -1370,7 +1369,8 @@ run_vm(unsigned char use_vmresume) {
      * allocating VPIDs, independent of SVA's VM IDs.
      */
 
-    /* Determine the numeric ID of this VM. This is equal to its descriptor's
+    /*
+     * Determine the numeric ID of this VM. This is equal to its descriptor's
      * index within the vm_descs array. We only have the active_vm pointer
      * directly to the descriptor, so we need to do some pointer arithmetic
      * to get the index.
@@ -1391,13 +1391,29 @@ run_vm(unsigned char use_vmresume) {
      */
     writevmcs_unchecked(VMCS_CR3_TARGET_COUNT, 0);
 
-    /* Set VMCS link pointer to indicate that we are not using VMCS shadowing.
+    /*
+     * Set VMCS link pointer to indicate that we are not using VMCS shadowing.
      *
      * (SVA currently does not support VM nesting.)
      */
     uint64_t vmcs_link_ptr = 0xffffffffffffffff;
     writevmcs_unchecked(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
 
+    /*
+     * Set VM-entry/exit MSR load/store counts to 0 to indicate that we will
+     * not use the general-purpose MSR save/load feature.
+     *
+     * Some MSRs are individually saved/loaded on entry/exit as part of SVA's
+     * guest stsate management.
+     */
+    writevmcs_unchecked(VMCS_VM_ENTRY_MSR_LOAD_COUNT, 0);
+    writevmcs_unchecked(VMCS_VM_EXIT_MSR_LOAD_COUNT, 0);
+    writevmcs_unchecked(VMCS_VM_EXIT_MSR_STORE_COUNT, 0);
+
+    /*
+     * Record the fact that we have set these one-time fields so we don't
+     * need to do it again on future runs.
+     */
     host_state.active_vm->has_run = 1;
   }
 
@@ -2099,14 +2115,6 @@ update_vmcs_ctrls() {
   writevmcs_checked(VMCS_VM_EXIT_CTRLS,
       host_state.active_vm->ctrls.exit_ctrls);
 
-  /* VM entry/exit MSR load/store controls */
-  writevmcs_checked(VMCS_VM_ENTRY_MSR_LOAD_COUNT,
-      host_state.active_vm->ctrls.entry_msr_load_count);
-  writevmcs_checked(VMCS_VM_EXIT_MSR_LOAD_COUNT,
-      host_state.active_vm->ctrls.exit_msr_load_count);
-  writevmcs_checked(VMCS_VM_EXIT_MSR_STORE_COUNT,
-      host_state.active_vm->ctrls.exit_msr_store_count);
-
   /* Event injection and exception controls */
   writevmcs_checked(VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD,
       host_state.active_vm->ctrls.entry_interrupt_info);
@@ -2777,6 +2785,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_GUEST_GDTR_LIMIT:
     case VMCS_GUEST_IDTR_BASE:
     case VMCS_GUEST_IDTR_LIMIT:
+    case VMCS_GUEST_LDTR_SEL:
     case VMCS_GUEST_LDTR_BASE:
     case VMCS_GUEST_LDTR_LIMIT:
     case VMCS_GUEST_LDTR_ACCESS_RIGHTS:

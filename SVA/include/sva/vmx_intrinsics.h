@@ -269,11 +269,6 @@ typedef struct sva_vmx_vm_ctrls {
   uint64_t procbased_exec_ctrls1, procbased_exec_ctrls2;
   uint64_t entry_ctrls, exit_ctrls;
 
-  /** VM entry/exit MSR load/store controls **/
-  uint64_t entry_msr_load_count;
-  uint64_t exit_msr_load_count;
-  uint64_t exit_msr_store_count;
-
   /** Event injection and exception controls **/
   uint64_t entry_interrupt_info;
   uint64_t exception_exiting_bitmap;
