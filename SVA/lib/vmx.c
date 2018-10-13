@@ -2803,19 +2803,15 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_GUEST_PENDING_DBG_EXCEPTIONS:
       return writevmcs_unchecked(field, data);
 
-#if 0
-      DBGPRNT(("==== Writing VMCS field (checked): "));
-      print_vmcs_field_name(field);
-      DBGPRNT((" ====\n"));
-
-      print_vmcs_field(field, data);
-
-      DBGPRNT(("====================\n"));
-      /* fall through to default case */
-#endif
-
     default:
-      return writevmcs_unchecked(field, data);
+      printf("SVA: Attempted write to VMCS field: 0x%lx (",
+          field);
+      print_vmcs_field_name(field);
+      printf("); value = 0x%lx\n", data);
+      panic("SVA: Disallowed write to unrecognized VMCS field.\n");
+
+      /* Unreachable code to silence compiler warning */
+      return -1;
   }
 }
 
