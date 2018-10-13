@@ -2733,6 +2733,11 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
 
         return writevmcs_unchecked(field, data);
       }
+    case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
+      {
+        /* TODO: enforce reserved bits */
+        return writevmcs_unchecked(field, data);
+      }
 
     /*
      * These VMCS controls are safe to write unconditionally.
@@ -2743,6 +2748,10 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_GUEST_RFLAGS:
     case VMCS_GUEST_CR0:
     case VMCS_GUEST_CR4:
+    case VMCS_CR0_GUESTHOST_MASK:
+    case VMCS_CR4_GUESTHOST_MASK:
+    case VMCS_CR0_READ_SHADOW:
+    case VMCS_CR4_READ_SHADOW:
     case VMCS_GUEST_DR7:
     case VMCS_GUEST_IA32_DEBUGCTL:
     case VMCS_GUEST_CR3:
