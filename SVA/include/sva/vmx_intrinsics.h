@@ -442,5 +442,6 @@ unsigned char sva_initvmx(void);
 void sva_print_vmx_msrs(void);
 void print_vmcs_field_name(enum sva_vmcs_field);
 void print_vmcs_field(enum sva_vmcs_field field, uint64_t value);
+void sva_print_vmcs_allowed_settings(void);
 
 #endif /* _SVA_VMX_INTRINSICS_H */

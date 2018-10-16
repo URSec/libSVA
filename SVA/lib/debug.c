@@ -1249,3 +1249,168 @@ print_vmcs_field(enum sva_vmcs_field field, uint64_t value) {
       break;
   }
 }
+
+/*
+ * Intrinsic: sva_print_vmcs_allowed_settings()
+ *
+ * Description:
+ *  Prints the allowed settings of various VMCS controls as reported by the
+ *  processor in various MSRs. This allows us to determine the "safe default"
+ *  settings of reserved bits that we need to enforce in sva_writevmcs().
+ *
+ *  This is for use during early development. It is not part of the designed
+ *  SVA-VMX interface and will be removed.
+ */
+void
+sva_print_vmcs_allowed_settings() {
+  printf("\n==============================\n");
+  printf("Allowed settings of VMCS controls\n");
+  printf("\n==============================\n");
+
+  /*
+   * If bit 55 of the MSR IA32_VMX_BASIC is 1, the "TRUE" versions of the
+   * VMCS control capability MSRs are safe to read and allow determination of
+   * whether the processor supports zero-settings of bits that were reserved
+   * to 1 on older processors.
+   *
+   * If the "TRUE" versions of the MSRs exist, we will read those instead of
+   * the regular ones. The "TRUE" MSRs override the less-precise information
+   * in the regular ones.
+   *
+   * Confused yet? :-) Like most confusing aspects of the x86 ISA, this was a
+   * concession to backwards compatibility. Intel really didn't do a good job
+   * planning ahead on how they were going to make future use of
+   * originally-reserved bits when they first designed VMX. They seem to have
+   * learned from this mistake by the time they added the secondary
+   * VM-execution controls field later on, because they kept things simpler
+   * and made all of its reserved bits default to 0 instead of varying
+   * per-bit.
+   */
+  uint64_t vmx_basic = rdmsr(MSR_VMX_BASIC);
+  unsigned char safe_to_read_true_msrs = 0;
+  if (vmx_basic & 0x0080000000000000)
+    safe_to_read_true_msrs = 1;
+
+  /**** Pin-based VM-execution controls ****/
+  uint64_t pinbased_allowed_msr;
+  if (safe_to_read_true_msrs)
+    pinbased_allowed_msr = rdmsr(MSR_VMX_TRUE_PINBASED_CTLS);
+  else
+    pinbased_allowed_msr = rdmsr(MSR_VMX_PINBASED_CTLS);
+
+  /*
+   * These capability MSRs for 32-bit VMCS fields follow a standard format:
+   * the lower 32 bits of the MSR report the allowed 0-settings of the
+   * control's bits, and the upper 32 bits report the allowed 1-settings.
+   *
+   * A 0 bit in the 0-settings (lower) section of the MSR means that a
+   * 0-setting is allowed for that bit; a 1 bit means that a 0-setting is
+   * disallowed.
+   *
+   * A 1 bit in the 1-settings (upper) section of the MSR means that a
+   * 1-setting is allowed for that bit; a 0 bit means that a 1-setting is
+   * disallowed.
+   */
+  uint32_t pinbased_allowed_0 = (uint32_t) pinbased_allowed_msr;
+  uint32_t pinbased_allowed_1 = (uint32_t) (pinbased_allowed_msr >> 32);
+
+  /* Print the allowed settings */
+  printf("----------\n");
+  printf("Allowed 0-settings of VMCS_PINBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_PINBASED_VM_EXEC_CTRLS, pinbased_allowed_0);
+
+  printf("----------\n");
+  printf("Allowed 1-settings of VMCS_PINBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_PINBASED_VM_EXEC_CTRLS, pinbased_allowed_1);
+
+  /**** Primary processor-based VM-execution controls ****/
+  uint64_t prim_procbased_allowed_msr;
+  if (safe_to_read_true_msrs)
+    prim_procbased_allowed_msr = rdmsr(MSR_VMX_TRUE_PROCBASED_CTLS);
+  else
+    prim_procbased_allowed_msr = rdmsr(MSR_VMX_PROCBASED_CTLS);
+
+  uint32_t prim_procbased_allowed_0 = (uint32_t) prim_procbased_allowed_msr;
+  uint32_t prim_procbased_allowed_1 =
+    (uint32_t) (prim_procbased_allowed_msr >> 32);
+
+  printf("----------\n");
+  printf("Allowed 0-settings of VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+      prim_procbased_allowed_0);
+
+  printf("----------\n");
+  printf("Allowed 1-settings of VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+      prim_procbased_allowed_1);
+
+  /**** Secondary processor-based VM-execution controls ****/
+  /*
+   * Intel used the newer, more sane scheme of defaulting all reserved bits
+   * to 0 for this one, so there's no need to conditionally read a "TRUE"
+   * version of the capability MSR.
+   */
+  uint64_t sec_procbased_allowed_msr = rdmsr(MSR_VMX_PROCBASED_CTLS2);
+
+  uint32_t sec_procbased_allowed_0 = (uint32_t) sec_procbased_allowed_msr;
+  uint32_t sec_procbased_allowed_1 =
+    (uint32_t) (sec_procbased_allowed_msr >> 32);
+
+  printf("----------\n");
+  printf("Allowed 0-settings of VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+      sec_procbased_allowed_0);
+
+  printf("----------\n");
+  printf("Allowed 1-settings of VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+      sec_procbased_allowed_1);
+
+  /**** VM-exit controls ****/
+  uint64_t exit_ctrls_allowed_msr;
+  if (safe_to_read_true_msrs)
+    exit_ctrls_allowed_msr = rdmsr(MSR_VMX_TRUE_EXIT_CTLS);
+  else
+    exit_ctrls_allowed_msr = rdmsr(MSR_VMX_EXIT_CTLS);
+
+  uint32_t exit_ctrls_allowed_0 = (uint32_t) exit_ctrls_allowed_msr;
+  uint32_t exit_ctrls_allowed_1 = (uint32_t) (exit_ctrls_allowed_msr >> 32);
+
+  printf("----------\n");
+  printf("Allowed 0-settings of VMCS_VM_EXIT_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_VM_EXIT_CTRLS, exit_ctrls_allowed_0);
+
+  printf("----------\n");
+  printf("Allowed 1-settings of VMCS_VM_EXIT_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_VM_EXIT_CTRLS, exit_ctrls_allowed_1);
+
+  /**** VM-entry controls ****/
+  uint64_t entry_ctrls_allowed_msr;
+  if (safe_to_read_true_msrs)
+    entry_ctrls_allowed_msr = rdmsr(MSR_VMX_TRUE_ENTRY_CTLS);
+  else
+    entry_ctrls_allowed_msr = rdmsr(MSR_VMX_ENTRY_CTLS);
+
+  uint32_t entry_ctrls_allowed_0 = (uint32_t) entry_ctrls_allowed_msr;
+  uint32_t entry_ctrls_allowed_1 = (uint32_t) (entry_ctrls_allowed_msr >> 32);
+
+  printf("----------\n");
+  printf("Allowed 0-settings of VMCS_VM_ENTRY_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_VM_ENTRY_CTRLS, entry_ctrls_allowed_0);
+
+  printf("----------\n");
+  printf("Allowed 1-settings of VMCS_VM_ENTRY_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_VM_ENTRY_CTRLS, entry_ctrls_allowed_1);
+
+  printf("\n==============================\n");
+}
