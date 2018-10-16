@@ -2493,7 +2493,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
         *ctrls_u32 = data_lower32;
 
         /* Check bit settings */
-        /* TODO: enforce reserved bits */
         unsigned char is_safe =
           /*
            * SVA needs first crack at all interrupts.
@@ -2520,7 +2519,15 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
 #endif
 
           /* APIC virtualization not currently supported by SVA */
-          !ctrls.process_posted_ints;
+          !ctrls.process_posted_ints &&
+
+          /*
+           * Enforce reserved bits to ensure safe defaults on future
+           * processors with features SVA doesn't support.
+           */
+          (ctrls.reserved1_2 == 0x3) &&
+          ctrls.reserved4 &&
+          (ctrls.reserved8_31 == 0x0);
 
         if (!is_safe)
           panic("SVA: Disallowed VMCS pin-based VM-exec controls setting.\n");
@@ -2536,7 +2543,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
         *ctrls_u32 = data_lower32;
 
         /* Check bit settings */
-        /* TODO: enforce reserved bits */
         unsigned char is_safe =
           /*
            * We must unconditionally exit for I/O instructions since SVA
@@ -2566,7 +2572,18 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
            * We must activate the secondary controls because SVA requires
            * some of the features they control (e.g., EPT).
            */
-          ctrls.activate_secondary_ctrls;
+          ctrls.activate_secondary_ctrls &&
+
+          /*
+           * Enforce reserved bits to ensure safe defaults on future
+           * processors with features SVA doesn't support.
+           */
+          (ctrls.reserved0_1 == 0x2) &&
+          (ctrls.reserved4_6 == 0x7) &&
+          ctrls.reserved8 &&
+          (ctrls.reserved13_14 == 0x3) &&
+          (ctrls.reserved17_18 == 0x0) &&
+          ctrls.reserved26;
 
         if (!is_safe)
           panic("SVA: Disallowed VMCS primary processor-based VM-exec "
@@ -2583,7 +2600,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
         *ctrls_u32 = data_lower32;
 
         /* Check bit settings */
-        /* TODO: enforce reserved bits */
         unsigned char is_safe =
           /* APIC virtualization not currently supported by SVA */
           !ctrls.virtualize_apic_accesses &&
@@ -2642,7 +2658,17 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
            * state in the host, so we couldn't maintain correctness if we
            * allowed guests to use them.
            */
-          !ctrls.enable_xsaves_xrstors;
+          !ctrls.enable_xsaves_xrstors &&
+
+          /*
+           * Enforce reserved bits to ensure safe defaults on future
+           * processors with features SVA doesn't support.
+           *
+           * All reserved bits are reserved to 0 in this field.
+           */
+          !ctrls.reserved21 &&
+          (ctrls.reserved23_24 == 0x0) &&
+          (ctrls.reserved26_31 == 0x0);
 
         if (!is_safe)
           panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
@@ -2660,7 +2686,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
         *ctrls_u32 = data_lower32;
 
         /* Check bit settings */
-        /* TODO: enforce reserved bits */
         unsigned char is_safe =
           /*
            * SVA/FreeBSD operates in 64-bit mode, so we must always return to
@@ -2678,7 +2703,18 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           !ctrls.load_ia32_pat &&
           !ctrls.save_ia32_efer &&
           !ctrls.load_ia32_efer &&
-          !ctrls.clear_ia32_bndcfgs;
+          !ctrls.clear_ia32_bndcfgs &&
+
+          /*
+           * Enforce reserved bits to ensure safe defaults on future
+           * processors with features SVA doesn't support.
+           */
+          (ctrls.reserved0_1 == 0x3) &&
+          (ctrls.reserved3_8 == 0x3f) &&
+          (ctrls.reserved10_11 == 0x3) &&
+          (ctrls.reserved13_14 == 0x3) &&
+          (ctrls.reserved16_17 == 0x3) &&
+          (ctrls.reserved25_31 == 0x0);
 
         if (!is_safe)
           panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
@@ -2695,7 +2731,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
         *ctrls_u32 = data_lower32;
 
         /* Check bit settings */
-        /* TODO: enforce reserved bits */
         unsigned char is_safe =
           /*
            * We do not support SMM (either on the host or in VMs).
@@ -2725,7 +2760,16 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           !ctrls.load_ia32_perf_global_ctrl &&
           !ctrls.load_ia32_pat &&
           !ctrls.load_ia32_efer &&
-          !ctrls.load_ia32_bndcfgs;
+          !ctrls.load_ia32_bndcfgs &&
+
+          /*
+           * Enforce reserved bits to ensure safe defaults on future
+           * processors with features SVA doesn't support.
+           */
+          (ctrls.reserved0_1 == 0x3) &&
+          (ctrls.reserved3_8 == 0x3f) &&
+          ctrls.reserved12 &&
+          (ctrls.reserved18_31 == 0x0);
 
         if (!is_safe)
           panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
@@ -2733,15 +2777,11 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
 
         return writevmcs_unchecked(field, data);
       }
-    case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
-      {
-        /* TODO: enforce reserved bits */
-        return writevmcs_unchecked(field, data);
-      }
 
     /*
      * These VMCS controls are safe to write unconditionally.
      */
+    case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
     case VMCS_EXCEPTION_BITMAP:
     case VMCS_GUEST_RIP:
     case VMCS_GUEST_RSP:
