@@ -513,9 +513,11 @@ sva_initvmx(void) {
    * ever set VMCS_ALLOC_SIZE to something different, this code will need to
    * be restructured.
    */
-  /* FIXME: use a proper assertion */
-  if (VMCS_ALLOC_SIZE != X86_PAGE_SIZE)
-    panic("VMCS_ALLOC_SIZE is not the same as X86_PAGE_SIZE!\n");
+  if ( usevmx ) {
+	  /* FIXME: use a proper assertion */
+	  if (VMCS_ALLOC_SIZE != X86_PAGE_SIZE)
+		  panic("VMCS_ALLOC_SIZE is not the same as X86_PAGE_SIZE!\n");
+  }
 
   /* Set the "enable VMX" bit in CR4. This enables VMX operation, allowing us
    * to enter VMX operation by executing the VMXON instruction. Once we have
