@@ -524,8 +524,10 @@ load_eptable_internal(
    *
    * Check that we aren't overflowing the counter.
    */
-  SVA_ASSERT(pgRefCount(ptpDesc) < ((1u << 13) - 1),
-             "SVA: MMU: integer overflow in page refcount");
+  if ( usevmx ) {
+	  SVA_ASSERT(pgRefCount(ptpDesc) < ((1u << 13) - 1),
+				 "SVA: MMU: integer overflow in page refcount");
+  }
   ptpDesc->count++;
 
   /*
@@ -542,10 +544,11 @@ load_eptable_internal(
      * underflow). If so, our frame metadata has become inconsistent (as a
      * reference clearly exists).
      */
-    SVA_ASSERT(pgRefCount(old_ptpDesc) > 0,
-        "SVA: MMU: frame metadata inconsistency detected "
-        "(attempted to decrement refcount below zero)");
-
+	if ( usevmx ) {
+		SVA_ASSERT(pgRefCount(old_ptpDesc) > 0,
+				   "SVA: MMU: frame metadata inconsistency detected "
+				   "(attempted to decrement refcount below zero)");
+	}
     old_ptpDesc->count--;
   }
 
