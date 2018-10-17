@@ -504,7 +504,7 @@ print_vmcs_field_name(enum sva_vmcs_field field) {
   if (!SVAVMX_DEBUG)
     return;
 
-  switch(field) {
+  switch (field) {
     /* 16-bit guest-state fields */
     case VMCS_GUEST_ES_SEL:
       printf("GUEST_ES_SEL");
@@ -894,7 +894,7 @@ print_vmcs_field_name(enum sva_vmcs_field field) {
       printf("VM_EXIT_MSR_STORE_COUNT");
       break;
     case VMCS_VM_EXIT_MSR_LOAD_COUNT:
-      printf("VMCS_EXIT_MSR_LOAD_COUNT");
+      printf("VM_EXIT_MSR_LOAD_COUNT");
       break;
     case VMCS_VM_ENTRY_CTRLS:
       printf("VM_ENTRY_CTRLS");
@@ -1008,3 +1008,409 @@ print_vmcs_field_name(enum sva_vmcs_field field) {
   }
 }
 
+/*
+ * Function: print_vmcs_field()
+ *
+ * Prints a VMCS field value in human-readable form.
+ *
+ * Prints using the kernel's printf() function. The output may be multi-line,
+ * and a newline is printed after the last line.
+ *
+ * Doesn't print anything if the preprocessor variable SVAVMX_DEUBG is 0.
+ *
+ * Parameters:
+ *  - field: the VMCS field whose specification should be used to interpret
+ *           the given field value.
+ *  - value: the value of the VMCS field to be printed.
+ *
+ *    Note: different VMCS fields have different widths. They can be 16 bits,
+ *    32 bits, 64 bits, or "natural width" (width of the host platform, which
+ *    in our case always means 64 bits since this version of SVA does not run
+ *    on 32-bit x86). If we are printing a field narrower than 64 bits, the
+ *    higher bits will be ignored.
+ */
+void
+print_vmcs_field(enum sva_vmcs_field field, uint64_t value) {
+  if (!SVAVMX_DEBUG)
+    return;
+
+  switch (field) {
+    case VMCS_PINBASED_VM_EXEC_CTRLS:
+      {
+        /* Cast data field to bitfield struct */
+        struct vmcs_pinbased_vm_exec_ctrls ctrls;
+        uint32_t value_lower32 = (uint32_t) value;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = value_lower32;
+
+        printf("External-interrupt exiting: %u\n", ctrls.ext_int_exiting);
+        printf("Reserved bits 1-2: %u\n", ctrls.reserved1_2);
+        printf("NMI exiting: %u\n", ctrls.nmi_exiting);
+        printf("Reserved bit 4: %u\n", ctrls.reserved4);
+        printf("Virtual NMIs: %u\n", ctrls.virtual_nmis);
+        printf("Activate VMX-preemption timer: %u\n",
+            ctrls.activate_vmx_preempt_timer);
+        printf("Process posted interrupts: %u\n", ctrls.process_posted_ints);
+        printf("Reserved bits 8-31: %u\n", ctrls.reserved8_31);
+
+        break;
+      }
+
+    case VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:
+      {
+        struct vmcs_primary_procbased_vm_exec_ctrls ctrls;
+        uint32_t value_lower32 = (uint32_t) value;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = value_lower32;
+
+        printf("Reserved bits 0-1: %u\n", ctrls.reserved0_1);
+        printf("Interrupt-window exiting: %u\n", ctrls.int_window_exiting);
+        printf("Use TSC offsetting: %u\n", ctrls.use_tsc_offsetting);
+        printf("Reserved bits 4-6: %u\n", ctrls.reserved4_6);
+        printf("HLT exiting: %u\n", ctrls.hlt_exiting);
+        printf("Reserved bit 8: %u\n", ctrls.reserved8);
+        printf("INVLPG exiting: %u\n", ctrls.invlpg_exiting);
+        printf("MWAIT exiting: %u\n", ctrls.mwait_exiting);
+        printf("RDPMC exiting: %u\n", ctrls.rdpmc_exiting);
+        printf("RDTSC exiting: %u\n", ctrls.rdtsc_exiting);
+        printf("Reserved bits 13-14: %u\n", ctrls.reserved13_14);
+        printf("CR3-load exiting: %u\n", ctrls.cr3_load_exiting);
+        printf("CR3-store exiting: %u\n", ctrls.cr3_store_exiting);
+        printf("Reserved bits 17-18: %u\n", ctrls.reserved17_18);
+        printf("CR8-load exiting: %u\n", ctrls.cr8_load_exiting);
+        printf("CR8-store exiting: %u\n", ctrls.cr8_store_exiting);
+        printf("Use TPR shadow: %u\n", ctrls.use_tpr_shadow);
+        printf("NMI-window exiting: %u\n", ctrls.nmi_window_exiting);
+        printf("MOV-DR exiting: %u\n", ctrls.mov_dr_exiting);
+        printf("Unconditional I/O exiting: %u\n", ctrls.uncond_io_exiting);
+        printf("Use I/O bitmaps: %u\n", ctrls.use_io_bitmaps);
+        printf("Reserved bit 26: %u\n", ctrls.reserved26);
+        printf("Use MSR bitmaps: %u\n", ctrls.use_msr_bitmaps);
+        printf("MONITOR exiting: %u\n", ctrls.monitor_exiting);
+        printf("PAUSE exiting: %u\n", ctrls.pause_exiting);
+        printf("Activate secondary controls: %u\n",
+            ctrls.activate_secondary_ctrls);
+
+        break;
+      }
+
+    case VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS:
+      {
+        struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
+        uint32_t value_lower32 = (uint32_t) value;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = value_lower32;
+
+        printf("Virtualize APIC accesses: %u\n",
+            ctrls.virtualize_apic_accesses);
+        printf("Enable EPT: %u\n", ctrls.enable_ept);
+        printf("Descriptor-table exiting: %u\n",
+            ctrls.descriptor_table_exiting);
+        printf("Enable RDTSCP: %u\n", ctrls.enable_rdtscp);
+        printf("Virtualize x2APIC mode: %u\n", ctrls.virtualize_x2apic_mode);
+        printf("Enable VPID: %u\n", ctrls.enable_vpid);
+        printf("WBINVD exiting: %u\n", ctrls.wbinvd_exiting);
+        printf("Unrestricted guest: %u\n", ctrls.unrestricted_guest);
+        printf("APIC-register virtualization: %u\n",
+            ctrls.apic_register_virtualization);
+        printf("Virtual-interrupt delivery: %u\n",
+            ctrls.virtual_int_delivery);
+        printf("PAUSE-loop exiting: %u\n", ctrls.pause_loop_exiting);
+        printf("RDRAND exiting: %u\n", ctrls.rdrand_exiting);
+        printf("Enable INVPCID: %u\n", ctrls.enable_invpcid);
+        printf("Enable VM functions: %u\n", ctrls.enable_vmfunc);
+        printf("VMCS shadowing: %u\n", ctrls.vmcs_shadowing);
+        printf("Enable ENCLS exiting: %u\n", ctrls.enable_encls_exiting);
+        printf("RDSEED exiting: %u\n", ctrls.rdseed_exiting);
+        printf("Enable PML: %u\n", ctrls.enable_pml);
+        printf("EPT-violation #VE: %u\n", ctrls.ept_violation_ve);
+        printf("Conceal VMX non-root operation from Intel PT: %u\n",
+            ctrls.conceal_nonroot_from_pt);
+        printf("Enable XSAVES/XRSTORS: %u\n", ctrls.enable_xsaves_xrstors);
+        printf("Reserved bit 21: %u\n", ctrls.reserved21);
+        printf("Mode-based execute control for EPT: %u\n",
+            ctrls.mode_based_exec_ctrl_ept);
+        printf("Reserved bits 23-24: %u\n", ctrls.reserved23_24);
+        printf("Use TSC scaling: %u\n", ctrls.use_tsc_scaling);
+        printf("Reserved bits 26-31: %u\n", ctrls.reserved26_31);
+
+        break;
+      }
+    case VMCS_VM_EXIT_CTRLS:
+      {
+        struct vmcs_vm_exit_ctrls ctrls;
+        uint32_t value_lower32 = (uint32_t) value;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = value_lower32;
+
+        printf("Reserved bits 0-1: %u\n", ctrls.reserved0_1);
+        printf("Save debug controls: %u\n", ctrls.save_debug_ctrls);
+        printf("Reserved bits 3-8: %u\n", ctrls.reserved3_8);
+        printf("Host address-space size: %u\n",
+            ctrls.host_addr_space_size);
+        printf("Reserved bits 10-11: %u\n", ctrls.reserved10_11);
+        printf("Load IA32_PERF_GLOBAL_CTRL: %u\n",
+            ctrls.load_ia32_perf_global_ctrl);
+        printf("Reserved bits 13-14: %u\n", ctrls.reserved13_14);
+        printf("Acknowledge interrupt on exit: %u\n",
+            ctrls.ack_int_on_exit);
+        printf("Reserved bits 16-17: %u\n", ctrls.reserved16_17);
+        printf("Save IA32_PAT: %u\n", ctrls.save_ia32_pat);
+        printf("Load IA32_PAT: %u\n", ctrls.load_ia32_pat);
+        printf("Save IA32_EFER: %u\n", ctrls.save_ia32_efer);
+        printf("Load IA32_EFER: %u\n", ctrls.load_ia32_efer);
+        printf("Save VMX-preemption timer value: %u\n",
+            ctrls.save_vmx_preempt_timer);
+        printf("Clear IA32_BNDCFGS: %u\n", ctrls.clear_ia32_bndcfgs);
+        printf("Conceal VM exits from Intel PT: %u\n",
+            ctrls.conceal_vmexit_from_pt);
+        printf("Reserved bits 25-31: %u\n", ctrls.reserved25_31);
+
+        break;
+      }
+    case VMCS_VM_ENTRY_CTRLS:
+      {
+        struct vmcs_vm_entry_ctrls ctrls;
+        uint32_t value_lower32 = (uint32_t) value;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = value_lower32;
+
+        printf("Reserved bits 0-1: %u\n", ctrls.reserved0_1);
+        printf("Load debug controls: %u\n", ctrls.load_debug_ctrls);
+        printf("Reserved bits 3-8: %u\n", ctrls.reserved3_8);
+        printf("IA-32e mode guest: %u\n", ctrls.ia32e_mode_guest);
+        printf("Entry to SMM: %u\n", ctrls.entry_to_smm);
+        printf("Deactivate dual-monitor treatment of SMM: %u\n",
+            ctrls.deact_dual_mon_treatment);
+        printf("Reserved bit 12: %u\n", ctrls.reserved12);
+        printf("Load IA32_PERF_GLOBAL_CTRL: %u\n",
+            ctrls.load_ia32_perf_global_ctrl);
+        printf("Load IA32_PAT: %u\n", ctrls.load_ia32_pat);
+        printf("Load IA32_EFER: %u\n", ctrls.load_ia32_efer);
+        printf("Load IA32_BNDCFGS: %u\n", ctrls.load_ia32_bndcfgs);
+        printf("Conceal VM entries from Intel PT: %u\n",
+            ctrls.conceal_vmentry_from_pt);
+        printf("Reserved bits 18-31: %u\n", ctrls.reserved18_31);
+
+        break;
+      }
+    case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
+      {
+        struct vmcs_vm_entry_interrupt_info_field ctrls;
+        uint32_t value_lower32 = (uint32_t) value;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = value_lower32;
+
+        printf("Interrupt/exception vector: %u\n", ctrls.vector);
+
+        printf("Interruption type: %u (", ctrls.int_type);
+        switch (ctrls.int_type) {
+          /* See section 24.8.3 of Intel manual */
+          case 0:
+            printf("External interrupt");
+            break;
+          case 1:
+            printf("Reserved");
+            break;
+          case 2:
+            printf("Non-maskable interrupt (NMI)");
+            break;
+          case 3:
+            printf("Hardware exception");
+            break;
+          case 4:
+            printf("Software interrupt");
+            break;
+          case 5:
+            printf("Privileged software exception");
+            break;
+          case 6:
+            printf("Software exception");
+            break;
+          case 7:
+            printf("Other event");
+            break;
+          /*
+           * No default case needed since we have covered all values of this
+           * 3-bit field.
+           */
+        }
+        printf(")\n");
+
+        printf("Deliver error code: %u\n", ctrls.deliver_error_code);
+        printf("Reserved bits 12-30: %u\n", ctrls.reserved12_30);
+        printf("Valid: %u\n", ctrls.valid);
+
+        break;
+      }
+
+    default:
+      printf("[Unrecognized VMCS field; value = 0x%lx]\n", value);
+      break;
+  }
+}
+
+/*
+ * Intrinsic: sva_print_vmcs_allowed_settings()
+ *
+ * Description:
+ *  Prints the allowed settings of various VMCS controls as reported by the
+ *  processor in various MSRs. This allows us to determine the "safe default"
+ *  settings of reserved bits that we need to enforce in sva_writevmcs().
+ *
+ *  This is for use during early development. It is not part of the designed
+ *  SVA-VMX interface and will be removed.
+ */
+void
+sva_print_vmcs_allowed_settings() {
+  printf("\n==============================\n");
+  printf("Allowed settings of VMCS controls\n");
+  printf("\n==============================\n");
+
+  /*
+   * If bit 55 of the MSR IA32_VMX_BASIC is 1, the "TRUE" versions of the
+   * VMCS control capability MSRs are safe to read and allow determination of
+   * whether the processor supports zero-settings of bits that were reserved
+   * to 1 on older processors.
+   *
+   * If the "TRUE" versions of the MSRs exist, we will read those instead of
+   * the regular ones. The "TRUE" MSRs override the less-precise information
+   * in the regular ones.
+   *
+   * Confused yet? :-) Like most confusing aspects of the x86 ISA, this was a
+   * concession to backwards compatibility. Intel really didn't do a good job
+   * planning ahead on how they were going to make future use of
+   * originally-reserved bits when they first designed VMX. They seem to have
+   * learned from this mistake by the time they added the secondary
+   * VM-execution controls field later on, because they kept things simpler
+   * and made all of its reserved bits default to 0 instead of varying
+   * per-bit.
+   */
+  uint64_t vmx_basic = rdmsr(MSR_VMX_BASIC);
+  unsigned char safe_to_read_true_msrs = 0;
+  if (vmx_basic & 0x0080000000000000)
+    safe_to_read_true_msrs = 1;
+
+  /**** Pin-based VM-execution controls ****/
+  uint64_t pinbased_allowed_msr;
+  if (safe_to_read_true_msrs)
+    pinbased_allowed_msr = rdmsr(MSR_VMX_TRUE_PINBASED_CTLS);
+  else
+    pinbased_allowed_msr = rdmsr(MSR_VMX_PINBASED_CTLS);
+
+  /*
+   * These capability MSRs for 32-bit VMCS fields follow a standard format:
+   * the lower 32 bits of the MSR report the allowed 0-settings of the
+   * control's bits, and the upper 32 bits report the allowed 1-settings.
+   *
+   * A 0 bit in the 0-settings (lower) section of the MSR means that a
+   * 0-setting is allowed for that bit; a 1 bit means that a 0-setting is
+   * disallowed.
+   *
+   * A 1 bit in the 1-settings (upper) section of the MSR means that a
+   * 1-setting is allowed for that bit; a 0 bit means that a 1-setting is
+   * disallowed.
+   */
+  uint32_t pinbased_allowed_0 = (uint32_t) pinbased_allowed_msr;
+  uint32_t pinbased_allowed_1 = (uint32_t) (pinbased_allowed_msr >> 32);
+
+  /* Print the allowed settings */
+  printf("----------\n");
+  printf("Allowed 0-settings of VMCS_PINBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_PINBASED_VM_EXEC_CTRLS, pinbased_allowed_0);
+
+  printf("----------\n");
+  printf("Allowed 1-settings of VMCS_PINBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_PINBASED_VM_EXEC_CTRLS, pinbased_allowed_1);
+
+  /**** Primary processor-based VM-execution controls ****/
+  uint64_t prim_procbased_allowed_msr;
+  if (safe_to_read_true_msrs)
+    prim_procbased_allowed_msr = rdmsr(MSR_VMX_TRUE_PROCBASED_CTLS);
+  else
+    prim_procbased_allowed_msr = rdmsr(MSR_VMX_PROCBASED_CTLS);
+
+  uint32_t prim_procbased_allowed_0 = (uint32_t) prim_procbased_allowed_msr;
+  uint32_t prim_procbased_allowed_1 =
+    (uint32_t) (prim_procbased_allowed_msr >> 32);
+
+  printf("----------\n");
+  printf("Allowed 0-settings of VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+      prim_procbased_allowed_0);
+
+  printf("----------\n");
+  printf("Allowed 1-settings of VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+      prim_procbased_allowed_1);
+
+  /**** Secondary processor-based VM-execution controls ****/
+  /*
+   * Intel used the newer, more sane scheme of defaulting all reserved bits
+   * to 0 for this one, so there's no need to conditionally read a "TRUE"
+   * version of the capability MSR.
+   */
+  uint64_t sec_procbased_allowed_msr = rdmsr(MSR_VMX_PROCBASED_CTLS2);
+
+  uint32_t sec_procbased_allowed_0 = (uint32_t) sec_procbased_allowed_msr;
+  uint32_t sec_procbased_allowed_1 =
+    (uint32_t) (sec_procbased_allowed_msr >> 32);
+
+  printf("----------\n");
+  printf("Allowed 0-settings of VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+      sec_procbased_allowed_0);
+
+  printf("----------\n");
+  printf("Allowed 1-settings of VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+      sec_procbased_allowed_1);
+
+  /**** VM-exit controls ****/
+  uint64_t exit_ctrls_allowed_msr;
+  if (safe_to_read_true_msrs)
+    exit_ctrls_allowed_msr = rdmsr(MSR_VMX_TRUE_EXIT_CTLS);
+  else
+    exit_ctrls_allowed_msr = rdmsr(MSR_VMX_EXIT_CTLS);
+
+  uint32_t exit_ctrls_allowed_0 = (uint32_t) exit_ctrls_allowed_msr;
+  uint32_t exit_ctrls_allowed_1 = (uint32_t) (exit_ctrls_allowed_msr >> 32);
+
+  printf("----------\n");
+  printf("Allowed 0-settings of VMCS_VM_EXIT_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_VM_EXIT_CTRLS, exit_ctrls_allowed_0);
+
+  printf("----------\n");
+  printf("Allowed 1-settings of VMCS_VM_EXIT_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_VM_EXIT_CTRLS, exit_ctrls_allowed_1);
+
+  /**** VM-entry controls ****/
+  uint64_t entry_ctrls_allowed_msr;
+  if (safe_to_read_true_msrs)
+    entry_ctrls_allowed_msr = rdmsr(MSR_VMX_TRUE_ENTRY_CTLS);
+  else
+    entry_ctrls_allowed_msr = rdmsr(MSR_VMX_ENTRY_CTLS);
+
+  uint32_t entry_ctrls_allowed_0 = (uint32_t) entry_ctrls_allowed_msr;
+  uint32_t entry_ctrls_allowed_1 = (uint32_t) (entry_ctrls_allowed_msr >> 32);
+
+  printf("----------\n");
+  printf("Allowed 0-settings of VMCS_VM_ENTRY_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_VM_ENTRY_CTRLS, entry_ctrls_allowed_0);
+
+  printf("----------\n");
+  printf("Allowed 1-settings of VMCS_VM_ENTRY_CTRLS:\n");
+  printf("----------\n");
+  print_vmcs_field(VMCS_VM_ENTRY_CTRLS, entry_ctrls_allowed_1);
+
+  printf("\n==============================\n");
+}

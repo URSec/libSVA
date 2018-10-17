@@ -269,11 +269,6 @@ typedef struct sva_vmx_vm_ctrls {
   uint64_t procbased_exec_ctrls1, procbased_exec_ctrls2;
   uint64_t entry_ctrls, exit_ctrls;
 
-  /** VM entry/exit MSR load/store controls **/
-  uint64_t entry_msr_load_count;
-  uint64_t exit_msr_load_count;
-  uint64_t exit_msr_store_count;
-
   /** Event injection and exception controls **/
   uint64_t entry_interrupt_info;
   uint64_t exception_exiting_bitmap;
@@ -380,7 +375,10 @@ typedef struct sva_vmx_guest_state {
 } sva_vmx_guest_state;
 
 /*
- * *** Prototypes for VMX intrinsics ***
+ *****************************************************************************
+ * Prototypes for VMX intrinsics implemented in the library
+ *  (vmx.c and vmx_ept.c)
+ *****************************************************************************
  */
 size_t sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
     sva_vmx_guest_state initial_state,
@@ -440,7 +438,10 @@ uintptr_t sva_save_eptable(size_t vmid);
  * interface.
  */
 unsigned char sva_initvmx(void);
-void sva_print_vmx_msrs(void); /* defined in debug.c */
-void print_vmcs_field_name(enum sva_vmcs_field); /* defined in debug.c */
+/* Defined in debug.c */
+void sva_print_vmx_msrs(void);
+void print_vmcs_field_name(enum sva_vmcs_field);
+void print_vmcs_field(enum sva_vmcs_field field, uint64_t value);
+void sva_print_vmcs_allowed_settings(void);
 
 #endif /* _SVA_VMX_INTRINSICS_H */

@@ -63,7 +63,7 @@
 
 /*
  *****************************************************************************
- * SVA intrinsics implemented in the library
+ * SVA intrinsics implemented in the library (mmu.c)
  *****************************************************************************
  */
 extern void sva_mm_load_pgtable (void * pg);
@@ -79,6 +79,7 @@ extern void sva_update_l2_mapping (pde_t * pdePtr, page_entry_t val);
 extern void sva_update_l3_mapping (pdpte_t * pdptePtr, page_entry_t val);
 extern void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val);
 extern void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val);
+extern void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys);
 extern void sva_set_kernel_pml4pg_ready(uintptr_t orig_phys);
 extern void sva_remove_mapping (page_entry_t * ptePtr);
 extern void sva_mmu_init(pml4e_t * kpml4Mapping,

@@ -514,9 +514,8 @@ sva_initvmx(void) {
    * be restructured.
    */
   if ( usevmx ) {
-	  /* FIXME: use a proper assertion */
-	  if (VMCS_ALLOC_SIZE != X86_PAGE_SIZE)
-		  panic("VMCS_ALLOC_SIZE is not the same as X86_PAGE_SIZE!\n");
+	  SVA_ASSERT(VMCS_ALLOC_SIZE == X86_PAGE_SIZE,
+				 "SVA: error: VMCS_ALLOC_SIZE is not the same as X86_PAGE_SIZE!\n");
   }
 
   /* Set the "enable VMX" bit in CR4. This enables VMX operation, allowing us
@@ -1053,7 +1052,8 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
           "SVA-VMX intrinsic.\n");
   }
 
-  /* If there is no VM currently active on the processor, return failure.
+  /*
+   * If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
@@ -1063,34 +1063,11 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
     return -1;
   }
 
-#if 0
-  DBGPRNT(("Executing VMREAD instruction...\n"));
-#endif
-  uint64_t rflags;
-  asm __volatile__ (
-      "vmread %%rax, %%rbx\n"
-      "pushfq\n"
-      "popq %0\n"
-      : "=r" (rflags), "=b" (*data)
-      : "a" (field)
-      : "cc"
-      );
-  /* Confirm that the operation succeeded. */
-  if (query_vmx_result(rflags) == VM_SUCCEED) {
-#if 0
-    DBGPRNT(("Successfully read VMCS field.\n"));
-#endif
-
-    /* The specified field has been successfully read into the location
-     * pointed to by "data". Return success.
-     */
-    return 0;
-  } else {
-    DBGPRNT(("Error: failed to read VMCS field.\n"));
-
-    /* Return failure. */
-    return -1;
-  }
+  /*
+   * Perform the read if it won't leak sensitive information to the system
+   * software (or if it can be sanitized).
+   */
+  return readvmcs_checked(field, data);
 }
 
 /*
@@ -1133,7 +1110,8 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
           "SVA-VMX intrinsic.\n");
   }
 
-  /* If there is no VM currently active on the processor, return failure.
+  /*
+   * If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
@@ -1143,32 +1121,11 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
     return -1;
   }
 
-#if 0
-  DBGPRNT(("\tExecuting VMWRITE instruction...\n"));
-#endif
-  uint64_t rflags;
-  asm __volatile__ (
-      "vmwrite %%rax, %%rbx\n"
-      "pushfq\n"
-      "popq %0\n"
-      : "=r" (rflags)
-      : "a" (data), "b" (field)
-      : "cc"
-      );
-  /* Confirm that the operation succeeded. */
-  if (query_vmx_result(rflags) == VM_SUCCEED) {
-#if 0
-    DBGPRNT(("\tSuccessfully wrote VMCS field.\n"));
-#endif
-
-    /* Return success. */
-    return 0;
-  } else {
-    DBGPRNT(("Error: failed to write VMCS field.\n"));
-
-    /* Return failure. */
-    return -1;
-  }
+  /*
+   * Vet the value to be written to ensure that it will not compromise system
+   * security, and perform the write.
+   */
+  return writevmcs_checked(field, data);
 }
 
 /*
@@ -1414,7 +1371,8 @@ run_vm(unsigned char use_vmresume) {
      * allocating VPIDs, independent of SVA's VM IDs.
      */
 
-    /* Determine the numeric ID of this VM. This is equal to its descriptor's
+    /*
+     * Determine the numeric ID of this VM. This is equal to its descriptor's
      * index within the vm_descs array. We only have the active_vm pointer
      * directly to the descriptor, so we need to do some pointer arithmetic
      * to get the index.
@@ -1424,7 +1382,7 @@ run_vm(unsigned char use_vmresume) {
      */
     size_t vmid = host_state.active_vm - vm_descs;
 
-    sva_writevmcs(VMCS_VPID, vmid);
+    writevmcs_unchecked(VMCS_VPID, vmid);
 
     /*
      * Set the "CR3-target count" VM execution control to 0. The value doesn't
@@ -1433,15 +1391,31 @@ run_vm(unsigned char use_vmresume) {
      * value uninitialized, the processor may throw an error on VM entry if the
      * value is greater than 4.
      */
-    sva_writevmcs(VMCS_CR3_TARGET_COUNT, 0);
+    writevmcs_unchecked(VMCS_CR3_TARGET_COUNT, 0);
 
-    /* Set VMCS link pointer to indicate that we are not using VMCS shadowing.
+    /*
+     * Set VMCS link pointer to indicate that we are not using VMCS shadowing.
      *
      * (SVA currently does not support VM nesting.)
      */
     uint64_t vmcs_link_ptr = 0xffffffffffffffff;
-    sva_writevmcs(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
+    writevmcs_unchecked(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
 
+    /*
+     * Set VM-entry/exit MSR load/store counts to 0 to indicate that we will
+     * not use the general-purpose MSR save/load feature.
+     *
+     * Some MSRs are individually saved/loaded on entry/exit as part of SVA's
+     * guest stsate management.
+     */
+    writevmcs_unchecked(VMCS_VM_ENTRY_MSR_LOAD_COUNT, 0);
+    writevmcs_unchecked(VMCS_VM_EXIT_MSR_LOAD_COUNT, 0);
+    writevmcs_unchecked(VMCS_VM_EXIT_MSR_STORE_COUNT, 0);
+
+    /*
+     * Record the fact that we have set these one-time fields so we don't
+     * need to do it again on future runs.
+     */
     host_state.active_vm->has_run = 1;
   }
 
@@ -1486,8 +1460,12 @@ run_vm(unsigned char use_vmresume) {
    *
    * This is the extended-paging equivalent of the CR3 register used in
    * normal paging.
+   *
+   * We can use an unchecked write here because the sva_load_eptable()
+   * intrinsic has already ensured that the EPTP in the VM descriptor points
+   * to a valid top-level extended page table.
    */
-  sva_writevmcs(VMCS_EPT_PTR, host_state.active_vm->eptp);
+  writevmcs_unchecked(VMCS_EPT_PTR, host_state.active_vm->eptp);
 
   /*
    * Set the host-state-object fields to recognizable nonsense values so that
@@ -1511,17 +1489,15 @@ run_vm(unsigned char use_vmresume) {
   /*
    * Save host state in the VMCS that will be restored automatically by the
    * processor on VM exit.
-   *
-   * NOTE: we call our own sva_writevmcs() intrinsic for this.
    */
   DBGPRNT(("run_vm: Saving host state...\n"));
   /* Control registers */
   uint64_t host_cr0 = _rcr0();
-  sva_writevmcs(VMCS_HOST_CR0, host_cr0);
+  writevmcs_unchecked(VMCS_HOST_CR0, host_cr0);
   uint64_t host_cr3 = _rcr3();
-  sva_writevmcs(VMCS_HOST_CR3, host_cr3);
+  writevmcs_unchecked(VMCS_HOST_CR3, host_cr3);
   uint64_t host_cr4 = _rcr4();
-  sva_writevmcs(VMCS_HOST_CR4, host_cr4);
+  writevmcs_unchecked(VMCS_HOST_CR4, host_cr4);
   DBGPRNT(("run_vm: Saved host control registers.\n"));
 
   /* Segment selectors */
@@ -1587,13 +1563,13 @@ run_vm(unsigned char use_vmresume) {
    *        selectors before VM entry, and re-load them on VM exit. But if we
    *        don't need to, it'll just slow things down.
    */
-  sva_writevmcs(VMCS_HOST_ES_SEL, es_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_CS_SEL, cs_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_SS_SEL, ss_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_DS_SEL, ds_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_FS_SEL, fs_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_GS_SEL, gs_sel & ~0x7);
-  sva_writevmcs(VMCS_HOST_TR_SEL, tr_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_ES_SEL, es_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_CS_SEL, cs_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_SS_SEL, ss_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_DS_SEL, ds_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_FS_SEL, fs_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_GS_SEL, gs_sel & ~0x7);
+  writevmcs_unchecked(VMCS_HOST_TR_SEL, tr_sel & ~0x7);
   DBGPRNT(("run_vm: Saved host segment selectors.\n"));
 
   /*
@@ -1601,9 +1577,9 @@ run_vm(unsigned char use_vmresume) {
    */
 
   uint64_t fs_base = rdmsr(MSR_FS_BASE);
-  sva_writevmcs(VMCS_HOST_FS_BASE, fs_base);
+  writevmcs_unchecked(VMCS_HOST_FS_BASE, fs_base);
   uint64_t gs_base = rdmsr(MSR_GS_BASE);
-  sva_writevmcs(VMCS_HOST_GS_BASE, gs_base);
+  writevmcs_unchecked(VMCS_HOST_GS_BASE, gs_base);
 
   unsigned char gdtr[10], idtr[10];
   /* The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
@@ -1617,8 +1593,8 @@ run_vm(unsigned char use_vmresume) {
       );
   uint64_t gdt_base = *(uint64_t*)(gdtr + 2);
   uint64_t idt_base = *(uint64_t*)(idtr + 2);
-  sva_writevmcs(VMCS_HOST_GDTR_BASE, gdt_base);
-  sva_writevmcs(VMCS_HOST_IDTR_BASE, idt_base);
+  writevmcs_unchecked(VMCS_HOST_GDTR_BASE, gdt_base);
+  writevmcs_unchecked(VMCS_HOST_IDTR_BASE, idt_base);
   
   DBGPRNT(("run_vm: Saved host FS, GS, GDTR, and IDTR bases.\n"));
 
@@ -1661,17 +1637,17 @@ run_vm(unsigned char use_vmresume) {
   DBGPRNT(("Reconstructed TR base address: 0x%lx\n", tr_baseaddr));
 #endif
   /* Write our hard-earned TR base address to the VMCS... */
-  sva_writevmcs(VMCS_HOST_TR_BASE, tr_baseaddr);
+  writevmcs_unchecked(VMCS_HOST_TR_BASE, tr_baseaddr);
 
   DBGPRNT(("run_vm: Saved host TR base.\n"));
 
   /* Various MSRs */
   uint64_t ia32_sysenter_cs = rdmsr(MSR_SYSENTER_CS);
-  sva_writevmcs(VMCS_HOST_IA32_SYSENTER_CS, ia32_sysenter_cs);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_CS, ia32_sysenter_cs);
   uint64_t ia32_sysenter_esp = rdmsr(MSR_SYSENTER_ESP);
-  sva_writevmcs(VMCS_HOST_IA32_SYSENTER_ESP, ia32_sysenter_esp);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_ESP, ia32_sysenter_esp);
   uint64_t ia32_sysenter_eip = rdmsr(MSR_SYSENTER_EIP);
-  sva_writevmcs(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
   DBGPRNT(("Saved various host MSRs.\n"));
 
   /*
@@ -2130,35 +2106,27 @@ sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate) {
 static inline void
 update_vmcs_ctrls() {
   /* VM execution controls */
-  sva_writevmcs(VMCS_PINBASED_VM_EXEC_CTRLS,
+  writevmcs_checked(VMCS_PINBASED_VM_EXEC_CTRLS,
       host_state.active_vm->ctrls.pinbased_exec_ctrls);
-  sva_writevmcs(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+  writevmcs_checked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
       host_state.active_vm->ctrls.procbased_exec_ctrls1);
-  sva_writevmcs(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+  writevmcs_checked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
       host_state.active_vm->ctrls.procbased_exec_ctrls2);
-  sva_writevmcs(VMCS_VM_ENTRY_CTRLS,
+  writevmcs_checked(VMCS_VM_ENTRY_CTRLS,
       host_state.active_vm->ctrls.entry_ctrls);
-  sva_writevmcs(VMCS_VM_EXIT_CTRLS,
+  writevmcs_checked(VMCS_VM_EXIT_CTRLS,
       host_state.active_vm->ctrls.exit_ctrls);
 
-  /* VM entry/exit MSR load/store controls */
-  sva_writevmcs(VMCS_VM_ENTRY_MSR_LOAD_COUNT,
-      host_state.active_vm->ctrls.entry_msr_load_count);
-  sva_writevmcs(VMCS_VM_EXIT_MSR_LOAD_COUNT,
-      host_state.active_vm->ctrls.exit_msr_load_count);
-  sva_writevmcs(VMCS_VM_EXIT_MSR_STORE_COUNT,
-      host_state.active_vm->ctrls.exit_msr_store_count);
-
   /* Event injection and exception controls */
-  sva_writevmcs(VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD,
+  writevmcs_checked(VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD,
       host_state.active_vm->ctrls.entry_interrupt_info);
-  sva_writevmcs(VMCS_EXCEPTION_BITMAP,
+  writevmcs_checked(VMCS_EXCEPTION_BITMAP,
       host_state.active_vm->ctrls.exception_exiting_bitmap);
 
   /* Control register guest/host masks */
-  sva_writevmcs(VMCS_CR0_GUESTHOST_MASK,
+  writevmcs_checked(VMCS_CR0_GUESTHOST_MASK,
       host_state.active_vm->ctrls.cr0_guesthost_mask);
-  sva_writevmcs(VMCS_CR4_GUESTHOST_MASK,
+  writevmcs_checked(VMCS_CR4_GUESTHOST_MASK,
       host_state.active_vm->ctrls.cr4_guesthost_mask);
 }
 
@@ -2360,9 +2328,10 @@ save_restore_guest_state(unsigned char saverestore) {
  *  A local helper function which abstracts around whether we are reading or
  *  writing a VMCS field.
  *
- *  Calls sva_writevmcs() if "rw" is true, otherwise calls sva_readvmcs().
- *  The "data" parameter is appropriately dereferenced if we're calling
- *  sva_writevmcs() (which takes a uint64_t, not a uint64_t*).
+ *  Calls writevmcs_checked() if "rw" is true, otherwise calls
+ *  readvmcs_checked().  The "data" parameter is appropriately dereferenced
+ *  if we're calling writevmcs_checked() (which takes a uint64_t, not a
+ *  uint64_t*).
  *
  *  This is useful so that we don't have to repeat ourselves when writing
  *  code that saves/restores long sequences of VMCS fields. These usually
@@ -2376,26 +2345,552 @@ save_restore_guest_state(unsigned char saverestore) {
  *    read it.
  *
  *  - field: Specifies the VMCS field. Passed through to
- *    sva_read/writevmcs().
+ *    read/writevmcs_checked().
  *
  *  - data: Pointer to the location containing the data to be written, or to
- *    which the data to be read should be stored. For sva_writevmcs(), this
- *    is dereferenced and the value in it is passed on to be written. For
- *    sva_readvmcs(), the address is passed directly and the VMCS field's
- *    contents are stored there.
+ *    which the data to be read should be stored. For writes, this is
+ *    dereferenced and the value in it is passed on to writevmcs_checked() be
+ *    written. For reads, the address is passed directly to
+ *    readvmcs_checked() and the read value is stored there.
  *
  * Return value:
- *  The error code returned by sva_read/writevmcs(), respectively, is passed
- *  through.
+ *  The error code returned by read/writevmcs_checked(), respectively, is
+ *  passed through.
+ *
+ * Preconditions:
+ *  - There must be a VMCS loaded on the processor.
  */
 static inline int
 read_write_vmcs_field(unsigned char write,
     enum sva_vmcs_field field, uint64_t *data) {
   if (write) {
     /* We are writing to the VMCS field. */
-    return sva_writevmcs(field, *data);
+    return writevmcs_checked(field, *data);
   } else {
     /* We are reading from the VMCS field. */
-    return sva_readvmcs(field, data);
+    return readvmcs_checked(field, data);
+  }
+}
+
+/*
+ * Function: readvmcs_checked()
+ *
+ * Description:
+ *  A local helper function which centralizes checks/vetting for VMCS field
+ *  reads.
+ *
+ *  Ensures that the read does not leak sensitive information to untrusted
+ *  system software. Unsafe reads are either rejected outright (with a kernel
+ *  panic or by returning an error code), or sanitized.
+ *
+ * Arguments:
+ *  Same as sva_readvmcs().
+ *
+ * Return value:
+ *  Same as sva_readvmcs().
+ *
+ * Preconditions:
+ *  - There must be a VMCS loaded on the processor.
+ */
+static inline int
+readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
+  /*
+   * If the field does not contain sensitive information, pass it directly
+   * through to the caller.
+   *
+   * Otherwise, sanitize the read value or reject the read.
+   */
+  switch (field) {
+    /* TODO: implement checks. For now we treat all fields as safe. */
+    default:
+      return readvmcs_unchecked(field, data);
+  }
+}
+
+/*
+ * Function: readvmcs_unchecked()
+ *
+ * Description:
+ *  A local helper that directly performs a VMCS field read on the hardware.
+ *  No checks are performed.
+ *
+ *  To be used internally by SVA (e.g., by readvmcs_checked() after it has
+ *  vetted the read).
+ *
+ * Preconditions:
+ *  Same as readvmcs_checked(), plus:
+ *
+ *  - The read must not leak sensitive information to the system software.
+ */
+static inline int
+readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data) {
+  uint64_t rflags;
+  asm __volatile__ (
+      "vmread %%rax, %%rbx\n"
+      "pushfq\n"
+      "popq %0\n"
+      : "=r" (rflags), "=b" (*data)
+      : "a" (field)
+      : "cc"
+      );
+  /* Confirm that the operation succeeded. */
+  if (query_vmx_result(rflags) == VM_SUCCEED) {
+
+    /* The specified field has been successfully read into the location
+     * pointed to by "data". Return success.
+     */
+    return 0;
+  } else {
+    DBGPRNT(("Error: failed to read VMCS field.\n"));
+
+    /* Return failure. */
+    return -1;
+  }
+}
+
+/*
+ * Function: writevmcs_checked()
+ *
+ * Description:
+ *  A local helper function which centralizes checks/vetting for VMCS field
+ *  writes.
+ *
+ *  Verifies that the write can be permitted without compromising the
+ *  integrity of SVA's guarantees; if so, performs the VMCS write. Otherwise,
+ *  the write is rejected or (if feasible) modified to bring it into line
+ *  with security policies.
+ *
+ *  Rejected writes will either result in a kernel panic or cause a failure
+ *  (negative) error code to be returned.
+ *
+ * Arguments:
+ *  Same as sva_writevmcs().
+ *
+ * Return value:
+ *  Same as sva_writevmcs().
+ *
+ * Preconditions:
+ *  - There must be a VMCS loaded on the processor.
+ */
+static inline int
+writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
+  /*
+   * If the field is harmless, write it directly.
+   *
+   * Otherwise, modify the write to render it harmless (if we can), or reject
+   * it.
+   */
+  switch (field) {
+    /*
+     * TODO: implement remaining checks and switch default case to
+     * fail-closed.
+     */
+
+    case VMCS_PINBASED_VM_EXEC_CTRLS:
+      {
+        /* Cast data field to bitfield struct */
+        struct vmcs_pinbased_vm_exec_ctrls ctrls;
+        uint32_t data_lower32 = (uint32_t) data;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = data_lower32;
+
+        /* Check bit settings */
+        unsigned char is_safe =
+          /*
+           * SVA needs first crack at all interrupts.
+           *
+           * TODO: Some interrupts are probably safe to pass through, and
+           * should be for reasonable guest performance (e.g. the timer
+           * interrupt). If we encounter performance issues we should look
+           * into the interrupt-virtualization features provided by VMX.
+           */
+          ctrls.ext_int_exiting &&
+
+          /* Likewise for NMIs. */
+          ctrls.nmi_exiting &&
+
+          /* NMI virtualization not currently supported by SVA */
+          !ctrls.virtual_nmis &&
+
+          /*
+           * VMX preemption timer must be enabled to prevent the guest from
+           * tying up system resources indefinitely.
+           */
+#if 0 /* our toy hypervisor doesn't know how to use the preemption timer yet */
+          ctrls.activate_vmx_preempt_timer &&
+#endif
+
+          /* APIC virtualization not currently supported by SVA */
+          !ctrls.process_posted_ints &&
+
+          /*
+           * Enforce reserved bits to ensure safe defaults on future
+           * processors with features SVA doesn't support.
+           */
+          (ctrls.reserved1_2 == 0x3) &&
+          ctrls.reserved4 &&
+          (ctrls.reserved8_31 == 0x0);
+
+        if (!is_safe)
+          panic("SVA: Disallowed VMCS pin-based VM-exec controls setting.\n");
+
+        return writevmcs_unchecked(field, data);
+      }
+    case VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:
+      {
+        /* Cast data field to bitfield struct */
+        struct vmcs_primary_procbased_vm_exec_ctrls ctrls;
+        uint32_t data_lower32 = (uint32_t) data;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = data_lower32;
+
+        /* Check bit settings */
+        unsigned char is_safe =
+          /*
+           * We must unconditionally exit for I/O instructions since SVA
+           * mediates all access to hardware.
+           */
+          ctrls.uncond_io_exiting &&
+
+          /*
+           * I/O bitmaps are irrelevant since we are unconditionally exiting
+           * for I/O instructions. This bit must be 0 because it would
+           * otherwise override the "unconditional I/O exiting" setting which
+           * we enforce above.
+           */
+          !ctrls.use_io_bitmaps &&
+
+          /*
+           * SVA will mitigate all access to MSRs, so we will not use MSR
+           * bitmaps (i.e., we will exit unconditionally for RDMSR/WRMSR).
+           *
+           * If necessary for performance, we can potentially relax this
+           * constraint by allowing guests to read/write certain MSRs
+           * directly that are deemed safe.
+           */
+          !ctrls.use_msr_bitmaps &&
+
+          /*
+           * We must activate the secondary controls because SVA requires
+           * some of the features they control (e.g., EPT).
+           */
+          ctrls.activate_secondary_ctrls &&
+
+          /*
+           * Enforce reserved bits to ensure safe defaults on future
+           * processors with features SVA doesn't support.
+           */
+          (ctrls.reserved0_1 == 0x2) &&
+          (ctrls.reserved4_6 == 0x7) &&
+          ctrls.reserved8 &&
+          (ctrls.reserved13_14 == 0x3) &&
+          (ctrls.reserved17_18 == 0x0) &&
+          ctrls.reserved26;
+
+        if (!is_safe)
+          panic("SVA: Disallowed VMCS primary processor-based VM-exec "
+              "controls setting.\n");
+
+        return writevmcs_unchecked(field, data);
+      }
+    case VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS:
+      {
+        /* Cast data field to bitfield struct */
+        struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
+        uint32_t data_lower32 = (uint32_t) data;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = data_lower32;
+
+        /* Check bit settings */
+        unsigned char is_safe =
+          /* APIC virtualization not currently supported by SVA */
+          !ctrls.virtualize_apic_accesses &&
+
+          /*
+           * SVA requires the use of extended page tables (EPT) for guest
+           * memory management.
+           *
+           * While it might be theoretically possible for SVA to support
+           * non-EPT scenarios, guest memory management without EPT is a
+           * royal hack and would be a lot of work to support. It's largely
+           * irrelevant today because VMX-capable hardware has supported EPT
+           * for almost a decade.
+           *
+           * In particular, BHyVe makes the same choice we do to require EPT
+           * as a design decision.
+           */
+          ctrls.enable_ept &&
+
+          /* APIC virtualization not currently supported by SVA */
+          !ctrls.virtualize_x2apic_mode &&
+
+          /*
+           * SVA requires the use of VPIDs (Virtual Processor IDs) to manage
+           * TLB entries for both guest-virtual and EPT mappings.
+           *
+           * Non-VPID scenarios wouldn't be hard to support but it simplifies
+           * our prototype to just assume it's enabled. VPID is a significant
+           * performance improvement (as it avoids the need to do a global
+           * TLB flush on VM entry and exit) so there's no reason that we
+           * wouldn't want to use it on a processor that supports it.
+           *
+           * SVA manages the VPID feature itself (SVA's vmid is used as the
+           * VPID) since it would be security-sensitive if they got mixed up
+           * (because that could allow cached translations from guest
+           * environments to be used by host code).
+           */
+          ctrls.enable_vpid &&
+
+          /* APIC virtualization not currently supported by SVA */
+          !ctrls.apic_register_virtualization &&
+
+          /* APIC virtualization not currently supported by SVA */
+          !ctrls.virtual_int_delivery &&
+
+          /* VM functions not currently supported by SVA */
+          !ctrls.enable_vmfunc &&
+
+          /* VMCS shadowing not currently supported by SVA */
+          !ctrls.vmcs_shadowing &&
+
+          /*
+           * Don't allow the guest to use XSAVES/XRSTORS.
+           *
+           * We don't currently support using these instructions to manage FP
+           * state in the host, so we couldn't maintain correctness if we
+           * allowed guests to use them.
+           */
+          !ctrls.enable_xsaves_xrstors &&
+
+          /*
+           * Enforce reserved bits to ensure safe defaults on future
+           * processors with features SVA doesn't support.
+           *
+           * All reserved bits are reserved to 0 in this field.
+           */
+          !ctrls.reserved21 &&
+          (ctrls.reserved23_24 == 0x0) &&
+          (ctrls.reserved26_31 == 0x0);
+
+        if (!is_safe)
+          panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
+              "controls setting.\n");
+
+        return writevmcs_unchecked(field, data);
+      }
+
+    case VMCS_VM_EXIT_CTRLS:
+      {
+        /* Cast data field to bitfield struct */
+        struct vmcs_vm_exit_ctrls ctrls;
+        uint32_t data_lower32 = (uint32_t) data;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = data_lower32;
+
+        /* Check bit settings */
+        unsigned char is_safe =
+          /*
+           * SVA/FreeBSD operates in 64-bit mode, so we must always return to
+           * that on VM exit.
+           */
+          ctrls.host_addr_space_size &&
+
+          /*
+           * Since we currently don't allow guests to change MSRs (or have
+           * their values changed for them by the hypervisor), we do not save
+           * or load any MSRs on VM exit; we know their values are exactly as
+           * we left them on VM entry.
+           */
+          !ctrls.save_ia32_pat &&
+          !ctrls.load_ia32_pat &&
+          !ctrls.save_ia32_efer &&
+          !ctrls.load_ia32_efer &&
+          !ctrls.clear_ia32_bndcfgs &&
+
+          /*
+           * Enforce reserved bits to ensure safe defaults on future
+           * processors with features SVA doesn't support.
+           */
+          (ctrls.reserved0_1 == 0x3) &&
+          (ctrls.reserved3_8 == 0x3f) &&
+          (ctrls.reserved10_11 == 0x3) &&
+          (ctrls.reserved13_14 == 0x3) &&
+          (ctrls.reserved16_17 == 0x3) &&
+          (ctrls.reserved25_31 == 0x0);
+
+        if (!is_safe)
+          panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
+              "controls setting.\n");
+
+        return writevmcs_unchecked(field, data);
+      }
+    case VMCS_VM_ENTRY_CTRLS:
+      {
+        /* Cast data field to bitfield struct */
+        struct vmcs_vm_entry_ctrls ctrls;
+        uint32_t data_lower32 = (uint32_t) data;
+        uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
+        *ctrls_u32 = data_lower32;
+
+        /* Check bit settings */
+        unsigned char is_safe =
+          /*
+           * We do not support SMM (either on the host or in VMs).
+           *
+           * Intel requires that both of these controls be set to 0 for any
+           * VM entry from outside SMM.
+           */
+          !ctrls.entry_to_smm &&
+          !ctrls.deact_dual_mon_treatment &&
+
+          /*
+           * We currently don't allow guests to change any MSRs (or have
+           * their values changed for them by the hypervisor) from whatever
+           * they are set to on the host.
+           *
+           * (Note: the FS_BASE and GS_BASE MSRs are an exception to this
+           * because segment bases are handled through separate VMCS fields.)
+           *
+           * We will probably need to add support for saving/loading MSRs on
+           * VM entry/exit when we port BHyVe to SVA, but for now we don't
+           * have any need for it.
+           *
+           * Note in particular that support for loading IA32_EFER on VM
+           * entry will be necessary to support guests running in anything
+           * other than 64-bit mode.
+           */
+          !ctrls.load_ia32_perf_global_ctrl &&
+          !ctrls.load_ia32_pat &&
+          !ctrls.load_ia32_efer &&
+          !ctrls.load_ia32_bndcfgs &&
+
+          /*
+           * Enforce reserved bits to ensure safe defaults on future
+           * processors with features SVA doesn't support.
+           */
+          (ctrls.reserved0_1 == 0x3) &&
+          (ctrls.reserved3_8 == 0x3f) &&
+          ctrls.reserved12 &&
+          (ctrls.reserved18_31 == 0x0);
+
+        if (!is_safe)
+          panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
+              "controls setting.\n");
+
+        return writevmcs_unchecked(field, data);
+      }
+
+    /*
+     * These VMCS controls are safe to write unconditionally.
+     */
+    case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
+    case VMCS_EXCEPTION_BITMAP:
+    case VMCS_GUEST_RIP:
+    case VMCS_GUEST_RSP:
+    case VMCS_GUEST_RFLAGS:
+    case VMCS_GUEST_CR0:
+    case VMCS_GUEST_CR4:
+    case VMCS_CR0_GUESTHOST_MASK:
+    case VMCS_CR4_GUESTHOST_MASK:
+    case VMCS_CR0_READ_SHADOW:
+    case VMCS_CR4_READ_SHADOW:
+    case VMCS_GUEST_DR7:
+    case VMCS_GUEST_IA32_DEBUGCTL:
+    case VMCS_GUEST_CR3:
+    case VMCS_GUEST_PDPTE0:
+    case VMCS_GUEST_PDPTE1:
+    case VMCS_GUEST_PDPTE2:
+    case VMCS_GUEST_PDPTE3:
+    case VMCS_GUEST_IA32_SYSENTER_CS:
+    case VMCS_GUEST_IA32_SYSENTER_ESP:
+    case VMCS_GUEST_IA32_SYSENTER_EIP:
+    case VMCS_GUEST_CS_SEL:
+    case VMCS_GUEST_CS_BASE:
+    case VMCS_GUEST_CS_LIMIT:
+    case VMCS_GUEST_CS_ACCESS_RIGHTS:
+    case VMCS_GUEST_SS_SEL:
+    case VMCS_GUEST_SS_BASE:
+    case VMCS_GUEST_SS_LIMIT:
+    case VMCS_GUEST_SS_ACCESS_RIGHTS:
+    case VMCS_GUEST_DS_SEL:
+    case VMCS_GUEST_DS_BASE:
+    case VMCS_GUEST_DS_LIMIT:
+    case VMCS_GUEST_DS_ACCESS_RIGHTS:
+    case VMCS_GUEST_ES_SEL:
+    case VMCS_GUEST_ES_BASE:
+    case VMCS_GUEST_ES_LIMIT:
+    case VMCS_GUEST_ES_ACCESS_RIGHTS:
+    case VMCS_GUEST_FS_SEL:
+    case VMCS_GUEST_FS_BASE:
+    case VMCS_GUEST_FS_LIMIT:
+    case VMCS_GUEST_FS_ACCESS_RIGHTS:
+    case VMCS_GUEST_GS_SEL:
+    case VMCS_GUEST_GS_BASE:
+    case VMCS_GUEST_GS_LIMIT:
+    case VMCS_GUEST_GS_ACCESS_RIGHTS:
+    case VMCS_GUEST_TR_SEL:
+    case VMCS_GUEST_TR_BASE:
+    case VMCS_GUEST_TR_LIMIT:
+    case VMCS_GUEST_TR_ACCESS_RIGHTS:
+    case VMCS_GUEST_GDTR_BASE:
+    case VMCS_GUEST_GDTR_LIMIT:
+    case VMCS_GUEST_IDTR_BASE:
+    case VMCS_GUEST_IDTR_LIMIT:
+    case VMCS_GUEST_LDTR_SEL:
+    case VMCS_GUEST_LDTR_BASE:
+    case VMCS_GUEST_LDTR_LIMIT:
+    case VMCS_GUEST_LDTR_ACCESS_RIGHTS:
+    case VMCS_GUEST_ACTIVITY_STATE:
+    case VMCS_GUEST_INTERRUPTIBILITY_STATE:
+    case VMCS_GUEST_PENDING_DBG_EXCEPTIONS:
+      return writevmcs_unchecked(field, data);
+
+    default:
+      printf("SVA: Attempted write to VMCS field: 0x%lx (",
+          field);
+      print_vmcs_field_name(field);
+      printf("); value = 0x%lx\n", data);
+      panic("SVA: Disallowed write to unrecognized VMCS field.\n");
+
+      /* Unreachable code to silence compiler warning */
+      return -1;
+  }
+}
+
+/*
+ * Function: writevmcs_unchecked()
+ *
+ * Description:
+ *  A local helper that directly performs a VMCS field write on the hardware.
+ *  No checks are performed.
+ *
+ *  To be used internally by SVA when it is known that a write is safe (e.g.,
+ *  by writevmcs_checked() after it has vetted the write).
+ *
+ * Preconditions:
+ *  Same as writevmcs_checked(), plus:
+ *
+ *  - The write must not compromise SVA's security guarantees.
+ */
+static inline int
+writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data) {
+  uint64_t rflags;
+  asm __volatile__ (
+      "vmwrite %%rax, %%rbx\n"
+      "pushfq\n"
+      "popq %0\n"
+      : "=r" (rflags)
+      : "a" (data), "b" (field)
+      : "cc"
+      );
+  /* Confirm that the operation succeeded. */
+  if (query_vmx_result(rflags) == VM_SUCCEED) {
+    /* Return success. */
+    return 0;
+  } else {
+    DBGPRNT(("Error: failed to write VMCS field.\n"));
+
+    /* Return failure. */
+    return -1;
   }
 }
