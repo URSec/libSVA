@@ -630,6 +630,7 @@ SHELL'
 ac_subst_files=''
 ac_user_opts='
 enable_option_checking
+enable_vmx
 enable_vg
 enable_vg_random
 enable_mpx
@@ -1252,6 +1253,7 @@ Optional Features:
   --disable-option-checking  ignore unrecognized --enable/--with options
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
+  --enable-vmx            Enable VMX for hardware virtualization support (default is NO)
   --enable-vg             Enable Virtual Ghost (default is NO)
   --enable-vg-random      Enable Ghost Memory allocation randomization
                           (default is NO)
