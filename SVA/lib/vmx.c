@@ -655,6 +655,14 @@ size_t
 sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
     sva_vmx_guest_state initial_state,
     pml4e_t *initial_eptable) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
   DBGPRNT(("sva_allocvm() intrinsic called.\n"));
 
   if (!sva_vmx_initialized) {
@@ -697,6 +705,9 @@ sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
   if (vmid == -1) {
     DBGPRNT(("Error: all %lu VM IDs are in use; cannot create a new VM.\n",
           MAX_VMS));
+
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
 
@@ -758,17 +769,17 @@ sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
    */
   DBGPRNT(("Using VMCLEAR to initialize VMCS with paddr 0x%lx...\n",
         vm_descs[vmid].vmcs_paddr));
-  uint64_t rflags;
+  uint64_t rflags_vmclear;
   asm __volatile__ (
       "vmclear (%1)\n"
       "pushfq\n"
       "popq %0\n"
-      : "=r" (rflags)
+      : "=r" (rflags_vmclear)
       : "r" (&vm_descs[vmid].vmcs_paddr)
       : "cc"
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result(rflags) == VM_SUCCEED) {
+  if (query_vmx_result(rflags_vmclear) == VM_SUCCEED) {
     DBGPRNT(("Successfully initialized VMCS.\n"));
   } else {
     DBGPRNT(("Error: failed to initialize VMCS with VMCLEAR.\n"));
@@ -783,8 +794,14 @@ sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
     memset(&vm_descs[vmid], 0, sizeof(vm_desc_t));
 
     /* Return failure. */
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
 
   /* Success: return the VM ID. */
   return vmid;
@@ -805,6 +822,14 @@ sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
  */
 void
 sva_freevm(size_t vmid) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
   DBGPRNT(("sva_freevm() intrinsic called for VM ID: %lu\n", vmid));
 
   if (!sva_vmx_initialized) {
@@ -854,6 +879,10 @@ sva_freevm(size_t vmid) {
 
   /* Zero-fill this slot in the vm_descs struct to mark it as unused. */
   memset(&vm_descs[vmid], 0, sizeof(vm_desc_t));
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
 }
 
 /*
@@ -874,6 +903,14 @@ sva_freevm(size_t vmid) {
  */
 int
 sva_loadvm(size_t vmid) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
   DBGPRNT(("sva_loadvm() intrinsic called for VM ID: %lu\n", vmid));
 
   if (!sva_vmx_initialized) {
@@ -905,6 +942,9 @@ sva_loadvm(size_t vmid) {
   if (host_state.active_vm) {
     DBGPRNT(("Error: there is already a VM active on the processor. "
           "Cannot load a different VM until it is unloaded.\n"));
+
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
 
@@ -916,17 +956,17 @@ sva_loadvm(size_t vmid) {
    */
   DBGPRNT(("Using VMPTRLD to make active the VMCS at paddr 0x%lx...\n",
         host_state.active_vm->vmcs_paddr));
-  uint64_t rflags;
+  uint64_t rflags_vmptrld;
   asm __volatile__ (
       "vmptrld (%1)\n"
       "pushfq\n"
       "popq %0\n"
-      : "=r" (rflags)
+      : "=r" (rflags_vmptrld)
       : "r" (&(host_state.active_vm->vmcs_paddr))
       : "cc"
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result(rflags) == VM_SUCCEED) {
+  if (query_vmx_result(rflags_vmptrld) == VM_SUCCEED) {
     DBGPRNT(("Successfully loaded VMCS onto the processor.\n"));
   } else {
     DBGPRNT(("Error: failed to load VMCS onto the processor.\n"));
@@ -935,8 +975,14 @@ sva_loadvm(size_t vmid) {
     host_state.active_vm = 0;
 
     /* Return failure. */
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
 
   /* Return success. */
   return 0;
@@ -956,6 +1002,14 @@ sva_loadvm(size_t vmid) {
  */
 int
 sva_unloadvm(void) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
   DBGPRNT(("sva_unloadvm() intrinsic called.\n"));
 
   if (!sva_vmx_initialized) {
@@ -969,6 +1023,9 @@ sva_unloadvm(void) {
    */
   if (!host_state.active_vm) {
     DBGPRNT(("Error: there is no VM active on the processor to unload.\n"));
+
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
 
@@ -976,17 +1033,17 @@ sva_unloadvm(void) {
    */
   DBGPRNT(("Using VMCLEAR to unload VMCS with address 0x%lx from the "
         "processor...\n", host_state.active_vm->vmcs_paddr));
-  uint64_t rflags;
+  uint64_t rflags_vmclear;
   asm __volatile__ (
       "vmclear (%1)\n"
       "pushfq\n"
       "popq %0\n"
-      : "=r" (rflags)
+      : "=r" (rflags_vmclear)
       : "r" (&(host_state.active_vm->vmcs_paddr))
       : "cc"
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result(rflags) == VM_SUCCEED) {
+  if (query_vmx_result(rflags_vmclear) == VM_SUCCEED) {
     DBGPRNT(("Successfully unloaded VMCS from the processor.\n"));
 
     /* Mark the VM as "not launched". If we load it back onto the processor
@@ -1001,8 +1058,14 @@ sva_unloadvm(void) {
     DBGPRNT(("Error: failed to unload VMCS from the processor.\n"));
 
     /* Return failure. */
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
 
   /* Return success. */
   return 0;
