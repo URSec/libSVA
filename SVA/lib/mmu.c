@@ -626,8 +626,24 @@ updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
 
     origPG->count--;
 
-    if(origPG->count == 1)
+    /*
+     * If we are removing the last non-DMAP mapping to this page, do a global
+     * TLB flush to ensure that any stale mappings that the kernel may have
+     * neglected to flush are cleared.
+     *
+     * This ensures that if this page is later declared as a PTP (which SVA
+     * will only allow if it has no non-DMAP mappings), the OS cannot violate
+     * system security by getting "back-door" write access to the PTP through
+     * such a stale mapping. (This likewise prevents a similar vulnerability
+     * for ghost pages.)
+     */
+#ifdef SVA_DMAP
+    if (origPG->count == 2) {
+#else
+    if (origPG->count == 1) {
+#endif
       invltlb_all();
+    }
   }
 
   return;
