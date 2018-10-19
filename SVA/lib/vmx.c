@@ -1104,6 +1104,14 @@ sva_unloadvm(void) {
  */
 int
 sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
 #if 0
   DBGPRNT(("sva_readvmcs() intrinsic called with field="));
   print_vmcs_field_name(field);
@@ -1123,6 +1131,9 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
   if (!host_state.active_vm) {
     DBGPRNT(("Error: there is no VM active on the processor. "
           "Cannot read from VMCS.\n"));
+
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
 
@@ -1130,7 +1141,13 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
    * Perform the read if it won't leak sensitive information to the system
    * software (or if it can be sanitized).
    */
-  return readvmcs_checked(field, data);
+  int retval = readvmcs_checked(field, data);
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+
+  return retval;
 }
 
 /*
@@ -1162,6 +1179,14 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
  */
 int
 sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
 #if 0
   DBGPRNT(("sva_writevmcs() intrinsic called with field="));
   print_vmcs_field_name(field);
@@ -1181,6 +1206,9 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
   if (!host_state.active_vm) {
     DBGPRNT(("Error: there is no VM active on the processor. "
           "Cannot write to VMCS.\n"));
+
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
 
@@ -1188,7 +1216,13 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
    * Vet the value to be written to ensure that it will not compromise system
    * security, and perform the write.
    */
-  return writevmcs_checked(field, data);
+  int retval = writevmcs_checked(field, data);
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+
+  return retval;
 }
 
 /*
@@ -1214,6 +1248,14 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
  */
 int
 sva_launchvm(void) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
   DBGPRNT(("sva_launchvm() intrinsic called.\n"));
 
   if (!sva_vmx_initialized) {
@@ -1228,6 +1270,9 @@ sva_launchvm(void) {
   if (!host_state.active_vm) {
     DBGPRNT(("Error: there is no VM active on the processor. "
           "Cannot launch VM.\n"));
+
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
 
@@ -1238,6 +1283,9 @@ sva_launchvm(void) {
   if (host_state.active_vm->is_launched) {
     DBGPRNT(("Error: Must use sva_resumevm() to enter a VM which "
           "was previously run since being loaded on the processor.\n"));
+
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
 
@@ -1255,7 +1303,13 @@ sva_launchvm(void) {
    * use the VMRESUME instruction instead of VMLAUNCH), so we perform this in
    * a common helper function.
    */
-  return run_vm(0 /* use_vmresume */);
+  int retval = run_vm(0 /* use_vmresume */);
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+
+  return retval;
 }
 
 /*
@@ -1295,6 +1349,14 @@ sva_launchvm(void) {
  */
 int
 sva_resumevm(void) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
   DBGPRNT(("sva_resumevm() intrinsic called.\n"));
 
   if (!sva_vmx_initialized) {
@@ -1309,6 +1371,9 @@ sva_resumevm(void) {
   if (!host_state.active_vm) {
     DBGPRNT(("Error: there is no VM active on the processor. "
           "Cannot resume VM.\n"));
+
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
 
@@ -1319,6 +1384,9 @@ sva_resumevm(void) {
   if (!host_state.active_vm->is_launched) {
     DBGPRNT(("Error: Must use sva_launchvm() to enter a VM which hasn't "
           "previously been run since being loaded on the processor.\n"));
+
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return -1;
   }
 
@@ -1330,7 +1398,13 @@ sva_resumevm(void) {
    * use the VMLAUNCH instruction instead of VMRESUME), so we perform this in
    * a common helper function.
    */
-  return run_vm(1 /* use_vmresume */);
+  int retval = run_vm(1 /* use_vmresume */);
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+
+  return retval;
 }
 
 /*
@@ -1459,7 +1533,7 @@ run_vm(unsigned char use_vmresume) {
     /*
      * Set VMCS link pointer to indicate that we are not using VMCS shadowing.
      *
-     * (SVA currently does not support VM nesting.)
+     * (SVA currently does not support VMCS shadowing.)
      */
     uint64_t vmcs_link_ptr = 0xffffffffffffffff;
     writevmcs_unchecked(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
@@ -1751,9 +1825,7 @@ run_vm(unsigned char use_vmresume) {
       /* Save host RFLAGS.
        * 
        * RFLAGS is cleared on every VM exit, so we need to restore it
-       * ourselves. Note in particular that this means interrupts are blocked
-       * (since IF = 0) after VM exit until we restore RFLAGS (or otherwise
-       * explicitly set IF, though we won't do that here).
+       * ourselves.
        */
       "pushfq\n"
 
@@ -1937,8 +2009,13 @@ run_vm(unsigned char use_vmresume) {
        * and restore RFLAGS to what it was before VM entry.
        *
        * NOTE: interrupts are always blocked (disabled) on VM exit due to
-       * RFLAGS being cleared by the processor. If interrupts were originally
-       * enabled prior to VM entry, the "popfq" here will re-enable them.
+       * RFLAGS being cleared by the processor. However, that doesn't
+       * actually change anything because we were already in an SVA critical
+       * section (interrupts disabled) for the duration of the
+       * sva_launch/resumevm() intrinsic that called this function. If
+       * interrupts were originally enabled prior to that intrinsic being
+       * called, they'll be re-enabled when the intrinsic restores RFLAGS
+       * before returning.
        */
       "addq $24, %%rsp\n" // Unwind the last three pushq's...
       "popfq\n"           // ...so we can pop the host RFLAGS below them.
@@ -2056,6 +2133,14 @@ run_vm(unsigned char use_vmresume) {
  */
 sva_vmx_guest_state
 sva_getvmstate(void) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
   DBGPRNT(("sva_getvmstate() intrinsic called.\n"));
 
   if (!sva_vmx_initialized) {
@@ -2081,6 +2166,9 @@ sva_getvmstate(void) {
     sva_vmx_guest_state retval;
     memset(&retval, 0, sizeof(sva_vmx_guest_state));
     retval.errorcode = -1;
+
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
     return retval;
   }
 
@@ -2094,6 +2182,11 @@ sva_getvmstate(void) {
    * Set errorcode to 0 before returning the structure.
    */
   host_state.active_vm->state.errorcode = 0;
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+
   return host_state.active_vm->state;
 }
 
@@ -2125,6 +2218,14 @@ sva_getvmstate(void) {
  */
 void
 sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
   DBGPRNT(("sva_setvmstate() instrinsic called for VM ID: %lu\n", vmid));
 
   if (!sva_vmx_initialized) {
@@ -2145,6 +2246,10 @@ sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate) {
    * VMCS guest state fields from the VM descriptor before the next VM entry.
    */
   vm_descs[vmid].guest_state_not_stale = 0;
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
 }
 
 /*
