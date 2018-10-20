@@ -62,6 +62,7 @@
 #include "sva/callbacks.h"
 #include "sva/state.h"
 #include "sva/util.h"
+#include "sva/vmx.h"
 
 /* Size of the smallest page frame in bytes */
 static const uintptr_t X86_PAGE_SIZE = 4096u;
@@ -665,6 +666,57 @@ invltlb_all(void) {
 static __inline void
 invlpg(u_long addr) {
   __asm __volatile("invlpg %0" : : "m" (*(char *)addr) : "memory");
+}
+
+/*
+ * Invalidate guest-physical mappings in the TLB, globally (for all sets of
+ * extended page tables).
+ *
+ * PRECONDITION:
+ *  - SVA-VMX must have been successfully initialized, i.e., the SVA global
+ *    variable "sva_vmx_initialized" should be true. If this is not the case,
+ *    calling this function will crash the system with #UD due to the INVEPT
+ *    instruction not being valid.
+ */
+static inline void
+invept_allcontexts(void) {
+  /*
+   * Set up a 128-bit "INVEPT descriptor" in memory which serves as one of
+   * the arguments to INVEPT.
+   *
+   * The lower 64 bits would be expected to contain an EPTP (pointer to
+   * top-level extended page table, i.e. the EPT equivalent of CR3) value if
+   * we were doing a single-context invalidation (i.e. for just one VM).
+   * However, for an all-context invalidation its value doesn't matter (but
+   * we still need to pass it anyway).
+   *
+   * The upper 64 bits are reserved and must be set to 0 for safety.
+   */
+  uint64_t invept_descriptor[2];
+  invept_descriptor[0] = invept_descriptor[1] = 0;
+
+  uint64_t rflags_invept;
+  asm __volatile__ (
+      "invept (%[desc]), %[type]\n"
+      "pushfq\n"
+      "popq %[rflags]\n"
+      : [rflags] "=r" (rflags_invept)
+      : [desc] "r" (invept_descriptor),
+        [type] "r" (2ul) /* INVEPT type: all-contexts (global) invalidation */
+      : "memory", "cc"
+      );
+  /*
+   * If the operation didn't succeed, the processor didn't support INVEPT in
+   * the all-context mode. We check for this when initializing SVA-VMX, so
+   * this will only happen in the event that this function's precondition was
+   * violated. We assert that it succeeded to cause a panic in that case.
+   *
+   * FIXME: we're not actually checking this yet in sva_initvmx()
+   */
+  SVA_ASSERT(query_vmx_result(rflags_invept) == VM_SUCCEED,
+      "SVA: INVEPT returned an error code other than VM_SUCCEED. "
+      "This shouldn't be possible if SVA-VMX was initialized, which means "
+      "the invept_allcontexts() function should never have beeen called.\n");
 }
 
 static inline void

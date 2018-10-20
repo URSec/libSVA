@@ -183,9 +183,6 @@ get_frame_from_os(void) {
     }
   }
 
-  /* Flush the frame's (former) kernel direct mapping from the TLB. */
-  sva_mm_flush_tlb((void*)kerndmap_vaddr);
-
   /*
    * Verify that there are no other mappings to the frame (except SVA's
    * direct map).
@@ -203,6 +200,33 @@ get_frame_from_os(void) {
 
   /* Set the page_desc entry for this frame to type PG_SVA. */
   page->type = PG_SVA;
+
+  /*
+   * Do a global TLB flush (including for EPT if SVA-VMX is initialized) to
+   * ensure that there are no stale mappings to this page that the OS
+   * neglected to flush.
+   *
+   * Ideally we'd prefer to selectively flush mappings from the TLB at the
+   * time they are removed (e.g., in updateOrigPageData()), which would make
+   * this unnecessary because we'd know the TLB is consistent at all times.
+   * But SVA doesn't have a good way of knowing what virtual address(es)
+   * correspond to a mapping that it's asked to remove, making this
+   * impractical. Instead we leave it to the OS to flush the TLBs itself in
+   * general, and only force a TLB flush when a failure by the OS to uphold
+   * that responsibility could compromise SVA's security guarantees.
+   *
+   * There are two places in SVA's codebase this is the case:
+   *  - In initDeclaredPage() (mmu.c), when we need to ensure that the OS
+   *    *only* has access to a declared PTP through its entry in the kernel's
+   *    DMAP (which SVA has made read-only).
+   *
+   *  - Here, in get_frame_from_os(), when we need to ensure that a
+   *    frame the OS gave us for use as secure/ghost memory isn't accessible
+   *    at all to the OS.
+   */
+  invltlb_all();
+  if (sva_vmx_initialized)
+    invept_allcontexts();
 
   /* Finally, return the physical address of the frame we have now vetted. */
   return paddr;

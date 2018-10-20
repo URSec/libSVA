@@ -20,7 +20,8 @@
 #ifndef _SVA_VMX_H
 #define _SVA_VMX_H
 
-#include "vmx_intrinsics.h"
+#include <sva/callbacks.h> // for printf()
+#include <sva/vmx_intrinsics.h>
 
 #include <sys/types.h>
 
@@ -318,29 +319,6 @@ struct vmcs_vm_entry_interrupt_info_field {
 } __attribute__((packed));
 
 /**********
- * Helper functions
-**********/
-static inline uint32_t cpuid_1_ecx(void);
-static inline unsigned char cpu_supports_vmx(void);
-static inline unsigned char cpu_supports_smx(void);
-static inline unsigned char cpu_permit_vmx(void);
-static inline unsigned char check_cr0_fixed_bits(void);
-static inline unsigned char check_cr4_fixed_bits(void);
-static inline enum vmx_statuscode_t query_vmx_result(uint64_t rflags);
-static int run_vm(unsigned char use_vmresume);
-static inline void update_vmcs_ctrls();
-static inline void save_restore_guest_state(unsigned char saverestore);
-static inline int read_write_vmcs_field(
-    unsigned char write,
-    enum sva_vmcs_field field, uint64_t *data);
-static inline int readvmcs_checked(enum sva_vmcs_field field, uint64_t *data);
-static inline int readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data);
-static inline int writevmcs_checked(enum sva_vmcs_field field, uint64_t data);
-static inline int writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data);
-void load_eptable_internal(
-    size_t vmid, pml4e_t *epml4t, unsigned char is_initial_setting);
-
-/**********
  * Structures
 **********/
 /*
@@ -524,5 +502,75 @@ typedef struct vmx_host_state_t {
 **********/
 extern unsigned char sva_vmx_initialized; /* defined in vmx.c */
 extern struct vm_desc_t vm_descs[MAX_VMS]; /* defined in vmx.c */
+
+/**********
+ * Helper functions
+**********/
+static inline uint32_t cpuid_1_ecx(void);
+static inline unsigned char cpu_supports_vmx(void);
+static inline unsigned char cpu_supports_smx(void);
+static inline unsigned char cpu_permit_vmx(void);
+static inline unsigned char check_cr0_fixed_bits(void);
+static inline unsigned char check_cr4_fixed_bits(void);
+static int run_vm(unsigned char use_vmresume);
+static inline void update_vmcs_ctrls();
+static inline void save_restore_guest_state(unsigned char saverestore);
+static inline int read_write_vmcs_field(
+    unsigned char write,
+    enum sva_vmcs_field field, uint64_t *data);
+static inline int readvmcs_checked(enum sva_vmcs_field field, uint64_t *data);
+static inline int readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data);
+static inline int writevmcs_checked(enum sva_vmcs_field field, uint64_t data);
+static inline int writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data);
+void load_eptable_internal(
+    size_t vmid, pml4e_t *epml4t, unsigned char is_initial_setting);
+
+/*
+ * Function: query_vmx_result()
+ *
+ * Description:
+ *  Examines an RFLAGS value to determine the success or failure of a
+ *  previously issued VMX instruction.
+ *
+ *  The various status codes that can be set by a VMX instruction are
+ *  described in section 30.2 of the Intel SDM. Here, we represent them with
+ *  the enumerated type vmx_statuscode_t.
+ *
+ * Arguments:
+ *  - rflags: an RFLAGS value to be interpreted. Inline assembly issuing VMX
+ *    instructions should save the contents of RFLAGS immediately after doing
+ *    so, so that they can be passed to this function later.
+ *
+ * Return value:
+ *  A member of the enumerated type vmx_statuscode_t corresponding to the
+ *  condition indicated by the processor.
+ *
+ *  If the bits in RFLAGS do not correspond to a valid VMX status condition
+ *  described in the Intel SDM, we return the value VM_UNKNOWN.
+ */
+static inline enum vmx_statuscode_t
+query_vmx_result(uint64_t rflags) {
+  /* Test for VMsucceed. */
+  if ((rflags & RFLAGS_VM_SUCCEED) == rflags) {
+    return VM_SUCCEED;
+  }
+
+  /* Test for VMfailInvalid. */
+  if (((rflags & RFLAGS_VM_FAIL_INVALID_0) == rflags)
+      && (rflags & RFLAGS_VM_FAIL_INVALID_1)) {
+    DBGPRNT(("RFLAGS matches VMfailInvalid condition.\n"));
+    return VM_FAIL_INVALID;
+  }
+
+  /* Test for VMfailValid. */
+  if (((rflags & RFLAGS_VM_FAIL_VALID_0) == rflags)
+      && (rflags & RFLAGS_VM_FAIL_VALID_1)) {
+    DBGPRNT(("RFLAGS matches VMfailValid condition.\n"));
+    return VM_FAIL_VALID;
+  }
+
+  /* If none of these conditions matched, return an unknown value. */
+  return VM_UNKNOWN;
+}
 
 #endif /* _SVA_VMX_H */

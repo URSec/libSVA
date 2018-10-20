@@ -625,25 +625,6 @@ updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
         "(attempted to decrement refcount below zero)");
 
     origPG->count--;
-
-    /*
-     * If we are removing the last non-DMAP mapping to this page, do a global
-     * TLB flush to ensure that any stale mappings that the kernel may have
-     * neglected to flush are cleared.
-     *
-     * This ensures that if this page is later declared as a PTP (which SVA
-     * will only allow if it has no non-DMAP mappings), the OS cannot violate
-     * system security by getting "back-door" write access to the PTP through
-     * such a stale mapping. (This likewise prevents a similar vulnerability
-     * for ghost pages.)
-     */
-#ifdef SVA_DMAP
-    if (origPG->count == 2) {
-#else
-    if (origPG->count == 1) {
-#endif
-      invltlb_all();
-    }
   }
 
   return;
@@ -746,15 +727,42 @@ initDeclaredPage (unsigned long frameAddr) {
   if (page_entry) {
     /*
      * Make the direct map entry for the page read-only to ensure that the OS
-     * goes through SVA to make page table changes.  Also be sure to flush the
-     * TLBs for the direct map address to ensure that it's made read-only
-     * right away.
+     * goes through SVA to make page table changes.
+     *
+     * This change will take effect when we do a global TLB flush below.
      */
     if (((*page_entry) & PG_PS) == 0) {
       page_entry_store (page_entry, setMappingReadOnly(*page_entry));
       sva_mm_flush_tlb (vaddr);
     }
   }
+
+  /*
+   * Do a global TLB flush (including for EPT if SVA-VMX is initialized) to
+   * ensure that there are no stale mappings to this page that the OS
+   * neglected to flush.
+   *
+   * Ideally we'd prefer to selectively flush mappings from the TLB at the
+   * time they are removed (e.g., in updateOrigPageData()), which would make
+   * this unnecessary because we'd know the TLB is consistent at all times.
+   * But SVA doesn't have a good way of knowing what virtual address(es)
+   * correspond to a mapping that it's asked to remove, making this
+   * impractical. Instead we leave it to the OS to flush the TLBs itself in
+   * general, and only force a TLB flush when a failure by the OS to uphold
+   * that responsibility could compromise SVA's security guarantees.
+   *
+   * There are two places in SVA's codebase this is the case:
+   *  - Here, in initDeclaredPage(), when we need to ensure that the OS
+   *    *only* has access to a declared PTP through its entry in the kernel's
+   *    DMAP (which SVA has made read-only).
+   *
+   *  - In get_frame_from_os() (secmem.c), when we need to ensure that a
+   *    frame the OS gave us for use as secure/ghost memory isn't accessible
+   *    at all to the OS.
+   */
+  invltlb_all();
+  if (sva_vmx_initialized)
+    invept_allcontexts();
 
   return;
 }
