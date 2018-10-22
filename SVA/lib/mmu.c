@@ -738,7 +738,7 @@ initDeclaredPage (unsigned long frameAddr) {
   }
 
   /*
-   * Do a global TLB flush (including for EPT if SVA-VMX is initialized) to
+   * Do a global TLB flush (including for EPT if SVA-VMX is active) to
    * ensure that there are no stale mappings to this page that the OS
    * neglected to flush.
    *
@@ -761,8 +761,10 @@ initDeclaredPage (unsigned long frameAddr) {
    *    at all to the OS.
    */
   invltlb_all();
-  if (sva_vmx_initialized)
+  if (sva_vmx_initialized) {
     invept_allcontexts();
+    invvpid_allcontexts();
+  }
 
   return;
 }

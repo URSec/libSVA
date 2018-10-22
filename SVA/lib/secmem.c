@@ -202,7 +202,7 @@ get_frame_from_os(void) {
   page->type = PG_SVA;
 
   /*
-   * Do a global TLB flush (including for EPT if SVA-VMX is initialized) to
+   * Do a global TLB flush (including for EPT if SVA-VMX is active) to
    * ensure that there are no stale mappings to this page that the OS
    * neglected to flush.
    *
@@ -225,8 +225,10 @@ get_frame_from_os(void) {
    *    at all to the OS.
    */
   invltlb_all();
-  if (sva_vmx_initialized)
+  if (sva_vmx_initialized) {
     invept_allcontexts();
+    invvpid_allcontexts();
+  }
 
   /* Finally, return the physical address of the frame we have now vetted. */
   return paddr;

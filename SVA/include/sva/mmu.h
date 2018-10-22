@@ -670,16 +670,28 @@ invlpg(u_long addr) {
 
 /*
  * Invalidate guest-physical mappings in the TLB, globally (for all sets of
- * extended page tables).
+ * extended page tables). These mappings are created when a guest system
+ * performs accesses directly based on a (guest-)physical address *without*
+ * going through its own guest-side page tables.
+ *
+ * Note: This function does *not* invalidate "combined"
+ * guest-virtual/guest-physical mappings, which are created when a
+ * guest-system performs accesses using linear addresses (i.e., using
+ * guest-side page tables layered on top of extended paging). To clear those,
+ * call invvpid_allcontexts().
  *
  * PRECONDITION:
  *  - SVA-VMX must have been successfully initialized, i.e., the SVA global
- *    variable "sva_vmx_initialized" should be true. If this is not the case,
- *    calling this function will crash the system with #UD due to the INVEPT
- *    instruction not being valid.
+ *    variable "sva_vmx_initialized" should be true. Otherwise, the INVEPT
+ *    instruction will not be valid to execute.
  */
 static inline void
 invept_allcontexts(void) {
+  SVA_ASSERT(sva_vmx_initialized,
+      "SVA: Tried to call invept_allcontexts() without SVA-VMX being "
+      "initialized. The INVEPT instruction is not valid unless the system "
+      "is running in VMX operation.\n");
+
   /*
    * Set up a 128-bit "INVEPT descriptor" in memory which serves as one of
    * the arguments to INVEPT.
@@ -690,7 +702,10 @@ invept_allcontexts(void) {
    * However, for an all-context invalidation its value doesn't matter (but
    * we still need to pass it anyway).
    *
-   * The upper 64 bits are reserved and must be set to 0 for safety.
+   * The upper 64 bits are reserved and must be set to 0 for safe forward
+   * compatibility.
+   *
+   * Long story short: we're going to set the whole thing to zero here.
    */
   uint64_t invept_descriptor[2];
   invept_descriptor[0] = invept_descriptor[1] = 0;
@@ -707,16 +722,89 @@ invept_allcontexts(void) {
       );
   /*
    * If the operation didn't succeed, the processor didn't support INVEPT in
-   * the all-context mode. We check for this when initializing SVA-VMX, so
-   * this will only happen in the event that this function's precondition was
-   * violated. We assert that it succeeded to cause a panic in that case.
+   * the all-context mode. We check for this when initializing SVA-VMX, so if
+   * this happens, something has gone wrong.
    *
-   * FIXME: we're not actually checking this yet in sva_initvmx()
+   * FIXME: we're not actually checking this yet in sva_initvmx(), so this
+   * "impossible" assertion could actually be triggered on a processor that
+   * doesn't support this.
    */
   SVA_ASSERT(query_vmx_result(rflags_invept) == VM_SUCCEED,
       "SVA: INVEPT returned an error code other than VM_SUCCEED. "
-      "This shouldn't be possible if SVA-VMX was initialized, which means "
-      "the invept_allcontexts() function should never have beeen called.\n");
+      "This shouldn't be possible since we checked that this operation "
+      "is supported when initializing SVA-VMX. Something has gone terribly "
+      "wrong.\n");
+}
+
+/*
+ * Invalidate "combined" guest-virtual/guest-physical mappings in the TLB,
+ * globally (for all VPIDs except VPID=0, which represents the host system;
+ * to flush host mappings, use invltlb_all()). These mappings are created
+ * when a guest system performs accesses using linear addresses (i.e., using
+ * guest-side page tables layered on top of extended paging).
+ *
+ * Note: This function does *not* invalidate standalone guest-physical
+ * mappings, which are created when a guest system performs accesses directly
+ * based on a (guest-)physical address without going through its own page
+ * tables. To clear those, call invept_allcontexts().
+ *
+ * PRECONDITION:
+ *  - SVA-VMX must have been successfully initialized, i.e., the SVA global
+ *    variable "sva_vmx_initialized" should be true. Otherwise, the INVVPID
+ *    instruction will not be valid to execute.
+ */
+static inline void
+invvpid_allcontexts(void) {
+  SVA_ASSERT(sva_vmx_initialized,
+      "SVA: Tried to call invvpid_allcontexts() without SVA-VMX being "
+      "initialized. The INVVPID instruction is not valid unless the system "
+      "is running in VMX operation.\n");
+
+  /*
+   * Set up a 128-bit "INVVPID descriptor" in memory which serves as one of
+   * the arguments to INVVPID.
+   *
+   * - Bits 0-15 specify the VPID whose mappings should be cleared from the
+   *   TLB. Its setting does not matter for "all-contexts" flushes as we are
+   *   going to do here, which flush mappings for all VPIDs.
+   *
+   * - Bits 16-63 are reserved and must be set to 0 for safe forward
+   *   compatibility.
+   *
+   * - Bits 64-127 specify a linear address whose mappings should be cleared
+   *   from the TLB. Its setting does not matter for global flushes such as
+   *   we are going to do here, which flush mappings for all linear
+   *   addresses.
+   *
+   * Long story short: we're going to set the whole thing to zero here.
+   */
+  uint64_t invvpid_descriptor[2];
+  invvpid_descriptor[0] = invvpid_descriptor[1] = 0;
+
+  uint64_t rflags_invvpid;
+  asm __volatile__ (
+      "invvpid (%[desc]), %[type]\n"
+      "pushfq\n"
+      "popq %[rflags]\n"
+      : [rflags] "=r" (rflags_invvpid)
+      : [desc] "r" (invvpid_descriptor),
+        [type] "r" (2ul) /* INVVPID type: all-contexts (global) invalidation */
+      : "memory", "cc"
+      );
+  /*
+   * If the operation didn't succeed, the processor didn't support INVVPID in
+   * the all-context mode. We check for this when initializing SVA-VMX, so if
+   * this happens, something has gone wrong.
+   *
+   * FIXME: we're not actually checking this yet in sva_initvmx(), so this
+   * "impossible" assertion could actually be triggered on a processor that
+   * doesn't support this.
+   */
+  SVA_ASSERT(query_vmx_result(rflags_invvpid) == VM_SUCCEED,
+      "SVA: INVVPID returned an error code other than VM_SUCCEED. "
+      "This shouldn't be possible since we checked that this operation "
+      "is supported when initializing SVA-VMX. Something has gone terribly "
+      "wrong.\n");
 }
 
 static inline void
