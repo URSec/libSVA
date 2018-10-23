@@ -411,31 +411,6 @@ int sva_readvmcs(enum sva_vmcs_field field, uint64_t *data);
 int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 int sva_launchvm(void);
 int sva_resumevm(void);
-/* TODO: implement these.
- *
- * We don't need them just yet since (at the moment) we only set these
- * controls once when we create the VM and never change them.
- *
- * Note to self:
- *  This will be simpler to implement than the corresponding guest state
- *  intrinsics, since **most** (but not all) of these fields are never
- *  changed by the processor (i.e. we only ever have to copy them one way
- *  since we know they can't have changed).
- *
- *  However, one in particular - the VM-entry interruption-info field - is
- *  changed by the processor, namely, one of its bits is flipped off to
- *  indicate that the processor successfully acted upon its contents.
- *
- *  We might not actually even need to implement sva_getvmctrls(); a single
- *  intrinsic to handle the VM-entry interruption-info field would suffice
- *  and be more efficient.
- */
-#if 0
-sva_vmx_vm_ctrls sva_getvmctrls(void);
-void sva_setvmctrls(size_t vmid, sva_vmx_vm_ctrls newctrls);
-#endif
-sva_vmx_guest_state sva_getvmstate(void);
-void sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate);
 uint64_t sva_getvmreg(size_t vmid, enum sva_vm_reg reg);
 void sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data);
 

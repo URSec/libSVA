@@ -2050,154 +2050,6 @@ run_vm(unsigned char use_vmresume) {
 }
 
 /*
- * Intrinsic: sva_getvmstate()
- *
- * Description:
- *  Gets a copy of the structure describing the paused guest system state of
- *  the currently loaded virtual machine.
- *
- *  Fails if no VM is currently active on the processor.
- *
- *  (Note: the reason why we require that a VM be active is because SVA needs
- *  to be able to fetch some of this information from fields in the VM's
- *  VMCS. Intel's hardware instructions only allow us to read/write a VMCS
- *  that is loaded on the processor.)
- *
- * Return value:
- *  A structure detailing the paused guest-system state of the loaded
- *  virtual machine.
- *
- *  The "errorcode" field within struct sva_vmx_guest_state indicates the
- *  result of this operation. 0 indicates success, and a negative value
- *  indicates failure.
- *
- *  The other fields in the struct should be considered valid if and only if
- *  errorcode == 0; otherwise they are undefined. (In practice we will clear
- *  them to prevent information leaks from SVA to the untrusted caller, but
- *  the caller should not count on this.)
- */
-sva_vmx_guest_state
-sva_getvmstate(void) {
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
-  /*
-   * Switch to the user/SVA page tables so that we can access SVA memory
-   * regions.
-   */
-  kernel_to_usersva_pcid();
-
-  DBGPRNT(("sva_getvmstate() intrinsic called.\n"));
-
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
-  }
-
-  /* If there is no VM currently active on the processor, return failure.
-   *
-   * A null active_vm pointer indicates there is no active VM.
-   */
-  if (!host_state.active_vm) {
-    DBGPRNT(("Error: there is no VM active on the processor. "
-          "Guest state can only be read from an active VM.\n"));
-
-    /* We are only using this structure to return an error code. Clear the
-     * other fields to ensure we don't leak sensitive information from SVA's
-     * stack in uninitialized memory.
-     *
-     * We use a memset() here instead of setting the fields individually to
-     * ensure we don't forget any if the structure grows.
-     */
-    sva_vmx_guest_state retval;
-    memset(&retval, 0, sizeof(sva_vmx_guest_state));
-    retval.errorcode = -1;
-
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return retval;
-  }
-
-  /* Update the fields in SVA's guest state structure to match the current
-   * values in the VMCS.
-   */
-  save_restore_guest_state(1 /* this is a "save" operation */);
-
-  /* Return a copy of SVA's guest state structure.
-   *
-   * Set errorcode to 0 before returning the structure.
-   */
-  host_state.active_vm->state.errorcode = 0;
-
-  /* Restore interrupts and return to the kernel page tables. */
-  usersva_to_kernel_pcid();
-  sva_exit_critical(rflags);
-
-  return host_state.active_vm->state;
-}
-
-/*
- * Intrinsic: sva_setvmstate()
- *
- * Description:
- *  Changes the guest system state of the specified virtual machine.
- *
- *  Note: we always know the virtual machine is safely paused when we are
- *  doing this, since on a uniprocessor system it's impossible for this
- *  function to be called while a guest is running. (When we go
- *  multiprocessor we'll need to have a lock on each VM to prevent multiple
- *  CPUs from trying to use it while it's loaded.)
- *
- *  (Note: unlike sva_getvmstate(), this intrinsic is not limited to
- *  operating on the currently loaded virtual machine. The only reason
- *  sva_getvmstate() has that limitation is because it needs to read fields
- *  from the VMCS, which Intel's hardware instructions only allow us to do
- *  while it's loaded.)
- *
- * Parameters:
- *  - vmid: the numeric handle of the virtual machine whose guest-system
- *    tate is to be changed.
- *
- *  - newstate: a structure describing the new state of the guest system. All
- *    fields must be set, except "errorcode", which is ignored (it is only
- *    used by sva_getvmstate()).
- */
-void
-sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate) {
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
-  /*
-   * Switch to the user/SVA page tables so that we can access SVA memory
-   * regions.
-   */
-  kernel_to_usersva_pcid();
-
-  DBGPRNT(("sva_setvmstate() instrinsic called for VM ID: %lu\n", vmid));
-
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
-  }
-
-  /* Apply the new state.
-   *
-   * Note: this also sets the "errorcode" field of the state structure to
-   * whatever value the caller felt like setting it to. SVA does not use it
-   * anywhere except in sva_getvmstate(), which always sets it itself before
-   * using it, so this is OK.
-   */
-  vm_descs[vmid].state = newstate;
-
-  /* Mark this VM's guest state as stale since we will need to re-load the
-   * VMCS guest state fields from the VM descriptor before the next VM entry.
-   */
-  vm_descs[vmid].guest_state_not_stale = 0;
-
-  /* Restore interrupts and return to the kernel page tables. */
-  usersva_to_kernel_pcid();
-  sva_exit_critical(rflags);
-}
-
-/*
  * Function: update_vmcs_ctrls()
  *
  * Description:
@@ -2281,6 +2133,10 @@ update_vmcs_ctrls() {
  */
 static inline void
 save_restore_guest_state(unsigned char saverestore) {
+  // FIXME; debug code
+  if (saverestore /* saving state i.e. reading from VMCS */)
+    panic("save_restore_guest_state() called in 'save' mode\n");
+
   /*
    * If saverestore == true, we are saving state (copying from the active
    * VMCS to the state structure), i.e. *reading* from the VMCS, so the
