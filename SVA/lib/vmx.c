@@ -813,9 +813,11 @@ sva_freevm(size_t vmid) {
    * underflow). If so, our frame metadata has become inconsistent (as a
    * reference clearly exists).
    */
-  SVA_ASSERT(pgRefCount(ptpDesc) > 0,
-      "SVA: MMU: frame metadata inconsistency detected "
-      "(attempted to decrement refcount below zero)");
+  if ( usevmx ) {
+      SVA_ASSERT(pgRefCount(ptpDesc) > 0,
+                 "SVA: MMU: frame metadata inconsistency detected "
+                 "(attempted to decrement refcount below zero)");
+  }
   ptpDesc->count--;
 
   /* Return the VMCS frame to the frame cache. */
