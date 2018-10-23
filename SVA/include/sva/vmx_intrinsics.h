@@ -252,6 +252,27 @@ enum sva_vmcs_field {
 };
 
 /*
+ * Enumeration: sva_vm_reg
+ *
+ * Identifies a register in a virtualized system.
+ *
+ * Note that not all x86 registers virtualized in a VM are included in this
+ * enumeration - only the ones that SVA needs to load/save on VM entry and
+ * exit.
+ *
+ * Other registers (e.g. some key control registers) are automatically
+ * loaded/saved by the processor on VM entry/exit from VMCS fields. Those are
+ * identified in the sva_vmcs_field enumeration above and can be accessed
+ * directly using the sva_read/writevmcs() intrinsics.
+ */
+enum sva_vm_reg {
+  VM_REG_RAX, VM_REG_RBX, VM_REG_RCX, VM_REG_RDX,
+  VM_REG_RBP, VM_REG_RSI, VM_REG_RDI,
+  VM_REG_R8,  VM_REG_R9,  VM_REG_R10, VM_REG_R11,
+  VM_REG_R12, VM_REG_R13, VM_REG_R14, VM_REG_R15
+};
+
+/*
  * *** Structure definitions used by VMX intrinsics ***
  */
 
@@ -415,6 +436,8 @@ void sva_setvmctrls(size_t vmid, sva_vmx_vm_ctrls newctrls);
 #endif
 sva_vmx_guest_state sva_getvmstate(void);
 void sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate);
+uint64_t sva_getvmreg(size_t vmid, enum sva_vm_reg reg);
+void sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data);
 
 /*
  * VMX-specific MMU intrinsics for managing Extended Page Tables.

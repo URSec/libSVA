@@ -3007,3 +3007,237 @@ writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data) {
     return -1;
   }
 }
+
+/*
+ * Intrinsic: sva_getvmreg()
+ *
+ * Description:
+ *  Gets the current value of a guest register in a virtual machine.
+ *
+ * Parameters:
+ *  - vmid: the numeric handle of the virtual machine whose register we are
+ *          to read.
+ *
+ *  - reg:  the register to be read.
+ *
+ * Return value:
+ *  The 64-bit value of the register that is read. If the register is smaller
+ *  than 64 bits, it is zero-extended to an unsigned 64-bit value.
+ */
+uint64_t
+sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
+  if (!sva_vmx_initialized) {
+    panic("Fatal error: must call sva_initvmx() before any other "
+          "SVA-VMX intrinsic.\n");
+  }
+
+  /*
+   * Bounds check on vmid.
+   *
+   * (vmid is unsigned, so this also checks for negative values.)
+   */
+  if (vmid >= MAX_VMS) {
+    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  }
+
+  /*
+   * Note: we don't need to check whether vmid corresponds to a VM that is
+   * actually allocated. If it isn't, it is safe to return the "meaningless"
+   * data in the unused descriptor's register fields because the VM
+   * descriptor array is zero-initialized during SVA-VMX init, ensuring that
+   * no sensitive uninitialized data is contained within.
+   *
+   * VM descriptors are cleared by sva_freevm(), so it's also not possible to
+   * read latent register state from a previously freed VM this way (although
+   * this will only be important for security when we implement "Virtual
+   * Ghost for VMs" in the future).
+   *
+   * The only case in which calling this intrinsic with a not-in-use vmid
+   * would result in a non-zero value being returned is if the system
+   * software had previously used sva_setvmreg() to *write* to that register
+   * field in the not-in-use VM descriptor. The data is still "meaningless"
+   * since it will be overwritten when a new VM is allocated in the slot
+   * (sva_allocvm() doesn't let you leave any registers uninitialized).
+   */
+
+  /*
+   * Get the respective register from the specified VM's descriptor.
+   */
+  uint64_t retval;
+  switch (reg) {
+    case VM_REG_RAX:
+      retval = vm_descs[vmid].state.rax;
+      break;
+    case VM_REG_RBX:
+      retval = vm_descs[vmid].state.rbx;
+      break;
+    case VM_REG_RCX:
+      retval = vm_descs[vmid].state.rcx;
+      break;
+    case VM_REG_RDX:
+      retval = vm_descs[vmid].state.rdx;
+      break;
+    case VM_REG_RBP:
+      retval = vm_descs[vmid].state.rbp;
+      break;
+    case VM_REG_RSI:
+      retval = vm_descs[vmid].state.rsi;
+      break;
+    case VM_REG_RDI:
+      retval = vm_descs[vmid].state.rdi;
+      break;
+    case VM_REG_R8:
+      retval = vm_descs[vmid].state.r8;
+      break;
+    case VM_REG_R9:
+      retval = vm_descs[vmid].state.r9;
+      break;
+    case VM_REG_R10:
+      retval = vm_descs[vmid].state.r10;
+      break;
+    case VM_REG_R11:
+      retval = vm_descs[vmid].state.r11;
+      break;
+    case VM_REG_R12:
+      retval = vm_descs[vmid].state.r12;
+      break;
+    case VM_REG_R13:
+      retval = vm_descs[vmid].state.r13;
+      break;
+    case VM_REG_R14:
+      retval = vm_descs[vmid].state.r14;
+      break;
+    case VM_REG_R15:
+      retval = vm_descs[vmid].state.r15;
+      break;
+
+    default:
+      panic("sva_getvmreg(): Invalid register specified: %d\n", (int) reg);
+      break;
+  }
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+
+  return retval;
+}
+
+/*
+ * Intrinsic: sva_setvmreg()
+ *
+ * Description:
+ *  Sets the value of a guest register in a virtual machine.
+ *
+ * Parameters:
+ *  - vmid: the numeric handle of the virtual machine whose register we are
+ *          to set.
+ *
+ *  - reg:  the register to be set.
+ *
+ *  - data: the 64-bit value to which the register should be set. If the
+ *          register is smaller than 64 bits, the higher bits are ignored.
+ */
+void
+sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
+  if (!sva_vmx_initialized) {
+    panic("Fatal error: must call sva_initvmx() before any other "
+          "SVA-VMX intrinsic.\n");
+  }
+
+  /*
+   * Bounds check on vmid.
+   *
+   * (vmid is unsigned, so this also checks for negative values.)
+   */
+  if (vmid >= MAX_VMS) {
+    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  }
+
+  /*
+   * Note: we don't need to check whether vmid corresponds to a VM that is
+   * actually allocated. If it isn't, the register field we are setting will
+   * be overwritten when a new VM is allocated in its slot, because
+   * sva_allocvm() doesn't let you leave any registers uninitialized.
+   */
+
+  /*
+   * Write to the respective register field in the specified VM's descriptor.
+   *
+   * We do not need to vet or control the data being written in any way since
+   * these fields only influence the guest system's state and have no impact
+   * on host security.
+   */
+  switch (reg) {
+    case VM_REG_RAX:
+      vm_descs[vmid].state.rax = data;
+      break;
+    case VM_REG_RBX:
+      vm_descs[vmid].state.rbx = data;
+      break;
+    case VM_REG_RCX:
+      vm_descs[vmid].state.rcx = data;
+      break;
+    case VM_REG_RDX:
+      vm_descs[vmid].state.rdx = data;
+      break;
+    case VM_REG_RBP:
+      vm_descs[vmid].state.rbp = data;
+      break;
+    case VM_REG_RSI:
+      vm_descs[vmid].state.rsi = data;
+      break;
+    case VM_REG_RDI:
+      vm_descs[vmid].state.rdi = data;
+      break;
+    case VM_REG_R8:
+      vm_descs[vmid].state.r8 = data;
+      break;
+    case VM_REG_R9:
+      vm_descs[vmid].state.r9 = data;
+      break;
+    case VM_REG_R10:
+      vm_descs[vmid].state.r10 = data;
+      break;
+    case VM_REG_R11:
+      vm_descs[vmid].state.r11 = data;
+      break;
+    case VM_REG_R12:
+      vm_descs[vmid].state.r12 = data;
+      break;
+    case VM_REG_R13:
+      vm_descs[vmid].state.r13 = data;
+      break;
+    case VM_REG_R14:
+      vm_descs[vmid].state.r14 = data;
+      break;
+    case VM_REG_R15:
+      vm_descs[vmid].state.r15 = data;
+      break;
+
+    default:
+      panic("sva_setvmreg(): Invalid register specified: %d. "
+          "Value that would have been written: 0x%lx\n", (int) reg, data);
+      break;
+  }
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+}
