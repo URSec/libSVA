@@ -549,6 +549,7 @@ sva_initvmx(void) {
   if (query_vmx_result(rflags) == VM_SUCCEED) {
     DBGPRNT(("SVA VMX support successfully initialized.\n"));
 
+    // TODO: Wrap in configuration variable
     sva_vmx_initialized = 1;
     return 1;
   } else {
