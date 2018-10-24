@@ -611,11 +611,13 @@ sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
 
   DBGPRNT(("sva_allocvm() intrinsic called.\n"));
 
-  if (!sva_vmx_initialized) {
-    /* sva_initvmx() is responsible for zero-initializing the vm_descs array
-     * and thus marking its slots as free for use. */
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+      if (!sva_vmx_initialized) {
+          /* sva_initvmx() is responsible for zero-initializing the vm_descs array
+           * and thus marking its slots as free for use. */
+          panic("Fatal error: must call sva_initvmx() before any other "
+                "SVA-VMX intrinsic.\n");
+      }
   }
 
   /*
