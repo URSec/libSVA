@@ -794,10 +794,11 @@ sva_freevm(size_t vmid) {
   /* If this VM's VMCS pointer is already null, this is a double free (or
    * freeing a VM ID which was never allocated).
    */
-  if (!vm_descs[vmid].vmcs_paddr) {
-    panic("Fatal error: tried to free a VM which was already unallocated!\n");
+  if ( usevmx ) {
+      if (!vm_descs[vmid].vmcs_paddr) {
+          panic("Fatal error: tried to free a VM which was already unallocated!\n");
+      }
   }
-
   /* Don't free a VM which is still active on the processor. */
   if (host_state.active_vm == &vm_descs[vmid]) {
     panic("Fatal error: tried to free a VM which is active on the "
