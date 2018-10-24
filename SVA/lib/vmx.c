@@ -782,9 +782,11 @@ sva_freevm(size_t vmid) {
 
   DBGPRNT(("sva_freevm() intrinsic called for VM ID: %lu\n", vmid));
 
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /* Bounds check on vmid.
