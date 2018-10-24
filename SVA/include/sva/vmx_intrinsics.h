@@ -280,8 +280,9 @@ enum sva_vm_reg {
  * Structure: sva_vmx_vm_ctrls
  *
  * Description:
- *  A structure describing the various VMX controls that govern execution of
- *  a VM.
+ *  A structure describing the various VMX controls whose values must be
+ *  provided during initial creation of a VM (by sva_allocvm()) to ensure
+ *  that it can never be run in an undefined state.
  */
 typedef struct sva_vmx_vm_ctrls {
   /** VM execution controls **/
@@ -305,18 +306,6 @@ typedef struct sva_vmx_vm_ctrls {
  *  A structure describing the state of a guest system virtualized by a VM.
  */
 typedef struct sva_vmx_guest_state {
-  /*
-   * This field is only used when an object of this type is returned from the
-   * sva_getvmstate() intrinsic. It contains an error code for the intrinsic:
-   * 0 indicates success, and a negative value indicates failure.
-   *
-   * It is not used when this structure is instantiated as a substructure
-   * within a VM descriptor internal to SVA; however, it is overwritten there
-   * by the sva_getvmstate() and sva_setvmstate() intrinsics. Other SVA code
-   * should not assume it has any particular value.
-   */
-  int errorcode;
-
   /*
    *** STATE NOT SAVED/RESTORED BY PROCESSOR ON VM ENTRY/EXIT ***
    * (i.e. needs to be saved/restored by SVA)
@@ -342,14 +331,12 @@ typedef struct sva_vmx_guest_state {
    *    ON VM ENTRY/EXIT ***
    *
    * These fields are saved/restored directly to corresponding VMCS fields on
-   * VM entry/exit. The copies here are only used when we need to allow
-   * client software (the kernel/hypervisor) to read them; they are updated
-   * on-demand by the sva_getvmstate() intrinsic, and written by the
-   * sva_setvmstate() intrinsic.
-   *
-   * sva_setvmstate() sets a flag in SVA's internal VM descriptor to indicate
-   * that these values should be applied to the VMCS before the next VM
-   * entry.
+   * VM entry/exit. The copies here are only used to store the initial values
+   * provided to sva_allocvm() (which can't be saved to the VMCS until the VM
+   * is actually loaded onto the processor). They are loaded into the VMCS by
+   * the run_vm() function the first time the VM is run. Thereafter, the
+   * copies here should be ignored since the VMCS contains the up-to-date
+   * values.
    */
 
   /* Program counter and stack pointer */
@@ -411,31 +398,6 @@ int sva_readvmcs(enum sva_vmcs_field field, uint64_t *data);
 int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 int sva_launchvm(void);
 int sva_resumevm(void);
-/* TODO: implement these.
- *
- * We don't need them just yet since (at the moment) we only set these
- * controls once when we create the VM and never change them.
- *
- * Note to self:
- *  This will be simpler to implement than the corresponding guest state
- *  intrinsics, since **most** (but not all) of these fields are never
- *  changed by the processor (i.e. we only ever have to copy them one way
- *  since we know they can't have changed).
- *
- *  However, one in particular - the VM-entry interruption-info field - is
- *  changed by the processor, namely, one of its bits is flipped off to
- *  indicate that the processor successfully acted upon its contents.
- *
- *  We might not actually even need to implement sva_getvmctrls(); a single
- *  intrinsic to handle the VM-entry interruption-info field would suffice
- *  and be more efficient.
- */
-#if 0
-sva_vmx_vm_ctrls sva_getvmctrls(void);
-void sva_setvmctrls(size_t vmid, sva_vmx_vm_ctrls newctrls);
-#endif
-sva_vmx_guest_state sva_getvmstate(void);
-void sva_setvmstate(size_t vmid, sva_vmx_guest_state newstate);
 uint64_t sva_getvmreg(size_t vmid, enum sva_vm_reg reg);
 void sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data);
 

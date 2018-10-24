@@ -379,54 +379,8 @@ typedef struct vm_desc_t {
    */
   unsigned char has_run;
 
-  /* Do we need to update the VMCS controls before the next VM entry?
-   *
-   * We define this boolean value in the negative (i.e., 0 indicates the
-   * controls *do* need to be reloaded) so that it is set correctly when we
-   * zero-initialize a new VM descriptor.
-   *
-   * The controls are stale when either:
-   *  - The VM has never been run, or
-   *  - The controls have been edited by the hypervisor (or SVA) since the
-   *    last time the VM was run.
-   *
-   * Note that this value can be set to "true" (not stale) by a failed
-   * attempt to run the VM, if that failure occurs after the point in
-   * run_vm() where the updated controls are copied into the VMCS. This is
-   * correct behavior (the VMCS controls are no longer stale and do not need
-   * to be updated on the next VM entry).
-   */
-  unsigned char vm_ctrls_not_stale;
-
   /* Current values of all VMCS controls for this VM. */
   sva_vmx_vm_ctrls ctrls;
-
-  /* Do we need to reload VMCS-resident guest state from our own state
-   * structure before the next VM entry?
-   *
-   * We define this boolean value in the negative (i.e., 0 indicates state
-   * *does* need to be reloaded) so that it is set correctly when we
-   * zero-initialize a new VM descriptor.
-   *
-   * Guest state is stale when either:
-   *  - The VM has never been run, or
-   *  - The VM's guest state has been edited by the hypervisor (or SVA)
-   *    since the last time it was run.
-   *
-   * Note that some state always needs to be reloaded on VM entry, since the
-   * processor leaves its saving/restoring to software instead of doing it
-   * atomically as part of VM entry/exit. This includes, for instance, the
-   * general-purpose registers. The "stale" flag therefore only indicates
-   * whether we explicitly update state that is resident in the VMCS (i.e.,
-   * managed by the processor).
-   *
-   * Note that this value can be set to "true" (not stale) by a failed
-   * attempt to run the VM, if that failure occurs after the point in
-   * run_vm() where the current state is copied into the VMCS. This is
-   * correct behavior (the VMCS guest-state fields are no longer stale and do
-   * not need to be updated on the next VM entry).
-   */
-  unsigned char guest_state_not_stale;
 
   /* State of the guest system virtualized by this VM.
    *
@@ -455,7 +409,7 @@ typedef struct vm_desc_t {
    *   (Note: we might change this behavior to avoid reloading it when it
    *   hasn't changed if this ends up slowing things down. I don't think
    *   it will, because loading the EPTP doesn't seem to invalidate any TLB
-   *   entries, but if so, we can use a "stale/not-stale" flag as above to
+   *   entries, but if so, we can use a "stale/not-stale" flag to
    *   hide this optimization from the SVA-OS API user.)
    */
   eptp_t eptp;
