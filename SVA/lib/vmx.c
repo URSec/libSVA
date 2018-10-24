@@ -1424,7 +1424,7 @@ run_vm(unsigned char use_vmresume) {
    * VM exists.
    */
   if (!host_state.active_vm->has_run) {
-    DBGPRNT(("run_vm: Setting one-time VMCS fields for first run of VM...\n"));
+    DBGPRNT(("run_vm: Setting fixed VMCS controls for first run of VM...\n"));
 
     /*
      * Set the VPID (Virtual Processor ID) field to be equal to the VM ID
@@ -1495,46 +1495,26 @@ run_vm(unsigned char use_vmresume) {
     writevmcs_unchecked(VMCS_VM_EXIT_MSR_STORE_COUNT, 0);
 
     /*
+     * Load the initial values of VMCS controls that were passed to
+     * sva_allocvm() when this VM was created.
+     */
+    DBGPRNT(("run_vm: Initializing non-fixed VMCS controls for "
+          "first run...\n"));
+    update_vmcs_ctrls();
+
+    /*
+     * Load the initial values of VMCS-resident guest state fields that were
+     * passed to sva_allocvm() when this VM was created.
+     */
+    DBGPRNT(("run_vm: Initializing VMCS-resident guest state fields for "
+          "first run...\n"));
+    save_restore_guest_state(0 /* this is a "restore" operation */);
+
+    /*
      * Record the fact that we have set these one-time fields so we don't
      * need to do it again on future runs.
      */
     host_state.active_vm->has_run = 1;
-  }
-
-  /*
-   * If this VM's VMCS controls have been edited since it was last run (or
-   * this is the first time it's being run), load the new values from the VM
-   * descriptor.
-   */
-  if (!host_state.active_vm->vm_ctrls_not_stale) {
-    DBGPRNT(("run_vm: Updating stale VMCS controls...\n"));
-
-    update_vmcs_ctrls();
-
-    /* Mark this VM's VMCS controls as not stale, since we've just updated
-     * them.
-     */
-    host_state.active_vm->vm_ctrls_not_stale = 1;
-  } else {
-    DBGPRNT(("run_vm: VMCS controls not stale (not updated).\n"));
-  }
-
-  /*
-   * If this VM's guest state has been edited since it was last run (or this
-   * is the first time it's being run), load the new values from the VM
-   * descriptor.
-   */
-  if (!host_state.active_vm->guest_state_not_stale) {
-    DBGPRNT(("run_vm: Updating stale VMCS guest-state fields...\n"));
-
-    save_restore_guest_state(0 /* this is a "restore" operation */);
-
-    /* Mark this VM's guest state as not stale, since we've just updated it.
-     */
-    host_state.active_vm->guest_state_not_stale = 1;
-  }
-  else {
-    DBGPRNT(("run_vm: VMCS guest-state fields not stale (not updated).\n"));
   }
 
   /*
@@ -2450,11 +2430,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
    * it.
    */
   switch (field) {
-    /*
-     * TODO: implement remaining checks and switch default case to
-     * fail-closed.
-     */
-
     case VMCS_PINBASED_VM_EXEC_CTRLS:
       {
         /* Cast data field to bitfield struct */
