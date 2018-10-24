@@ -879,10 +879,11 @@ sva_loadvm(size_t vmid) {
    * is not a valid descriptor. (i.e., it is an empty slot not assigned to
    * any VM)
    */
-  if (!vm_descs[vmid].vmcs_paddr) {
-    panic("Fatal error: tried to load an unallocated VM!\n");
+  if ( usevmx ) {
+      if (!vm_descs[vmid].vmcs_paddr) {
+          panic("Fatal error: tried to load an unallocated VM!\n");
+      }
   }
-
   /* If there is currently a VM active on the processor, it must be unloaded
    * before we can load a new one. Return an error.
    *
