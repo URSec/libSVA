@@ -430,9 +430,11 @@ check_cr4_fixed_bits(void) {
  */
 unsigned char
 sva_initvmx(void) {
-  if (sva_vmx_initialized) {
-    DBGPRNT(("Kernel called sva_initvmx(), but it was already initialized.\n"));
-    return 1;
+  if ( usevmx ) {
+    if (sva_vmx_initialized) {
+      DBGPRNT(("Kernel called sva_initvmx(), but it was already initialized.\n"));
+      return 1;
+    }
   }
 
   /* Zero-initialize the array of virtual machine descriptors.
