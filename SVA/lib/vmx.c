@@ -870,10 +870,11 @@ sva_loadvm(size_t vmid) {
    *
    * (vmid is unsigned, so this also checks for negative values.)
    */
-  if (vmid >= MAX_VMS) {
-    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  if ( usevmx ) {
+      if (vmid >= MAX_VMS) {
+          panic("Fatal error: specified out-of-bounds VM ID!\n");
+      }
   }
-
   /* If this VM descriptor indicated by this ID has a null VMCS pointer, it
    * is not a valid descriptor. (i.e., it is an empty slot not assigned to
    * any VM)
