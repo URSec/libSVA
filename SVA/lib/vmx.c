@@ -786,10 +786,11 @@ sva_freevm(size_t vmid) {
    *
    * (vmid is unsigned, so this also checks for negative values.)
    */
-  if (vmid >= MAX_VMS) {
-    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  if ( usevmx ) {
+      if (vmid >= MAX_VMS) {
+          panic("Fatal error: specified out-of-bounds VM ID!\n");
+      }
   }
-
   /* If this VM's VMCS pointer is already null, this is a double free (or
    * freeing a VM ID which was never allocated).
    */
