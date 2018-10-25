@@ -871,10 +871,11 @@ sva_loadvm(size_t vmid) {
   kernel_to_usersva_pcid();
 
   DBGPRNT(("sva_loadvm() intrinsic called for VM ID: %lu\n", vmid));
-
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /* Bounds check on vmid.
