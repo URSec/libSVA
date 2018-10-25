@@ -812,22 +812,22 @@ sva_freevm(size_t vmid) {
         "processor!\n");
   }
 
-  /*
-   * Decrement the refcount for the VM's top-level extended-page-table page
-   * to reflect the fact that this VM is no longer using it.
-   */
-  page_desc_t *ptpDesc = getPageDescPtr(vm_descs[vmid].eptp);
-  /*
-   * Check that the refcount isn't already zero (in which case we'd
-   * underflow). If so, our frame metadata has become inconsistent (as a
-   * reference clearly exists).
-   */
   if ( usevmx ) {
-      SVA_ASSERT(pgRefCount(ptpDesc) > 0,
-                 "SVA: MMU: frame metadata inconsistency detected "
-                 "(attempted to decrement refcount below zero)");
+    /*
+     * Decrement the refcount for the VM's top-level extended-page-table page
+     * to reflect the fact that this VM is no longer using it.
+     */
+    page_desc_t *ptpDesc = getPageDescPtr(vm_descs[vmid].eptp);
+    /*
+     * Check that the refcount isn't already zero (in which case we'd
+     * underflow). If so, our frame metadata has become inconsistent (as a
+     * reference clearly exists).
+     */
+    SVA_ASSERT(pgRefCount(ptpDesc) > 0,
+               "SVA: MMU: frame metadata inconsistency detected "
+               "(attempted to decrement refcount below zero)");
+    ptpDesc->count--;
   }
-  ptpDesc->count--;
 
   /* Return the VMCS frame to the frame cache. */
   DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));
