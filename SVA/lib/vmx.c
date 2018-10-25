@@ -987,12 +987,14 @@ sva_unloadvm(void) {
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!host_state.active_vm) {
-    DBGPRNT(("Error: there is no VM active on the processor to unload.\n"));
-
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+  if ( usevmx ) {
+    if (!host_state.active_vm) {
+      DBGPRNT(("Error: there is no VM active on the processor to unload.\n"));
+      
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* Use the VMCLEAR instruction to unload the current VM from the processor.
