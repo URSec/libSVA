@@ -976,9 +976,11 @@ sva_unloadvm(void) {
 
   DBGPRNT(("sva_unloadvm() intrinsic called.\n"));
 
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /* If there is no VM currently active on the processor, return failure.
