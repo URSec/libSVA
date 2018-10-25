@@ -552,8 +552,6 @@ load_eptable_internal(
       }
   }
 
-  /* TODO: flush all TLBs with this VM's VPID */
-
   /*
    * Construct the value to load into the VMCS's Extended Page Table Pointer
    * (EPTP) field.
