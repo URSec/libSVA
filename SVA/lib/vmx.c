@@ -1161,9 +1161,11 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
   DBGPRNT((" (0x%lx), data=0x%lx\n", field, data));
 #endif
 
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /*
@@ -1171,20 +1173,27 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!host_state.active_vm) {
-    DBGPRNT(("Error: there is no VM active on the processor. "
-          "Cannot write to VMCS.\n"));
+  if ( usevmx ) {
+    if (!host_state.active_vm) {
+      DBGPRNT(("Error: there is no VM active on the processor. "
+               "Cannot write to VMCS.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /*
    * Vet the value to be written to ensure that it will not compromise system
    * security, and perform the write.
    */
-  int retval = writevmcs_checked(field, data);
+  int retval; 
+  if ( usevmx ) { 
+    retval = writevmcs_checked(field, data);
+  } else { 
+    retval = writevmcs_unchecked(field, data);
+  }
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
