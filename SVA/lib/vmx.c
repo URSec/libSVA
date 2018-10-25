@@ -901,13 +901,15 @@ sva_loadvm(size_t vmid) {
    *
    * A non-null active_vm pointer indicates there is an active VM.
    */
-  if (host_state.active_vm) {
-    DBGPRNT(("Error: there is already a VM active on the processor. "
-          "Cannot load a different VM until it is unloaded.\n"));
+  if ( usevmx ) {
+    if (host_state.active_vm) {
+      DBGPRNT(("Error: there is already a VM active on the processor. "
+               "Cannot load a different VM until it is unloaded.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* Set the indicated VM as the active one. */
