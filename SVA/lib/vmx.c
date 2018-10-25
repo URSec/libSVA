@@ -806,10 +806,13 @@ sva_freevm(size_t vmid) {
           panic("Fatal error: tried to free a VM which was already unallocated!\n");
       }
   }
+
   /* Don't free a VM which is still active on the processor. */
-  if (host_state.active_vm == &vm_descs[vmid]) {
-    panic("Fatal error: tried to free a VM which is active on the "
-        "processor!\n");
+  if ( usevmx ) {
+    if (host_state.active_vm == &vm_descs[vmid]) {
+      panic("Fatal error: tried to free a VM which is active on the "
+            "processor!\n");
+    }
   }
 
   if ( usevmx ) {
