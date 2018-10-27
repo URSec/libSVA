@@ -1243,35 +1243,41 @@ sva_launchvm(void) {
 
   DBGPRNT(("sva_launchvm() intrinsic called.\n"));
 
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /* If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!host_state.active_vm) {
-    DBGPRNT(("Error: there is no VM active on the processor. "
-          "Cannot launch VM.\n"));
+  if ( usevmx ) {
+    if (!host_state.active_vm) {
+      DBGPRNT(("Error: there is no VM active on the processor. "
+               "Cannot launch VM.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* If the VM has been launched before since being loaded onto the
    * processor, the sva_resumevm() intrinsic must be used instead of this
    * one.
    */
-  if (host_state.active_vm->is_launched) {
-    DBGPRNT(("Error: Must use sva_resumevm() to enter a VM which "
-          "was previously run since being loaded on the processor.\n"));
+  if ( usevmx ) {
+    if (host_state.active_vm->is_launched) {
+      DBGPRNT(("Error: Must use sva_resumevm() to enter a VM which "
+               "was previously run since being loaded on the processor.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* Mark the VM as launched. Until this VM is unloaded from the processor,
