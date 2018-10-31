@@ -1349,36 +1349,41 @@ sva_resumevm(void) {
   kernel_to_usersva_pcid();
 
   DBGPRNT(("sva_resumevm() intrinsic called.\n"));
-
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /* If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!host_state.active_vm) {
-    DBGPRNT(("Error: there is no VM active on the processor. "
-          "Cannot resume VM.\n"));
+  if ( usevmx ) {
+    if (!host_state.active_vm) {
+      DBGPRNT(("Error: there is no VM active on the processor. "
+               "Cannot resume VM.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* If the VM has not previously been launched at least once since being
    * loaded onto the processor, the sva_launchvm() intrinsic must be used
    * instead of this one.
    */
-  if (!host_state.active_vm->is_launched) {
-    DBGPRNT(("Error: Must use sva_launchvm() to enter a VM which hasn't "
-          "previously been run since being loaded on the processor.\n"));
+  if ( usevmx ) {
+    if (!host_state.active_vm->is_launched) {
+      DBGPRNT(("Error: Must use sva_launchvm() to enter a VM which hasn't "
+               "previously been run since being loaded on the processor.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* Enter guest-mode execution (which will ultimately exit back into host
@@ -2916,10 +2921,12 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
    * regions.
    */
   kernel_to_usersva_pcid();
-
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /*
@@ -2927,8 +2934,10 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
    *
    * (vmid is unsigned, so this also checks for negative values.)
    */
-  if (vmid >= MAX_VMS) {
-    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  if ( usevmx ) {
+    if (vmid >= MAX_VMS) {
+      panic("Fatal error: specified out-of-bounds VM ID!\n");
+    }
   }
 
   /*
@@ -3049,8 +3058,10 @@ sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
    *
    * (vmid is unsigned, so this also checks for negative values.)
    */
-  if (vmid >= MAX_VMS) {
-    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  if ( usevmx ) {
+    if (vmid >= MAX_VMS) {
+      panic("Fatal error: specified out-of-bounds VM ID!\n");
+    }
   }
 
   /*
