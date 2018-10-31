@@ -2395,6 +2395,9 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
    *
    * Otherwise, sanitize the read value or reject the read.
    */
+  if ( usevmx ) {
+    return readvmcs_unchecked(field, data);
+  }
   switch (field) {
     /* TODO: implement checks. For now we treat all fields as safe. */
     default:
@@ -2475,6 +2478,9 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
    * Otherwise, modify the write to render it harmless (if we can), or reject
    * it.
    */
+  if ( usevmx ) {
+    return writevmcs_unchecked( field, data );
+  }
   switch (field) {
     case VMCS_PINBASED_VM_EXEC_CTRLS:
       {
