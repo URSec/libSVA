@@ -551,8 +551,9 @@ sva_initvmx(void) {
   if (query_vmx_result(rflags) == VM_SUCCEED) {
     DBGPRNT(("SVA VMX support successfully initialized.\n"));
 
-    // TODO: Wrap in configuration variable
-    sva_vmx_initialized = 1;
+    if ( usevmx ) {
+      sva_vmx_initialized = 1;
+    }
     return 1;
   } else {
     DBGPRNT(("Could not enter VMX host mode. "
@@ -2400,7 +2401,7 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
    *
    * Otherwise, sanitize the read value or reject the read.
    */
-  if ( usevmx ) {
+  if ( ! usevmx ) {
     return readvmcs_unchecked(field, data);
   }
   switch (field) {
@@ -2483,7 +2484,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
    * Otherwise, modify the write to render it harmless (if we can), or reject
    * it.
    */
-  if ( usevmx ) {
+  if ( ! usevmx ) {
     return writevmcs_unchecked( field, data );
   }
   switch (field) {
