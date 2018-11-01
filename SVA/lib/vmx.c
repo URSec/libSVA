@@ -1727,12 +1727,12 @@ run_vm(unsigned char use_vmresume) {
    * This is where the magic happens.
    *
    * In this assembly section, we:
-   *  - Save the host's general purpose registers to the host_state structure.
+   *  - Save the host's register state to the host_state structure.
    *
    *  - Use the VMWRITE instruction to set the RIP and RSP values that will
    *    be loaded by the processor on the next VM exit.
    *
-   *  - Restore the guest's general purpose registers from the active VM's
+   *  - Restore the guest's register state from the active VM's
    *    descriptor (vm_desc_t structure).
    *
    *  - Execute VMLAUNCH/VMRESUME (as appropriate). This enters guest mode
@@ -1751,9 +1751,9 @@ run_vm(unsigned char use_vmresume) {
    *    query_vmx_result() to determine whether the VM entry succeeded (and
    *    thence a VM exit actually occurred).
    *
-   *  - Save the guest's general purpose registers.
+   *  - Save the guest's register state.
    *
-   *  - Restore the host's general purpose registers.
+   *  - Restore the host's register state.
    */
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
   uint64_t vmexit_rflags, hostrestored_rflags;
@@ -1809,8 +1809,9 @@ run_vm(unsigned char use_vmresume) {
        * whether we are launching or resuming the VM.
        ******
        *
-       * Fortunately, we only need to use MOVs to restore the guest GPRs, and
-       * none of those mess with the zero flag (or any of the flags).
+       * Fortunately, we only need to use MOVs (and similar) to restore the
+       * guest's register state, and none of those mess with the zero flag
+       * (or any of the flags).
        *
        * (If this ever becomes a limitation, there is a way around this: we
        * could store the boolean use_vmresume in memory, and use the
@@ -1821,16 +1822,26 @@ run_vm(unsigned char use_vmresume) {
        * not meaningfully) slower, so let's not do it if we don't have to.)
        */
 
-      /*** Restore guest GPRs ***
+      /*** Restore guest register state ***
        * First, load a pointer to the active VM descriptor (which is stored
        * in the host_state structure). This is where the guest GPR
        * save/restore slots are located.
-       *
-       * We will restore RAX last, so that we can use it to store this
-       * pointer (the instruction that restores RAX will both use this
-       * pointer and overwrite it).
        */
       "movq %c[active_vm](%%rax), %%rax\n" // RAX <-- active_vm pointer
+
+#ifdef MPX
+      /*** Restore guest MPX bounds registers ***/
+      "bndmov %c[guest_bnd0](%%rax), %%bnd0\n"
+      "bndmov %c[guest_bnd1](%%rax), %%bnd1\n"
+      "bndmov %c[guest_bnd2](%%rax), %%bnd2\n"
+      "bndmov %c[guest_bnd3](%%rax), %%bnd3\n"
+#endif
+
+      /*** Restore guest GPRs ***
+       * We will restore RAX last, since we need a register in which to keep
+       * the pointer to the active VM descriptor. (The instruction that
+       * restores RAX will both use this pointer and overwrite it.)
+       */
       "movq %c[guest_rbx](%%rax), %%rbx\n"
       "movq %c[guest_rcx](%%rax), %%rcx\n"
       "movq %c[guest_rdx](%%rax), %%rdx\n"
@@ -1914,6 +1925,14 @@ run_vm(unsigned char use_vmresume) {
       "movq %%r15, %c[guest_r15](%%rax)\n"
       /* (Now all the GPRs are free for our own use in this code.) */
 
+#ifdef MPX
+      /*** Save guest MPX bounds registers ***/
+      "bndmov %%bnd0, %c[guest_bnd0](%%rax)\n"
+      "bndmov %%bnd1, %c[guest_bnd1](%%rax)\n"
+      "bndmov %%bnd2, %c[guest_bnd2](%%rax)\n"
+      "bndmov %%bnd3, %c[guest_bnd3](%%rax)\n"
+#endif
+
       /* (Re-)get the host_state pointer, which we couldn't keep earlier
        * because we had no free registers.
        */
@@ -1987,9 +2006,15 @@ run_vm(unsigned char use_vmresume) {
          [guest_r12] "i" (offsetof(vm_desc_t, state.r12)),
          [guest_r13] "i" (offsetof(vm_desc_t, state.r13)),
          [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
-         [guest_r15] "i" (offsetof(vm_desc_t, state.r15))
+         [guest_r15] "i" (offsetof(vm_desc_t, state.r15)),
+         [guest_bnd0] "i" (offsetof(vm_desc_t, state.bnd0)),
+         [guest_bnd1] "i" (offsetof(vm_desc_t, state.bnd1)),
+         [guest_bnd2] "i" (offsetof(vm_desc_t, state.bnd2)),
+         [guest_bnd3] "i" (offsetof(vm_desc_t, state.bnd3))
       : "memory", "cc"
       );
+
+  /* TODO: restore host BND0 and IA32_BNDCFGS to SVA's static values */
 
   /* Confirm that the operation succeeded. */
   enum vmx_statuscode_t result = query_vmx_result(vmexit_rflags);
@@ -2271,6 +2296,10 @@ save_restore_guest_state(unsigned char saverestore) {
       &host_state.active_vm->state.ldtr_access_rights);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_SEL,
       &host_state.active_vm->state.ldtr_sel);
+
+  /* MPX configuration register for supervisor mode */
+  read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_BNDCFGS,
+      &host_state.active_vm->state.msr_bndcfgs);
 
   /* Various other guest system state */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_ACTIVITY_STATE,
@@ -2961,6 +2990,31 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
       retval = vm_descs[vmid].state.r15;
       break;
 
+    case VM_REG_BND0_LOWER:
+      retval = vm_descs[vmid].state.bnd0[0];
+      break;
+    case VM_REG_BND0_UPPER:
+      retval = vm_descs[vmid].state.bnd0[1];
+      break;
+    case VM_REG_BND1_LOWER:
+      retval = vm_descs[vmid].state.bnd1[0];
+      break;
+    case VM_REG_BND1_UPPER:
+      retval = vm_descs[vmid].state.bnd1[1];
+      break;
+    case VM_REG_BND2_LOWER:
+      retval = vm_descs[vmid].state.bnd2[0];
+      break;
+    case VM_REG_BND2_UPPER:
+      retval = vm_descs[vmid].state.bnd2[1];
+      break;
+    case VM_REG_BND3_LOWER:
+      retval = vm_descs[vmid].state.bnd3[0];
+      break;
+    case VM_REG_BND3_UPPER:
+      retval = vm_descs[vmid].state.bnd3[1];
+      break;
+
     default:
       panic("sva_getvmreg(): Invalid register specified: %d\n", (int) reg);
       break;
@@ -3071,6 +3125,31 @@ sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
       break;
     case VM_REG_R15:
       vm_descs[vmid].state.r15 = data;
+      break;
+
+    case VM_REG_BND0_LOWER:
+      vm_descs[vmid].state.bnd0[0] = data;
+      break;
+    case VM_REG_BND0_UPPER:
+      vm_descs[vmid].state.bnd0[1] = data;
+      break;
+    case VM_REG_BND1_LOWER:
+      vm_descs[vmid].state.bnd1[0] = data;
+      break;
+    case VM_REG_BND1_UPPER:
+      vm_descs[vmid].state.bnd1[1] = data;
+      break;
+    case VM_REG_BND2_LOWER:
+      vm_descs[vmid].state.bnd2[0] = data;
+      break;
+    case VM_REG_BND2_UPPER:
+      vm_descs[vmid].state.bnd2[1] = data;
+      break;
+    case VM_REG_BND3_LOWER:
+      vm_descs[vmid].state.bnd3[0] = data;
+      break;
+    case VM_REG_BND3_UPPER:
+      vm_descs[vmid].state.bnd3[1] = data;
       break;
 
     default:
