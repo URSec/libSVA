@@ -782,9 +782,11 @@ sva_freevm(size_t vmid) {
 
   DBGPRNT(("sva_freevm() intrinsic called for VM ID: %lu\n", vmid));
 
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /* Bounds check on vmid.
@@ -804,28 +806,31 @@ sva_freevm(size_t vmid) {
           panic("Fatal error: tried to free a VM which was already unallocated!\n");
       }
   }
+
   /* Don't free a VM which is still active on the processor. */
-  if (host_state.active_vm == &vm_descs[vmid]) {
-    panic("Fatal error: tried to free a VM which is active on the "
-        "processor!\n");
+  if ( usevmx ) {
+    if (host_state.active_vm == &vm_descs[vmid]) {
+      panic("Fatal error: tried to free a VM which is active on the "
+            "processor!\n");
+    }
   }
 
-  /*
-   * Decrement the refcount for the VM's top-level extended-page-table page
-   * to reflect the fact that this VM is no longer using it.
-   */
-  page_desc_t *ptpDesc = getPageDescPtr(vm_descs[vmid].eptp);
-  /*
-   * Check that the refcount isn't already zero (in which case we'd
-   * underflow). If so, our frame metadata has become inconsistent (as a
-   * reference clearly exists).
-   */
   if ( usevmx ) {
-      SVA_ASSERT(pgRefCount(ptpDesc) > 0,
-                 "SVA: MMU: frame metadata inconsistency detected "
-                 "(attempted to decrement refcount below zero)");
+    /*
+     * Decrement the refcount for the VM's top-level extended-page-table page
+     * to reflect the fact that this VM is no longer using it.
+     */
+    page_desc_t *ptpDesc = getPageDescPtr(vm_descs[vmid].eptp);
+    /*
+     * Check that the refcount isn't already zero (in which case we'd
+     * underflow). If so, our frame metadata has become inconsistent (as a
+     * reference clearly exists).
+     */
+    SVA_ASSERT(pgRefCount(ptpDesc) > 0,
+               "SVA: MMU: frame metadata inconsistency detected "
+               "(attempted to decrement refcount below zero)");
+    ptpDesc->count--;
   }
-  ptpDesc->count--;
 
   /* Return the VMCS frame to the frame cache. */
   DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));
@@ -866,10 +871,11 @@ sva_loadvm(size_t vmid) {
   kernel_to_usersva_pcid();
 
   DBGPRNT(("sva_loadvm() intrinsic called for VM ID: %lu\n", vmid));
-
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /* Bounds check on vmid.
@@ -895,13 +901,15 @@ sva_loadvm(size_t vmid) {
    *
    * A non-null active_vm pointer indicates there is an active VM.
    */
-  if (host_state.active_vm) {
-    DBGPRNT(("Error: there is already a VM active on the processor. "
-          "Cannot load a different VM until it is unloaded.\n"));
+  if ( usevmx ) {
+    if (host_state.active_vm) {
+      DBGPRNT(("Error: there is already a VM active on the processor. "
+               "Cannot load a different VM until it is unloaded.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* Set the indicated VM as the active one. */
@@ -968,21 +976,25 @@ sva_unloadvm(void) {
 
   DBGPRNT(("sva_unloadvm() intrinsic called.\n"));
 
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /* If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!host_state.active_vm) {
-    DBGPRNT(("Error: there is no VM active on the processor to unload.\n"));
-
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+  if ( usevmx ) {
+    if (!host_state.active_vm) {
+      DBGPRNT(("Error: there is no VM active on the processor to unload.\n"));
+      
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* Use the VMCLEAR instruction to unload the current VM from the processor.
@@ -1073,10 +1085,11 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
   print_vmcs_field_name(field);
   DBGPRNT((" (0x%lx), data=%p\n", field, data));
 #endif
-
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /*
@@ -1084,20 +1097,27 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!host_state.active_vm) {
-    DBGPRNT(("Error: there is no VM active on the processor. "
-          "Cannot read from VMCS.\n"));
+  if ( usevmx ) {
+    if (!host_state.active_vm) {
+      DBGPRNT(("Error: there is no VM active on the processor. "
+               "Cannot read from VMCS.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /*
    * Perform the read if it won't leak sensitive information to the system
    * software (or if it can be sanitized).
    */
-  int retval = readvmcs_checked(field, data);
+  int retval;
+  if ( usevmx ) {
+    retval = readvmcs_checked(field, data);
+  } else { 
+    retval = readvmcs_unchecked(field, data);
+  }
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -1149,9 +1169,11 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
   DBGPRNT((" (0x%lx), data=0x%lx\n", field, data));
 #endif
 
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /*
@@ -1159,20 +1181,27 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!host_state.active_vm) {
-    DBGPRNT(("Error: there is no VM active on the processor. "
-          "Cannot write to VMCS.\n"));
+  if ( usevmx ) {
+    if (!host_state.active_vm) {
+      DBGPRNT(("Error: there is no VM active on the processor. "
+               "Cannot write to VMCS.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /*
    * Vet the value to be written to ensure that it will not compromise system
    * security, and perform the write.
    */
-  int retval = writevmcs_checked(field, data);
+  int retval; 
+  if ( usevmx ) { 
+    retval = writevmcs_checked(field, data);
+  } else { 
+    retval = writevmcs_unchecked(field, data);
+  }
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -1214,35 +1243,41 @@ sva_launchvm(void) {
 
   DBGPRNT(("sva_launchvm() intrinsic called.\n"));
 
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /* If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!host_state.active_vm) {
-    DBGPRNT(("Error: there is no VM active on the processor. "
-          "Cannot launch VM.\n"));
+  if ( usevmx ) {
+    if (!host_state.active_vm) {
+      DBGPRNT(("Error: there is no VM active on the processor. "
+               "Cannot launch VM.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* If the VM has been launched before since being loaded onto the
    * processor, the sva_resumevm() intrinsic must be used instead of this
    * one.
    */
-  if (host_state.active_vm->is_launched) {
-    DBGPRNT(("Error: Must use sva_resumevm() to enter a VM which "
-          "was previously run since being loaded on the processor.\n"));
+  if ( usevmx ) {
+    if (host_state.active_vm->is_launched) {
+      DBGPRNT(("Error: Must use sva_resumevm() to enter a VM which "
+               "was previously run since being loaded on the processor.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* Mark the VM as launched. Until this VM is unloaded from the processor,
@@ -1314,36 +1349,41 @@ sva_resumevm(void) {
   kernel_to_usersva_pcid();
 
   DBGPRNT(("sva_resumevm() intrinsic called.\n"));
-
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /* If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
-  if (!host_state.active_vm) {
-    DBGPRNT(("Error: there is no VM active on the processor. "
-          "Cannot resume VM.\n"));
+  if ( usevmx ) {
+    if (!host_state.active_vm) {
+      DBGPRNT(("Error: there is no VM active on the processor. "
+               "Cannot resume VM.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* If the VM has not previously been launched at least once since being
    * loaded onto the processor, the sva_launchvm() intrinsic must be used
    * instead of this one.
    */
-  if (!host_state.active_vm->is_launched) {
-    DBGPRNT(("Error: Must use sva_launchvm() to enter a VM which hasn't "
-          "previously been run since being loaded on the processor.\n"));
+  if ( usevmx ) {
+    if (!host_state.active_vm->is_launched) {
+      DBGPRNT(("Error: Must use sva_launchvm() to enter a VM which hasn't "
+               "previously been run since being loaded on the processor.\n"));
 
-    usersva_to_kernel_pcid();
-    sva_exit_critical(rflags);
-    return -1;
+      usersva_to_kernel_pcid();
+      sva_exit_critical(rflags);
+      return -1;
+    }
   }
 
   /* Enter guest-mode execution (which will ultimately exit back into host
@@ -2389,6 +2429,9 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
    *
    * Otherwise, sanitize the read value or reject the read.
    */
+  if ( usevmx ) {
+    return readvmcs_unchecked(field, data);
+  }
   switch (field) {
     /* TODO: implement checks. For now we treat all fields as safe. */
     default:
@@ -2469,6 +2512,9 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
    * Otherwise, modify the write to render it harmless (if we can), or reject
    * it.
    */
+  if ( usevmx ) {
+    return writevmcs_unchecked( field, data );
+  }
   switch (field) {
     case VMCS_PINBASED_VM_EXEC_CTRLS:
       {
@@ -2904,10 +2950,12 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
    * regions.
    */
   kernel_to_usersva_pcid();
-
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
+  
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
   }
 
   /*
@@ -2915,8 +2963,10 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
    *
    * (vmid is unsigned, so this also checks for negative values.)
    */
-  if (vmid >= MAX_VMS) {
-    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  if ( usevmx ) {
+    if (vmid >= MAX_VMS) {
+      panic("Fatal error: specified out-of-bounds VM ID!\n");
+    }
   }
 
   /*
@@ -3062,8 +3112,10 @@ sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
    *
    * (vmid is unsigned, so this also checks for negative values.)
    */
-  if (vmid >= MAX_VMS) {
-    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  if ( usevmx ) {
+    if (vmid >= MAX_VMS) {
+      panic("Fatal error: specified out-of-bounds VM ID!\n");
+    }
   }
 
   /*
