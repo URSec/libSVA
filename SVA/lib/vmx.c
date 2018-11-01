@@ -2512,7 +2512,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
    * Otherwise, modify the write to render it harmless (if we can), or reject
    * it.
    */
-  if ( usevmx ) {
+  if ( !usevmx ) {
     return writevmcs_unchecked( field, data );
   }
   switch (field) {
