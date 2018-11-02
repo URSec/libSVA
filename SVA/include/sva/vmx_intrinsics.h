@@ -269,7 +269,12 @@ enum sva_vm_reg {
   VM_REG_RAX, VM_REG_RBX, VM_REG_RCX, VM_REG_RDX,
   VM_REG_RBP, VM_REG_RSI, VM_REG_RDI,
   VM_REG_R8,  VM_REG_R9,  VM_REG_R10, VM_REG_R11,
-  VM_REG_R12, VM_REG_R13, VM_REG_R14, VM_REG_R15
+  VM_REG_R12, VM_REG_R13, VM_REG_R14, VM_REG_R15,
+
+  VM_REG_BND0_LOWER, VM_REG_BND0_UPPER,
+  VM_REG_BND1_LOWER, VM_REG_BND1_UPPER,
+  VM_REG_BND2_LOWER, VM_REG_BND2_UPPER,
+  VM_REG_BND3_LOWER, VM_REG_BND3_UPPER
 };
 
 /*
@@ -327,6 +332,17 @@ typedef struct sva_vmx_guest_state {
   uint64_t r12, r13, r14, r15;
 
   /*
+   * MPX bounds registers
+   *
+   * These are 128 bits each, represented as two adjacent 64-bit unsigned
+   * pointer values. This matches the format used by the hardware when the
+   * BNDMOV instruction is used to store/load bounds register values to/from
+   * memory. The lower bound is stored at index 0 and the upper bound at
+   * index 1.
+   */
+  uint64_t bnd0[2], bnd1[2], bnd2[2], bnd3[2];
+
+  /*
    **** STATE THAT IS SAVED/RESTORED AUTOMATICALLY BY PROCESSOR
    *    ON VM ENTRY/EXIT ***
    *
@@ -375,6 +391,9 @@ typedef struct sva_vmx_guest_state {
   uint64_t gdtr_base, gdtr_limit;
   uint64_t idtr_base, idtr_limit;
   uint64_t ldtr_base, ldtr_limit, ldtr_access_rights, ldtr_sel;
+
+  /* MPX configuration register for supervisor mode */
+  uint64_t msr_bndcfgs;
 
   /* Various other guest system state */
   uint64_t activity_state;
