@@ -1829,6 +1829,7 @@ run_vm(unsigned char use_vmresume) {
   }
 
   DBGPRNT(("[VM ENTRY] Restoring saved guest FP state\n"));
+
   /* Restore Guest FP state */
   load_fp( &(host_state.active_vm->state.fp) );
 
