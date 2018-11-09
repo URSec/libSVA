@@ -22,6 +22,7 @@
 
 #include <sva/callbacks.h> // for printf()
 #include <sva/vmx_intrinsics.h>
+#include <sva/state.h>
 
 #include <sys/types.h>
 
@@ -58,6 +59,7 @@ static const u_int MSR_DEBUGCTL = 0x1d9;
 static const u_int MSR_EFER = 0xc0000080;
 static const u_int MSR_FS_BASE = 0xc0000100;
 static const u_int MSR_GS_BASE = 0xc0000101;
+static const u_int CR0_TS_OFFSET = 0x0000008;
 
 /* VMX-related MSRs */
 /* We are not necessarily using all of these (yet); they're defined here so
@@ -449,6 +451,10 @@ typedef struct vmx_host_state_t {
   uint64_t rbp, rsi, rdi;
   uint64_t r8, r9, r10, r11;
   uint64_t r12, r13, r14, r15;
+
+  /* Host FP State that needs to be saved/restored across VM entries/exits */
+  sva_fp_state_t fp;
+
 } vmx_host_state_t;
 
 /**********

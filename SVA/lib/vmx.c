@@ -1768,6 +1768,9 @@ run_vm(unsigned char use_vmresume) {
    * This is where the magic happens.
    *
    * In this assembly section, we:
+   *	- Save the host's Floating Point Unit (FPU) state to the 
+   *		host_state structure.
+   *
    *  - Save the host's register state to the host_state structure.
    *
    *  - Use the VMWRITE instruction to set the RIP and RSP values that will
@@ -1798,6 +1801,41 @@ run_vm(unsigned char use_vmresume) {
    */
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
   uint64_t vmexit_rflags, hostrestored_rflags;
+
+  DBGPRNT(("[VM ENTRY] Saving host FP state\n"));
+
+  uint64_t cr0_value = _rcr0();
+  DBGPRNT(("Current value of CR0: 0x%lx\n", cr0_value));
+  
+  /* Save a copy of the TS flag status */
+  unsigned char orig_ts = 1 ? cr0_value & CR0_TS_OFFSET : 0;
+
+  /* Clear the TS flag to avoid a fptrap */
+  __asm__ __volatile__ ("clts");
+
+  /* Save the host FP state */
+  save_fp( &(host_state.fp) );
+
+  /* Restore TS flag */
+  if ( orig_ts ) {
+    /* Refetch CR0 in case it's changed */
+    cr0_value = _rcr0() | orig_ts;
+
+    DBGPRNT(("Restoring CR0 to: 0x%lx\n", cr0_value));
+
+    __asm__ __volatile__ (
+      "movq %[cr0_value], %%cr0\n"
+      :
+      : [cr0_value] "r" (cr0_value)
+    );
+    DBGPRNT(("Restored CR0\n"));
+
+  }
+
+  DBGPRNT(("[VM ENTRY] Restoring saved guest FP state\n"));
+  /* Restore Guest FP state */
+  load_fp( &(host_state.active_vm->state.fp) );
+
   asm __volatile__ (
       /* Save host RFLAGS.
        * 

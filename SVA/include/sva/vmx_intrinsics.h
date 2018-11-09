@@ -19,6 +19,7 @@
 #define _SVA_VMX_INTRINSICS_H
 
 #include <sva/mmu_types.h>
+#include <sva/state.h>
 
 #include <sys/types.h>
 
@@ -330,6 +331,9 @@ typedef struct sva_vmx_guest_state {
   uint64_t rbp, rsi, rdi;
   uint64_t r8,  r9,  r10, r11;
   uint64_t r12, r13, r14, r15;
+
+  /* FP State */
+  sva_fp_state_t fp;
 
   /*
    * MPX bounds registers
