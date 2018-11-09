@@ -1821,15 +1821,11 @@ run_vm(unsigned char use_vmresume) {
     /* Refetch CR0 in case it's changed */
     cr0_value = _rcr0() | orig_ts;
 
-    DBGPRNT(("Restoring CR0 to: 0x%lx\n", cr0_value));
-
     __asm__ __volatile__ (
       "movq %[cr0_value], %%cr0\n"
       :
       : [cr0_value] "r" (cr0_value)
     );
-    DBGPRNT(("Restored CR0\n"));
-
   }
 
   DBGPRNT(("[VM ENTRY] Restoring saved guest FP state\n"));
