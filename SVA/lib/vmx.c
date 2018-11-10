@@ -1805,7 +1805,6 @@ run_vm(unsigned char use_vmresume) {
   DBGPRNT(("[VM ENTRY] Saving host FP state\n"));
 
   uint64_t cr0_value = _rcr0();
-  DBGPRNT(("Current value of CR0: 0x%lx\n", cr0_value));
   
   /* Save a copy of the TS flag status */
   unsigned char orig_ts = 1 ? cr0_value & CR0_TS_OFFSET : 0;
@@ -1815,6 +1814,9 @@ run_vm(unsigned char use_vmresume) {
 
   /* Save the host FP state */
   save_fp( &(host_state.fp) );
+
+  /* Restore Guest FP state */
+  load_fp( &(host_state.active_vm->state.fp) );
 
   /* Restore TS flag */
   if ( orig_ts ) {
@@ -1828,10 +1830,6 @@ run_vm(unsigned char use_vmresume) {
     );
   }
 
-  DBGPRNT(("[VM ENTRY] Restoring saved guest FP state\n"));
-
-  /* Restore Guest FP state */
-  load_fp( &(host_state.active_vm->state.fp) );
 
   asm __volatile__ (
       /* Save host RFLAGS.
@@ -2091,6 +2089,31 @@ run_vm(unsigned char use_vmresume) {
       );
 
   /* TODO: restore host BND0 and IA32_BNDCFGS to SVA's static values */
+
+  /* Save a copy of the TS flag state */
+  orig_ts = 1 ? cr0_value & CR0_TS_OFFSET : 0;
+
+  /* Clear the TS flag to avoid a fptrap */
+  __asm__ __volatile__ ("clts");
+
+  /* Save Guest FPU state */
+  save_fp( &(host_state.active_vm->state.fp) );
+
+  /* Restore Host FPU state */
+  load_fp( &(host_state.fp) );
+
+  /* Restore TS flag */
+  if ( orig_ts ) {
+    /* Refetch CR0 in case it's changed */
+    cr0_value = _rcr0() | orig_ts;
+
+    __asm__ __volatile__ (
+      "movq %[cr0_value], %%cr0\n"
+      :
+      : [cr0_value] "r" (cr0_value)
+    );
+  }
+
 
   /* Confirm that the operation succeeded. */
   enum vmx_statuscode_t result = query_vmx_result(vmexit_rflags);
