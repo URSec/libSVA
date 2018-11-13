@@ -2027,11 +2027,14 @@ run_vm(unsigned char use_vmresume) {
          [guest_r12] "i" (offsetof(vm_desc_t, state.r12)),
          [guest_r13] "i" (offsetof(vm_desc_t, state.r13)),
          [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
-         [guest_r15] "i" (offsetof(vm_desc_t, state.r15)),
+         [guest_r15] "i" (offsetof(vm_desc_t, state.r15))
+#ifdef MPX
+         ,
          [guest_bnd0] "i" (offsetof(vm_desc_t, state.bnd0)),
          [guest_bnd1] "i" (offsetof(vm_desc_t, state.bnd1)),
          [guest_bnd2] "i" (offsetof(vm_desc_t, state.bnd2)),
          [guest_bnd3] "i" (offsetof(vm_desc_t, state.bnd3))
+#endif
       : "memory", "cc"
       );
 
@@ -2318,9 +2321,11 @@ save_restore_guest_state(unsigned char saverestore) {
   read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_SEL,
       &host_state.active_vm->state.ldtr_sel);
 
+#ifdef MPX
   /* MPX configuration register for supervisor mode */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_BNDCFGS,
       &host_state.active_vm->state.msr_bndcfgs);
+#endif
 
   /* Various other guest system state */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_ACTIVITY_STATE,
@@ -2716,7 +2721,9 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           !ctrls.load_ia32_pat &&
           !ctrls.save_ia32_efer &&
           !ctrls.load_ia32_efer &&
+#ifdef MPX
           !ctrls.clear_ia32_bndcfgs &&
+#endif
 
           /*
            * Enforce reserved bits to ensure safe defaults on future
@@ -2773,7 +2780,9 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           !ctrls.load_ia32_perf_global_ctrl &&
           !ctrls.load_ia32_pat &&
           !ctrls.load_ia32_efer &&
+#ifdef MPX
           !ctrls.load_ia32_bndcfgs &&
+#endif
 
           /*
            * Enforce reserved bits to ensure safe defaults on future
@@ -2815,6 +2824,9 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_GUEST_IA32_SYSENTER_CS:
     case VMCS_GUEST_IA32_SYSENTER_ESP:
     case VMCS_GUEST_IA32_SYSENTER_EIP:
+#ifdef MPX
+    case VMCS_GUEST_IA32_BNDCFGS:
+#endif
     case VMCS_GUEST_CS_SEL:
     case VMCS_GUEST_CS_BASE:
     case VMCS_GUEST_CS_LIMIT:
@@ -3021,6 +3033,7 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
       retval = vm_descs[vmid].state.r15;
       break;
 
+#ifdef MPX
     case VM_REG_BND0_LOWER:
       retval = vm_descs[vmid].state.bnd0[0];
       break;
@@ -3045,6 +3058,7 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
     case VM_REG_BND3_UPPER:
       retval = vm_descs[vmid].state.bnd3[1];
       break;
+#endif
 
     default:
       panic("sva_getvmreg(): Invalid register specified: %d\n", (int) reg);
@@ -3160,6 +3174,7 @@ sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
       vm_descs[vmid].state.r15 = data;
       break;
 
+#ifdef MPX
     case VM_REG_BND0_LOWER:
       vm_descs[vmid].state.bnd0[0] = data;
       break;
@@ -3184,6 +3199,7 @@ sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
     case VM_REG_BND3_UPPER:
       vm_descs[vmid].state.bnd3[1] = data;
       break;
+#endif
 
     default:
       panic("sva_setvmreg(): Invalid register specified: %d. "
