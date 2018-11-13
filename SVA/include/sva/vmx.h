@@ -87,7 +87,8 @@ static const u_int MSR_VMX_TRUE_ENTRY_CTLS = 0x490;
 static const u_int MSR_VMX_VMFUNC = 0x491;
 
 /* VMX-related bitmasks */
-static const uint64_t CR4_ENABLE_VMX_BIT = 0x2000;
+static const uint64_t CR4_ENABLE_VMX_BIT = 0x2000; // bit 13
+static const uint64_t CR4_ENABLE_SMX_BIT = 0x4000; // bit 14
 static const uint64_t FEATURE_CONTROL_LOCK_BIT = 0x1; // bit 0
 static const uint64_t FEATURE_CONTROL_ENABLE_VMXON_WITHIN_SMX_BIT = 0x2; // bit 1
 static const uint64_t FEATURE_CONTROL_ENABLE_VMXON_OUTSIDE_SMX_BIT = 0x4; // bit 2
@@ -462,7 +463,6 @@ extern struct vm_desc_t vm_descs[MAX_VMS]; /* defined in vmx.c */
 **********/
 static inline uint32_t cpuid_1_ecx(void);
 static inline unsigned char cpu_supports_vmx(void);
-static inline unsigned char cpu_supports_smx(void);
 static inline unsigned char cpu_permit_vmx(void);
 static inline unsigned char check_cr0_fixed_bits(void);
 static inline unsigned char check_cr4_fixed_bits(void);

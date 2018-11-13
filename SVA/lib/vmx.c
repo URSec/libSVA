@@ -154,23 +154,6 @@ cpu_supports_vmx(void) {
 }
 
 /*
- * Function: cpu_supports_smx()
- *
- * Description:
- *  Checks whether the processor supports SMX using the CPUID instruction.
- *
- * Return value:
- *  True if the processor supports SMX, false otherwise.
- */
-static inline unsigned char
-cpu_supports_smx(void) {
-  uint32_t cpuid_ecx = cpuid_1_ecx();
-  uint32_t supports_smx = cpuid_ecx & CPUID_01H_ECX_SMX_BIT;
-
-  return (supports_smx ? 1 : 0);
-}
-
-/*
  * Function: cpu_permit_vmx()
  *
  * Description:
@@ -198,8 +181,6 @@ cpu_permit_vmx(void) {
   if (!cpu_supports_vmx())
     return 0;
 
-  unsigned char supports_smx = cpu_supports_smx();
-
   DBGPRNT(("Reading IA32_FEATURE_CONTROL MSR...\n"));
   uint64_t feature_control_data = rdmsr(FEATURE_CONTROL_MSR);
   DBGPRNT(("IA32_FEATURE_CONTROL MSR = 0x%lx\n", feature_control_data));
@@ -208,8 +189,6 @@ cpu_permit_vmx(void) {
     feature_control_data & FEATURE_CONTROL_LOCK_BIT;
   uint64_t feature_control_vmxallowed_outside_smx =
     feature_control_data & FEATURE_CONTROL_ENABLE_VMXON_OUTSIDE_SMX_BIT;
-  uint64_t feature_control_vmxallowed_within_smx =
-    feature_control_data & FEATURE_CONTROL_ENABLE_VMXON_WITHIN_SMX_BIT;
 
   /* If the MSR is locked and in the "disallow VMX" setting, then there is
    * nothing we can do; we cannot use VMX.
@@ -217,19 +196,14 @@ cpu_permit_vmx(void) {
    * (If this is the case, it is probably due to a BIOS setting prohibiting
    * VMX.)
    *
-   * If the CPU supports SMX, we will return failure if *either* of the bits
-   * for disabling VMX in or out of SMX mode are unset and locked. This way,
-   * we don't have to worry about whether the CPU is actually in SMX mode.
+   * NOTE: We don't mess with the neighboring "allow VMX within SMX mode"
+   * bit. SVA doesn't (yet) support/use SMX in any way so this situation
+   * isn't relevant to us. sva_initvmx() does a sanity check that the SMXE
+   * bit in CR4 is not set (and panics otherwise) to make sure we're aware if
+   * we ever get into that situation.
    */
-  if (supports_smx) {
-    if (feature_control_locked && !feature_control_vmxallowed_within_smx) {
-      DBGPRNT(("CPU locked to disallow VMX in SMX mode "
-          "(and CPU supports SMX)!\n"));
-      return 0;
-    }
-  }
   if (feature_control_locked && !feature_control_vmxallowed_outside_smx) {
-    DBGPRNT(("CPU locked to disallow VMX outside of SMX mode!\n"));
+    DBGPRNT(("CPU locked to disallow VMX!\n"));
     return 0;
   }
 
@@ -244,15 +218,8 @@ cpu_permit_vmx(void) {
    * (The processor will not allow us to execute VMXON unless the setting is
    * locked, probably to prevent other kernel code from changing it while
    * we're using VMX.)
-   *
-   * We can ONLY set the "allow VMX in SMX mode" bit if the processor
-   * actually supports SMX; otherwise we will cause a general-protection
-   * fault.
    */
   feature_control_data |= FEATURE_CONTROL_ENABLE_VMXON_OUTSIDE_SMX_BIT;
-  if (supports_smx) {
-    feature_control_data |= FEATURE_CONTROL_ENABLE_VMXON_WITHIN_SMX_BIT;
-  }
   feature_control_data |= FEATURE_CONTROL_LOCK_BIT;
 
   DBGPRNT(("Writing new value of IA32_FEATURE_CONTROL MSR to permit VMX: "
@@ -451,8 +418,8 @@ sva_initvmx(void) {
    * feature), return failure.
    */
   if (!cpu_permit_vmx()) {
-    DBGPRNT(("CPU does not support VMX (or the feature is blocked); "
-        "cannot initialize SVA VMX support.\n"));
+    DBGPRNT(("CPU does not support VMX (or the feature is disabled in "
+          "BIOS); cannot initialize SVA VMX support.\n"));
     return 0;
   }
 
@@ -465,13 +432,26 @@ sva_initvmx(void) {
 				 "SVA: error: VMCS_ALLOC_SIZE is not the same as X86_PAGE_SIZE!\n");
   }
 
+  uint64_t orig_cr4_value = _rcr4();
+  DBGPRNT(("Original value of CR4: 0x%lx\n", orig_cr4_value));
+
+  /*
+   * Make sure that SMX (Intel Safer Mode Extensions) are not enabled. SVA
+   * doesn't support/use SMX and doesn't make any attempt to support VMX
+   * in conjunction with it.
+   *
+   * (The call to cpu_permit_vmx() above enables VMX outside of SMX operation
+   * but doesn't check/set the corresponding bit to enable VMX in SMX
+   * operation).
+   */
+  SVA_ASSERT(!(orig_cr4_value & CR4_ENABLE_SMX_BIT),
+      "SVA: error: cannot enable VMX when SMX is enabled.\n");
+
   /* Set the "enable VMX" bit in CR4. This enables VMX operation, allowing us
    * to enter VMX operation by executing the VMXON instruction. Once we have
    * done so, we cannot unset the "enable VMX" bit in CR4 unless we have
    * first exited VMX operation by executing the VMXOFF instruction.
    */
-  uint64_t orig_cr4_value = _rcr4();
-  DBGPRNT(("Original value of CR4: 0x%lx\n", orig_cr4_value));
   uint64_t new_cr4_value = orig_cr4_value | CR4_ENABLE_VMX_BIT;
   DBGPRNT(("Setting new value of CR4 to enable VMX: 0x%lx\n", new_cr4_value));
   load_cr4(new_cr4_value);
