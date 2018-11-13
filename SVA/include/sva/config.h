@@ -20,11 +20,11 @@
 #include <sva/asmconfig.h>
 
 /* Determine whether VMX features are enabled */
-#ifdef SVA_VMX
+//#ifdef SVA_VMX
 static const unsigned char usevmx = 1;
-#else
-static const unsigned char usevmx = 0;
-#endif
+//#else
+//static const unsigned char usevmx = 0;
+//#endif
 
 /* Determine whether the virtual ghost features are enabled */
 #ifdef VG
