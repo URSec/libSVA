@@ -1584,7 +1584,9 @@ run_vm(unsigned char use_vmresume) {
    * Save host state in the VMCS that will be restored automatically by the
    * processor on VM exit.
    */
+#if 0
   DBGPRNT(("run_vm: Saving host state...\n"));
+#endif
   /* Control registers */
   uint64_t host_cr0 = _rcr0();
   writevmcs_unchecked(VMCS_HOST_CR0, host_cr0);
@@ -1592,7 +1594,9 @@ run_vm(unsigned char use_vmresume) {
   writevmcs_unchecked(VMCS_HOST_CR3, host_cr3);
   uint64_t host_cr4 = _rcr4();
   writevmcs_unchecked(VMCS_HOST_CR4, host_cr4);
+#if 0
   DBGPRNT(("run_vm: Saved host control registers.\n"));
+#endif
 
   /* Segment selectors */
   uint16_t es_sel, cs_sel, ss_sel, ds_sel, fs_sel, gs_sel, tr_sel;
@@ -1664,7 +1668,9 @@ run_vm(unsigned char use_vmresume) {
   writevmcs_unchecked(VMCS_HOST_FS_SEL, fs_sel & ~0x7);
   writevmcs_unchecked(VMCS_HOST_GS_SEL, gs_sel & ~0x7);
   writevmcs_unchecked(VMCS_HOST_TR_SEL, tr_sel & ~0x7);
+#if 0
   DBGPRNT(("run_vm: Saved host segment selectors.\n"));
+#endif
 
   /*
    * Segment and descriptor table base-address registers
@@ -1690,7 +1696,9 @@ run_vm(unsigned char use_vmresume) {
   writevmcs_unchecked(VMCS_HOST_GDTR_BASE, gdt_base);
   writevmcs_unchecked(VMCS_HOST_IDTR_BASE, idt_base);
   
+#if 0
   DBGPRNT(("run_vm: Saved host FS, GS, GDTR, and IDTR bases.\n"));
+#endif
 
   /* Get the TR base address from the GDT */
   uint16_t tr_gdt_index = (tr_sel >> 3);
@@ -1733,7 +1741,9 @@ run_vm(unsigned char use_vmresume) {
   /* Write our hard-earned TR base address to the VMCS... */
   writevmcs_unchecked(VMCS_HOST_TR_BASE, tr_baseaddr);
 
+#if 0
   DBGPRNT(("run_vm: Saved host TR base.\n"));
+#endif
 
   /* Various MSRs */
   uint64_t ia32_sysenter_cs = rdmsr(MSR_SYSENTER_CS);
@@ -1742,7 +1752,9 @@ run_vm(unsigned char use_vmresume) {
   writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_ESP, ia32_sysenter_esp);
   uint64_t ia32_sysenter_eip = rdmsr(MSR_SYSENTER_EIP);
   writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
+#if 0
   DBGPRNT(("Saved various host MSRs.\n"));
+#endif
 
   /*
    * This is where the magic happens.
@@ -2045,6 +2057,7 @@ run_vm(unsigned char use_vmresume) {
   if (result == VM_SUCCEED) {
     DBGPRNT(("VM EXIT: returned to host mode.\n"));
 
+#if 0
     DBGPRNT(("--------------------\n"));
     DBGPRNT(("Host GPR values restored:\n"));
     DBGPRNT(("RBP: 0x%16lx\tRSI: 0x%16lx\tRDI: 0x%16lx\n",
@@ -2055,6 +2068,7 @@ run_vm(unsigned char use_vmresume) {
           host_state.r12, host_state.r13, host_state.r14, host_state.r15));
     DBGPRNT(("RFLAGS restored: 0x%lx\n", hostrestored_rflags));
     DBGPRNT(("--------------------\n"));
+#endif
 
     /* Return success. */
     return 0;
