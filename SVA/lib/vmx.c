@@ -2721,9 +2721,17 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           !ctrls.load_ia32_pat &&
           !ctrls.save_ia32_efer &&
           !ctrls.load_ia32_efer &&
-#ifdef MPX
-          !ctrls.clear_ia32_bndcfgs &&
-#endif
+
+          /*
+           * Note: it is safe to allow the hypervisor to have discretion over
+           * the clear_ia32_bndcfgs control.
+           *
+           * If SVA is using MPX for its SFI, it will restore BNDCFGS to the
+           * value desired by SVA on every VM exit. Our VM entry/exit
+           * assembly code in run_vm() doesn't perform any MPX bounds checks
+           * between VM exit and restoring SVA's value of BNDCFGS, so there
+           * is no need to have the CPU explicitly clear it on VM exit.
+           */
 
           /*
            * Enforce reserved bits to ensure safe defaults on future
@@ -2780,9 +2788,33 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           !ctrls.load_ia32_perf_global_ctrl &&
           !ctrls.load_ia32_pat &&
           !ctrls.load_ia32_efer &&
-#ifdef MPX
-          !ctrls.load_ia32_bndcfgs &&
-#endif
+
+          /*
+           * Note: it is safe to allow the hypervisor to have discretion over
+           * the load_ia32_bndcfgs control, regardless of whether SVA is
+           * compiled with MPX support.
+           *
+           * If SVA is using MPX for its SFI, BNDCFGS contains the base
+           * address and size of the kernel. Although the kernel might
+           * consider its base address security-sensitive (due to ASLR) and
+           * not want to disclose it to a VM, that is the kernel's problem,
+           * not SVA's, and it is free to set the load_ia32_bndcfgs control
+           * to 1 to provide that protection.
+           *
+           * If SVA is not using MPX, then SVA is storing no sensitive
+           * information in BNDCFGS, so we don't really care what the
+           * hypervisor does with it. It's worth noting that when SVA isn't
+           * compiled with MPX support, it doesn't attempt to save/load MPX
+           * bounds registers on VM entry/exit; since SVA doesn't provide
+           * intrinsics that would allow a hypervisor to do so on its own, it
+           * would be impossible for a hypervisor to maintain a consistent
+           * MPX state between different guests. (OK, maybe not completely
+           * impossible - the hypervisor could create its own VM and use that
+           * to do the saving/restoring without intrinsic support - but that
+           * would be crazy. :-)) Long story short, if the hypervisor wants
+           * to use MPX, you should just compile SVA with MPX support. It'll
+           * make SVA faster anyway. :-)
+           */
 
           /*
            * Enforce reserved bits to ensure safe defaults on future
