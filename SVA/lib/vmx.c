@@ -13,10 +13,10 @@
  *===----------------------------------------------------------------------===
  */
 
-#include <sva/config.h>
 #include <sva/vmx.h>
 #include <sva/vmx_intrinsics.h>
 #include <sva/mmu.h>
+#include <sva/config.h>
 
 #include <string.h>
 #include <stddef.h> // for offsetof()

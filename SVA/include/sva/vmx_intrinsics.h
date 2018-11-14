@@ -18,6 +18,7 @@
 #ifndef _SVA_VMX_INTRINSICS_H
 #define _SVA_VMX_INTRINSICS_H
 
+#include <sva/asmconfig.h>
 #include <sva/mmu_types.h>
 
 #include <sys/types.h>
