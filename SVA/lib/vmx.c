@@ -1329,7 +1329,9 @@ sva_resumevm(void) {
    */
   kernel_to_usersva_pcid();
 
+#if 0
   DBGPRNT(("sva_resumevm() intrinsic called.\n"));
+#endif
   if ( usevmx ) {
     if (!sva_vmx_initialized) {
       panic("Fatal error: must call sva_initvmx() before any other "
@@ -1788,7 +1790,9 @@ run_vm(unsigned char use_vmresume) {
    *
    *  - Restore the host's register state.
    */
+#if 0
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
+#endif
   uint64_t vmexit_rflags, hostrestored_rflags;
   asm __volatile__ (
       /* Save host RFLAGS.
@@ -2055,7 +2059,9 @@ run_vm(unsigned char use_vmresume) {
   /* Confirm that the operation succeeded. */
   enum vmx_statuscode_t result = query_vmx_result(vmexit_rflags);
   if (result == VM_SUCCEED) {
+#if 0
     DBGPRNT(("VM EXIT: returned to host mode.\n"));
+#endif
 
 #if 0
     DBGPRNT(("--------------------\n"));
