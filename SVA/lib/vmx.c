@@ -16,6 +16,7 @@
 #include <sva/vmx.h>
 #include <sva/vmx_intrinsics.h>
 #include <sva/mmu.h>
+#include <sva/mpx.h>
 #include <sva/config.h>
 
 #include <string.h>
@@ -154,23 +155,6 @@ cpu_supports_vmx(void) {
 }
 
 /*
- * Function: cpu_supports_smx()
- *
- * Description:
- *  Checks whether the processor supports SMX using the CPUID instruction.
- *
- * Return value:
- *  True if the processor supports SMX, false otherwise.
- */
-static inline unsigned char
-cpu_supports_smx(void) {
-  uint32_t cpuid_ecx = cpuid_1_ecx();
-  uint32_t supports_smx = cpuid_ecx & CPUID_01H_ECX_SMX_BIT;
-
-  return (supports_smx ? 1 : 0);
-}
-
-/*
  * Function: cpu_permit_vmx()
  *
  * Description:
@@ -198,8 +182,6 @@ cpu_permit_vmx(void) {
   if (!cpu_supports_vmx())
     return 0;
 
-  unsigned char supports_smx = cpu_supports_smx();
-
   DBGPRNT(("Reading IA32_FEATURE_CONTROL MSR...\n"));
   uint64_t feature_control_data = rdmsr(FEATURE_CONTROL_MSR);
   DBGPRNT(("IA32_FEATURE_CONTROL MSR = 0x%lx\n", feature_control_data));
@@ -208,8 +190,6 @@ cpu_permit_vmx(void) {
     feature_control_data & FEATURE_CONTROL_LOCK_BIT;
   uint64_t feature_control_vmxallowed_outside_smx =
     feature_control_data & FEATURE_CONTROL_ENABLE_VMXON_OUTSIDE_SMX_BIT;
-  uint64_t feature_control_vmxallowed_within_smx =
-    feature_control_data & FEATURE_CONTROL_ENABLE_VMXON_WITHIN_SMX_BIT;
 
   /* If the MSR is locked and in the "disallow VMX" setting, then there is
    * nothing we can do; we cannot use VMX.
@@ -217,19 +197,14 @@ cpu_permit_vmx(void) {
    * (If this is the case, it is probably due to a BIOS setting prohibiting
    * VMX.)
    *
-   * If the CPU supports SMX, we will return failure if *either* of the bits
-   * for disabling VMX in or out of SMX mode are unset and locked. This way,
-   * we don't have to worry about whether the CPU is actually in SMX mode.
+   * NOTE: We don't mess with the neighboring "allow VMX within SMX mode"
+   * bit. SVA doesn't (yet) support/use SMX in any way so this situation
+   * isn't relevant to us. sva_initvmx() does a sanity check that the SMXE
+   * bit in CR4 is not set (and panics otherwise) to make sure we're aware if
+   * we ever get into that situation.
    */
-  if (supports_smx) {
-    if (feature_control_locked && !feature_control_vmxallowed_within_smx) {
-      DBGPRNT(("CPU locked to disallow VMX in SMX mode "
-          "(and CPU supports SMX)!\n"));
-      return 0;
-    }
-  }
   if (feature_control_locked && !feature_control_vmxallowed_outside_smx) {
-    DBGPRNT(("CPU locked to disallow VMX outside of SMX mode!\n"));
+    DBGPRNT(("CPU locked to disallow VMX!\n"));
     return 0;
   }
 
@@ -244,15 +219,8 @@ cpu_permit_vmx(void) {
    * (The processor will not allow us to execute VMXON unless the setting is
    * locked, probably to prevent other kernel code from changing it while
    * we're using VMX.)
-   *
-   * We can ONLY set the "allow VMX in SMX mode" bit if the processor
-   * actually supports SMX; otherwise we will cause a general-protection
-   * fault.
    */
   feature_control_data |= FEATURE_CONTROL_ENABLE_VMXON_OUTSIDE_SMX_BIT;
-  if (supports_smx) {
-    feature_control_data |= FEATURE_CONTROL_ENABLE_VMXON_WITHIN_SMX_BIT;
-  }
   feature_control_data |= FEATURE_CONTROL_LOCK_BIT;
 
   DBGPRNT(("Writing new value of IA32_FEATURE_CONTROL MSR to permit VMX: "
@@ -451,8 +419,8 @@ sva_initvmx(void) {
    * feature), return failure.
    */
   if (!cpu_permit_vmx()) {
-    DBGPRNT(("CPU does not support VMX (or the feature is blocked); "
-        "cannot initialize SVA VMX support.\n"));
+    DBGPRNT(("CPU does not support VMX (or the feature is disabled in "
+          "BIOS); cannot initialize SVA VMX support.\n"));
     return 0;
   }
 
@@ -465,13 +433,26 @@ sva_initvmx(void) {
 				 "SVA: error: VMCS_ALLOC_SIZE is not the same as X86_PAGE_SIZE!\n");
   }
 
+  uint64_t orig_cr4_value = _rcr4();
+  DBGPRNT(("Original value of CR4: 0x%lx\n", orig_cr4_value));
+
+  /*
+   * Make sure that SMX (Intel Safer Mode Extensions) are not enabled. SVA
+   * doesn't support/use SMX and doesn't make any attempt to support VMX
+   * in conjunction with it.
+   *
+   * (The call to cpu_permit_vmx() above enables VMX outside of SMX operation
+   * but doesn't check/set the corresponding bit to enable VMX in SMX
+   * operation).
+   */
+  SVA_ASSERT(!(orig_cr4_value & CR4_ENABLE_SMX_BIT),
+      "SVA: error: cannot enable VMX when SMX is enabled.\n");
+
   /* Set the "enable VMX" bit in CR4. This enables VMX operation, allowing us
    * to enter VMX operation by executing the VMXON instruction. Once we have
    * done so, we cannot unset the "enable VMX" bit in CR4 unless we have
    * first exited VMX operation by executing the VMXOFF instruction.
    */
-  uint64_t orig_cr4_value = _rcr4();
-  DBGPRNT(("Original value of CR4: 0x%lx\n", orig_cr4_value));
   uint64_t new_cr4_value = orig_cr4_value | CR4_ENABLE_VMX_BIT;
   DBGPRNT(("Setting new value of CR4 to enable VMX: 0x%lx\n", new_cr4_value));
   load_cr4(new_cr4_value);
@@ -1349,7 +1330,9 @@ sva_resumevm(void) {
    */
   kernel_to_usersva_pcid();
 
+#if 0
   DBGPRNT(("sva_resumevm() intrinsic called.\n"));
+#endif
   if ( usevmx ) {
     if (!sva_vmx_initialized) {
       panic("Fatal error: must call sva_initvmx() before any other "
@@ -1604,7 +1587,9 @@ run_vm(unsigned char use_vmresume) {
    * Save host state in the VMCS that will be restored automatically by the
    * processor on VM exit.
    */
+#if 0
   DBGPRNT(("run_vm: Saving host state...\n"));
+#endif
   /* Control registers */
   uint64_t host_cr0 = _rcr0();
   writevmcs_unchecked(VMCS_HOST_CR0, host_cr0);
@@ -1612,7 +1597,9 @@ run_vm(unsigned char use_vmresume) {
   writevmcs_unchecked(VMCS_HOST_CR3, host_cr3);
   uint64_t host_cr4 = _rcr4();
   writevmcs_unchecked(VMCS_HOST_CR4, host_cr4);
+#if 0
   DBGPRNT(("run_vm: Saved host control registers.\n"));
+#endif
 
   /* Segment selectors */
   uint16_t es_sel, cs_sel, ss_sel, ds_sel, fs_sel, gs_sel, tr_sel;
@@ -1684,7 +1671,9 @@ run_vm(unsigned char use_vmresume) {
   writevmcs_unchecked(VMCS_HOST_FS_SEL, fs_sel & ~0x7);
   writevmcs_unchecked(VMCS_HOST_GS_SEL, gs_sel & ~0x7);
   writevmcs_unchecked(VMCS_HOST_TR_SEL, tr_sel & ~0x7);
+#if 0
   DBGPRNT(("run_vm: Saved host segment selectors.\n"));
+#endif
 
   /*
    * Segment and descriptor table base-address registers
@@ -1710,7 +1699,9 @@ run_vm(unsigned char use_vmresume) {
   writevmcs_unchecked(VMCS_HOST_GDTR_BASE, gdt_base);
   writevmcs_unchecked(VMCS_HOST_IDTR_BASE, idt_base);
   
+#if 0
   DBGPRNT(("run_vm: Saved host FS, GS, GDTR, and IDTR bases.\n"));
+#endif
 
   /* Get the TR base address from the GDT */
   uint16_t tr_gdt_index = (tr_sel >> 3);
@@ -1753,7 +1744,9 @@ run_vm(unsigned char use_vmresume) {
   /* Write our hard-earned TR base address to the VMCS... */
   writevmcs_unchecked(VMCS_HOST_TR_BASE, tr_baseaddr);
 
+#if 0
   DBGPRNT(("run_vm: Saved host TR base.\n"));
+#endif
 
   /* Various MSRs */
   uint64_t ia32_sysenter_cs = rdmsr(MSR_SYSENTER_CS);
@@ -1762,7 +1755,9 @@ run_vm(unsigned char use_vmresume) {
   writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_ESP, ia32_sysenter_esp);
   uint64_t ia32_sysenter_eip = rdmsr(MSR_SYSENTER_EIP);
   writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
+#if 0
   DBGPRNT(("Saved various host MSRs.\n"));
+#endif
 
   /*
    * This is where the magic happens.
@@ -1799,7 +1794,9 @@ run_vm(unsigned char use_vmresume) {
    *
    *  - Restore the host's register state.
    */
+#if 0
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
+#endif
   uint64_t vmexit_rflags, hostrestored_rflags;
 
   uint64_t cr0_value = _rcr0();
@@ -2094,15 +2091,30 @@ run_vm(unsigned char use_vmresume) {
          [guest_r12] "i" (offsetof(vm_desc_t, state.r12)),
          [guest_r13] "i" (offsetof(vm_desc_t, state.r13)),
          [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
-         [guest_r15] "i" (offsetof(vm_desc_t, state.r15)),
+         [guest_r15] "i" (offsetof(vm_desc_t, state.r15))
+#ifdef MPX
+         ,
          [guest_bnd0] "i" (offsetof(vm_desc_t, state.bnd0)),
          [guest_bnd1] "i" (offsetof(vm_desc_t, state.bnd1)),
          [guest_bnd2] "i" (offsetof(vm_desc_t, state.bnd2)),
          [guest_bnd3] "i" (offsetof(vm_desc_t, state.bnd3))
+#endif
       : "memory", "cc"
       );
 
-  /* TODO: restore host BND0 and IA32_BNDCFGS to SVA's static values */
+#ifdef MPX
+  /*
+   * Restore MPX supervisor-mode configuration and bounds register 0 to the
+   * values used by SVA to implement its SFI.
+   *
+   * We don't need to clear/change the other bounds registers since SVA
+   * doesn't use them.
+   */
+  wrmsr(MSR_IA32_BNDCFGS, BNDCFG_BNDENABLE | BNDCFG_BNDPRESERVE);
+
+  asm __volatile__ ("bndmk (%0,%1), %%bnd0\n"
+                    : : "a" (KERNELBASE), "d" (KERNELSIZE));
+#endif
 
   /* Save a copy of the TS flag state */
   orig_ts = 1 ? cr0_value & CR0_TS_OFFSET : 0;
@@ -2132,8 +2144,11 @@ run_vm(unsigned char use_vmresume) {
   /* Confirm that the operation succeeded. */
   enum vmx_statuscode_t result = query_vmx_result(vmexit_rflags);
   if (result == VM_SUCCEED) {
+#if 0
     DBGPRNT(("VM EXIT: returned to host mode.\n"));
+#endif
 
+#if 0
     DBGPRNT(("--------------------\n"));
     DBGPRNT(("Host GPR values restored:\n"));
     DBGPRNT(("RBP: 0x%16lx\tRSI: 0x%16lx\tRDI: 0x%16lx\n",
@@ -2144,6 +2159,7 @@ run_vm(unsigned char use_vmresume) {
           host_state.r12, host_state.r13, host_state.r14, host_state.r15));
     DBGPRNT(("RFLAGS restored: 0x%lx\n", hostrestored_rflags));
     DBGPRNT(("--------------------\n"));
+#endif
 
     /* Return success. */
     return 0;
@@ -2410,9 +2426,11 @@ save_restore_guest_state(unsigned char saverestore) {
   read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_SEL,
       &host_state.active_vm->state.ldtr_sel);
 
+#ifdef MPX
   /* MPX configuration register for supervisor mode */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_BNDCFGS,
       &host_state.active_vm->state.msr_bndcfgs);
+#endif
 
   /* Various other guest system state */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_ACTIVITY_STATE,
@@ -2808,7 +2826,17 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           !ctrls.load_ia32_pat &&
           !ctrls.save_ia32_efer &&
           !ctrls.load_ia32_efer &&
-          !ctrls.clear_ia32_bndcfgs &&
+
+          /*
+           * Note: it is safe to allow the hypervisor to have discretion over
+           * the clear_ia32_bndcfgs control.
+           *
+           * If SVA is using MPX for its SFI, it will restore BNDCFGS to the
+           * value desired by SVA on every VM exit. Our VM entry/exit
+           * assembly code in run_vm() doesn't perform any MPX bounds checks
+           * between VM exit and restoring SVA's value of BNDCFGS, so there
+           * is no need to have the CPU explicitly clear it on VM exit.
+           */
 
           /*
            * Enforce reserved bits to ensure safe defaults on future
@@ -2865,7 +2893,33 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           !ctrls.load_ia32_perf_global_ctrl &&
           !ctrls.load_ia32_pat &&
           !ctrls.load_ia32_efer &&
-          !ctrls.load_ia32_bndcfgs &&
+
+          /*
+           * Note: it is safe to allow the hypervisor to have discretion over
+           * the load_ia32_bndcfgs control, regardless of whether SVA is
+           * compiled with MPX support.
+           *
+           * If SVA is using MPX for its SFI, BNDCFGS contains the base
+           * address and size of the kernel. Although the kernel might
+           * consider its base address security-sensitive (due to ASLR) and
+           * not want to disclose it to a VM, that is the kernel's problem,
+           * not SVA's, and it is free to set the load_ia32_bndcfgs control
+           * to 1 to provide that protection.
+           *
+           * If SVA is not using MPX, then SVA is storing no sensitive
+           * information in BNDCFGS, so we don't really care what the
+           * hypervisor does with it. It's worth noting that when SVA isn't
+           * compiled with MPX support, it doesn't attempt to save/load MPX
+           * bounds registers on VM entry/exit; since SVA doesn't provide
+           * intrinsics that would allow a hypervisor to do so on its own, it
+           * would be impossible for a hypervisor to maintain a consistent
+           * MPX state between different guests. (OK, maybe not completely
+           * impossible - the hypervisor could create its own VM and use that
+           * to do the saving/restoring without intrinsic support - but that
+           * would be crazy. :-)) Long story short, if the hypervisor wants
+           * to use MPX, you should just compile SVA with MPX support. It'll
+           * make SVA faster anyway. :-)
+           */
 
           /*
            * Enforce reserved bits to ensure safe defaults on future
@@ -2907,6 +2961,9 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_GUEST_IA32_SYSENTER_CS:
     case VMCS_GUEST_IA32_SYSENTER_ESP:
     case VMCS_GUEST_IA32_SYSENTER_EIP:
+#ifdef MPX
+    case VMCS_GUEST_IA32_BNDCFGS:
+#endif
     case VMCS_GUEST_CS_SEL:
     case VMCS_GUEST_CS_BASE:
     case VMCS_GUEST_CS_LIMIT:
@@ -3113,6 +3170,7 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
       retval = vm_descs[vmid].state.r15;
       break;
 
+#ifdef MPX
     case VM_REG_BND0_LOWER:
       retval = vm_descs[vmid].state.bnd0[0];
       break;
@@ -3137,6 +3195,7 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
     case VM_REG_BND3_UPPER:
       retval = vm_descs[vmid].state.bnd3[1];
       break;
+#endif
 
     default:
       panic("sva_getvmreg(): Invalid register specified: %d\n", (int) reg);
@@ -3252,6 +3311,7 @@ sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
       vm_descs[vmid].state.r15 = data;
       break;
 
+#ifdef MPX
     case VM_REG_BND0_LOWER:
       vm_descs[vmid].state.bnd0[0] = data;
       break;
@@ -3276,6 +3336,7 @@ sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
     case VM_REG_BND3_UPPER:
       vm_descs[vmid].state.bnd3[1] = data;
       break;
+#endif
 
     default:
       panic("sva_setvmreg(): Invalid register specified: %d. "

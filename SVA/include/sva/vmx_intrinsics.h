@@ -18,6 +18,7 @@
 #ifndef _SVA_VMX_INTRINSICS_H
 #define _SVA_VMX_INTRINSICS_H
 
+#include <sva/asmconfig.h>
 #include <sva/mmu_types.h>
 #include <sva/state.h>
 
@@ -272,10 +273,12 @@ enum sva_vm_reg {
   VM_REG_R8,  VM_REG_R9,  VM_REG_R10, VM_REG_R11,
   VM_REG_R12, VM_REG_R13, VM_REG_R14, VM_REG_R15,
 
+#ifdef MPX
   VM_REG_BND0_LOWER, VM_REG_BND0_UPPER,
   VM_REG_BND1_LOWER, VM_REG_BND1_UPPER,
   VM_REG_BND2_LOWER, VM_REG_BND2_UPPER,
   VM_REG_BND3_LOWER, VM_REG_BND3_UPPER
+#endif
 };
 
 /*
@@ -335,6 +338,7 @@ typedef struct sva_vmx_guest_state {
   /* FP State */
   sva_fp_state_t fp;
 
+#ifdef MPX
   /*
    * MPX bounds registers
    *
@@ -345,6 +349,7 @@ typedef struct sva_vmx_guest_state {
    * index 1.
    */
   uint64_t bnd0[2], bnd1[2], bnd2[2], bnd3[2];
+#endif
 
   /*
    **** STATE THAT IS SAVED/RESTORED AUTOMATICALLY BY PROCESSOR
@@ -396,8 +401,10 @@ typedef struct sva_vmx_guest_state {
   uint64_t idtr_base, idtr_limit;
   uint64_t ldtr_base, ldtr_limit, ldtr_access_rights, ldtr_sel;
 
+#ifdef MPX
   /* MPX configuration register for supervisor mode */
   uint64_t msr_bndcfgs;
+#endif
 
   /* Various other guest system state */
   uint64_t activity_state;

@@ -1696,7 +1696,7 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 # Check whether --enable-vmx was given.
 if test "${enable_vmx+set}" = set; then :
-  enableval=$enable_vg; case "${enableval}" in
+  enableval=$enable_vmx; case "${enableval}" in
                              	yes) $as_echo "#define SVA_VMX 1" >>confdefs.h
  ;;
                              	no)  $as_echo "#define NOSVA_VMX 1" >>confdefs.h

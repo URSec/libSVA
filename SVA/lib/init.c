@@ -86,6 +86,7 @@
 #include "sva/util.h"
 #include "sva/mmu.h"
 #include "sva/interrupt.h"
+#include "sva/mpx.h"
 #include "thread_stack.h"
 
 #include <string.h>
@@ -485,27 +486,8 @@ init_fpu (void) {
 static void
 init_mpx (void) {
 #ifdef MPX
-  /* First address of kernel memory */
-  static uintptr_t const kernelBase = SECMEMEND - SECMEMSTART;
-  static uintptr_t const kernelSize = (0xffffffffffffffffu - kernelBase);
-
-  /* Bits within control register 4 (CR4) */
-  static const uintptr_t oxsave = (1u << 18);
-
-  /* Bits to configure in the extended control register XCR0 */
-  static unsigned char bndreg = (1u << 3);
-  static unsigned char bndcsr = (1u << 4);
-  static unsigned char enableX87 = (1u << 0);
-
-  /* Bits to configure the BNDCFGS register */
-  static unsigned char bndEnable   = (1u << 0);
-  static unsigned char bndPreserve = (1u << 1);
-
-  /* ID number of the configuration register for MPX kernel mode code */
-  static const unsigned IA32_BNDCFGS = 0x0d90;
 
   unsigned long cr4;
-  unsigned long cpuid;
 
   /*
    * Only configure MPX if we are configured to do so.
@@ -518,7 +500,7 @@ init_mpx (void) {
                           "orq %1, %0\n"
                           "movq %0, %%cr4\n"
                           : "=r" (cr4)
-                          : "i" (oxsave));
+                          : "i" (CR4_OSXSAVE));
 
     /*
      * Enable the XCR0.BNDREG and XCR0.BNDCSR bits in XCR0.  We must also
@@ -528,7 +510,7 @@ init_mpx (void) {
                           "orq %1, %%rax\n"
                           "xsetbv\n"
                           :
-                          : "c" (0), "i" (bndreg | bndcsr | enableX87)
+                          : "c" (0), "i" (XCR0_BNDREG | XCR0_BNDCSR | XCR0_X87)
                           : "%rax", "%rdx");
 
     /*
@@ -536,16 +518,15 @@ init_mpx (void) {
      * bndEnable bit to enable bounds checking and the bndPreserve bit to
      * ensure that control flow instructions do not clear the bounds registers.
      */
-    __asm__ __volatile__ ("wrmsr\n"
-                          :
-                          : "c" (IA32_BNDCFGS), "A" (bndEnable | bndPreserve));
+    wrmsr(MSR_IA32_BNDCFGS, BNDCFG_BNDENABLE | BNDCFG_BNDPRESERVE);
 
     /*
-     * Load bounds information for kernel memory into the first bounds register.
+     * Load bounds information for kernel memory into the first bounds register
+     * (BND0).
      */
     __asm__ __volatile__ ("bndmk (%0,%1), %%bnd0\n"
                           :
-                          : "a" (kernelBase), "d" (kernelSize));
+                          : "a" (KERNELBASE), "d" (KERNELSIZE));
 
   }
 #endif
@@ -567,7 +548,7 @@ testmpx (void) {
   } foo;
 
   /*
-   * Load bounds information into the first bounds register.
+   * Load bounds information into the second bounds register (BND1).
    */
   __asm__ __volatile__ ("bndmk (%0,%1), %%bnd1\n"
                         :
