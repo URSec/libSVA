@@ -16,6 +16,7 @@
 #include <sva/vmx.h>
 #include <sva/vmx_intrinsics.h>
 #include <sva/mmu.h>
+#include <sva/mpx.h>
 #include <sva/config.h>
 
 #include <string.h>
@@ -2054,7 +2055,19 @@ run_vm(unsigned char use_vmresume) {
       : "memory", "cc"
       );
 
-  /* TODO: restore host BND0 and IA32_BNDCFGS to SVA's static values */
+#ifdef MPX
+  /*
+   * Restore MPX supervisor-mode configuration and bounds register 0 to the
+   * values used by SVA to implement its SFI.
+   *
+   * We don't need to clear/change the other bounds registers since SVA
+   * doesn't use them.
+   */
+  wrmsr(MSR_IA32_BNDCFGS, BNDCFG_BNDENABLE | BNDCFG_BNDPRESERVE);
+
+  asm __volatile__ ("bndmk (%0,%1), %%bnd0\n"
+                    : : "a" (KERNELBASE), "d" (KERNELSIZE));
+#endif
 
   /* Confirm that the operation succeeded. */
   enum vmx_statuscode_t result = query_vmx_result(vmexit_rflags);
