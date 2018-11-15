@@ -22,6 +22,7 @@
 #include <sva/util.h>
 #include <sva/vmx.h>
 #include <sva/vmx_intrinsics.h>
+#include <sva/mpx.h>
 #include <machine/frame.h>
 
 /*****************************************************************************
@@ -1413,4 +1414,38 @@ sva_print_vmcs_allowed_settings() {
   print_vmcs_field(VMCS_VM_ENTRY_CTRLS, entry_ctrls_allowed_1);
 
   printf("\n==============================\n");
+}
+
+/*
+ * Intrinsic: sva_print_mpx_regs()
+ *
+ * Description:
+ *  Prints the values of the MPX bounds registers BND0-BND3 and the MPX
+ *  supervisor-mode configuration MSR IA32_BNDCFGS.
+ *
+ *  This is for use during development. It is not part of the designed SVA
+ *  interface and will be removed.
+ */
+void
+sva_print_mpx_regs(void) {
+  /* Store the MPX bounds registers into memory. */
+  uint64_t bnd0[2], bnd1[2], bnd2[2], bnd3[2];
+  asm __volatile__ (
+      "bndmov %%bnd0, (%[bnd0])\n"
+      "bndmov %%bnd1, (%[bnd1])\n"
+      "bndmov %%bnd2, (%[bnd2])\n"
+      "bndmov %%bnd3, (%[bnd3])\n"
+      : : [bnd0] "r" (bnd0),
+          [bnd1] "r" (bnd1),
+          [bnd2] "r" (bnd2),
+          [bnd3] "r" (bnd3)
+      );
+
+  printf("MPX bounds registers:\n");
+  printf("BND0: 0x%lx-0x%lx\tBND1: 0x%lx-0x%lx\n",
+      bnd0[0], bnd0[1], bnd1[0], bnd1[1]);
+  printf("BND2: 0x%lx-0x%lx\tBND3: 0x%lx-0x%lx\n",
+      bnd2[0], bnd2[1], bnd3[0], bnd3[1]);
+
+  printf("MSR IA32_BNDCFGS: 0x%lx\n", rdmsr(MSR_IA32_BNDCFGS));
 }

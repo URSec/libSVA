@@ -7,7 +7,7 @@
  * 
  *===----------------------------------------------------------------------===
  *
- * This header file defines functions and macros used by the SVA Execution
+ * This header file defines constants and functions used by the SVA Execution
  * Engine to support SVA's use of Intel Memory Protection Extensions (MPX) to
  * implement software fault isolation.
  *
@@ -16,6 +16,8 @@
 
 #ifndef _SVA_MPX_H
 #define _SVA_MPX_H
+
+#include <sva/mmu.h> /* Defines SECMESTART and SECMEMEND */
 
 /* First address of kernel memory */
 static uintptr_t const KERNELBASE = SECMEMEND - SECMEMSTART;
@@ -35,5 +37,11 @@ static unsigned char BNDCFG_BNDPRESERVE = (1u << 1);
 
 /* ID number of the configuration register for MPX kernel mode code */
 static const unsigned MSR_IA32_BNDCFGS = 0x0d90;
+
+/*
+ * Intrinsic for use during development only. Prints MPX registers.
+ * (Defined in debug.c.)
+ */
+void sva_print_mpx_regs(void);
 
 #endif /* #ifndef _SVA_MPX_H */
