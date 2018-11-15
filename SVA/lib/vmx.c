@@ -1802,8 +1802,6 @@ run_vm(unsigned char use_vmresume) {
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
   uint64_t vmexit_rflags, hostrestored_rflags;
 
-  DBGPRNT(("[VM ENTRY] Saving host FP state\n"));
-
   uint64_t cr0_value = _rcr0();
   
   /* Save a copy of the TS flag status */
@@ -1812,6 +1810,22 @@ run_vm(unsigned char use_vmresume) {
   /* Clear the TS flag to avoid a fptrap */
   __asm__ __volatile__ ("clts");
 
+  DBGPRNT(("[VM ENTRY] Host state1:\n%x\n", host_state.fp.words[0]));
+
+  /* Dummy code to populate FPU stack */
+  __asm__ __volatile__ (
+    "fldpi\n"
+    "fldz\n"
+    "fldpi\n"
+    "fldz\n"
+    : /* Outputs */
+    : /* Inputs */
+    : /* Clobbers */
+  );
+
+
+  DBGPRNT(("[VM ENTRY] Saving host FP state\n"));
+  DBGPRNT(("[VM ENTRY] Host state2:\n%x\n", host_state.fp.words[0]));
   /* Save the host FP state */
   save_fp( &(host_state.fp) );
 
