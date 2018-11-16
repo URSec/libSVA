@@ -1818,11 +1818,7 @@ run_vm(unsigned char use_vmresume) {
     /* Refetch CR0 in case it's changed */
     cr0_value = _rcr0() | orig_ts;
 
-    __asm__ __volatile__ (
-      "movq %[cr0_value], %%cr0\n"
-      :
-      : [cr0_value] "r" (cr0_value)
-    );
+    _load_cr0(cr0_value);
   }
 
 
@@ -2117,11 +2113,7 @@ run_vm(unsigned char use_vmresume) {
     /* Refetch CR0 in case it's changed */
     cr0_value = _rcr0() | orig_ts;
 
-    __asm__ __volatile__ (
-      "movq %[cr0_value], %%cr0\n"
-      :
-      : [cr0_value] "r" (cr0_value)
-    );
+    _load_cr0(cr0_value);
   }
 
 
