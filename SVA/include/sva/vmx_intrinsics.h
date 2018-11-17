@@ -418,8 +418,8 @@ typedef struct sva_vmx_guest_state {
  *  (vmx.c and vmx_ept.c)
  *****************************************************************************
  */
-size_t sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
-    sva_vmx_guest_state initial_state,
+size_t sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
+    struct sva_vmx_guest_state * initial_state,
     pml4e_t *initial_eptable);
 void sva_freevm(size_t vmid);
 int sva_loadvm(size_t vmid);

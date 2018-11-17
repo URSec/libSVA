@@ -582,8 +582,8 @@ sva_initvmx(void) {
  *  size_t, an unsigned type...
  */
 size_t
-sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
-    sva_vmx_guest_state initial_state,
+sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
+    struct sva_vmx_guest_state * initial_state,
     pml4e_t *initial_eptable) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
@@ -605,6 +605,13 @@ sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
                 "SVA-VMX intrinsic.\n");
       }
   }
+
+  /*
+   * Ensure that the inputs are mapped and accessible.  If they are not, then
+   * trap here.
+   */
+  sva_check_memory_read  (initial_ctrls, sizeof (struct sva_vmx_vm_ctrls));
+  sva_check_memory_read  (initial_state, sizeof (struct sva_vmx_guest_state));
 
   /*
    * Scan the vm_descs array for the first free slot, i.e., the first entry
@@ -648,11 +655,12 @@ sva_allocvm(sva_vmx_vm_ctrls initial_ctrls,
   /*
    * Initialize VMCS controls.
    */
-  vm_descs[vmid].ctrls = initial_ctrls;
+  vm_descs[vmid].ctrls = *initial_ctrls;
+
   /*
    * Initialize the guest system state (registers, program counter, etc.).
    */
-  vm_descs[vmid].state = initial_state;
+  vm_descs[vmid].state = *initial_state;
   /*
    * Initialize the Extended Page Table Pointer (EPTP).
    *
