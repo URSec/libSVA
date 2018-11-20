@@ -1759,6 +1759,53 @@ run_vm(unsigned char use_vmresume) {
   DBGPRNT(("Saved various host MSRs.\n"));
 #endif
 
+#ifdef MPX
+  /* Save host Extended Control Register 0 (XCR0) */
+#if 0
+  DBGPRNT(("Saving host XCR0...\n"));
+#endif
+  asm __volatile__ (
+      "xgetbv\n"
+      "shlq $32, %%rdx\n"
+      "orq %%rdx, %%rax\n"
+      : "=a" (host_state.xcr0)
+      : "c" (0 /* XCR number to read */)
+      : "rax", "rdx"
+      );
+#if 0
+  DBGPRNT(("Host XCR0 saved: 0x%lx\n", host_state.xcr0));
+#endif
+
+  /*
+   * Load guest XCR0.
+   *
+   * The processor doesn't support saving/loading this atomically during VM
+   * entry/exit, so we have to load this in host mode before VM entry. That
+   * means there's a small window of opportunity (between now and VM entry)
+   * wherein it will govern host execution, so we need to be careful that
+   * this won't let the system software do something that wouldn't otherwise
+   * be allowed.
+   *
+   * In this case, I think it's safe to load any value into XCR0, because
+   * we're not using any XSAVE-related instructions between here and VM
+   * entry. The worst that could happen is we get a #GP exception if one of
+   * the reserved bits is set...and if that happens it's the system
+   * software's fault. (A crash isn't a security violation because there are
+   * a thousand ways the system software is free to crash the system if it so
+   * desires.)
+   */
+#if 0
+  DBGPRNT(("Loading guest XCR0 = 0x%lx...\n",
+        host_state.active_vm->state.xcr0));
+#endif
+  asm __volatile__ (
+      "xsetbv\n"
+      : : "c" (0 /* XCR number to write */),
+          "a" (host_state.active_vm->state.xcr0),
+          "d" (host_state.active_vm->state.xcr0 >> 32)
+      );
+#endif
+
   /*
    * This is where the magic happens.
    *
@@ -2094,6 +2141,24 @@ run_vm(unsigned char use_vmresume) {
 
   asm __volatile__ ("bndmk (%0,%1), %%bnd0\n"
                     : : "a" (KERNELBASE), "d" (KERNELSIZE));
+
+  /* Save guest value of XCR0. */
+  asm __volatile__ (
+      "xgetbv\n"
+      "shlq $32, %%rdx\n"
+      "orq %%rdx, %%rax\n"
+      : "=a" (host_state.active_vm->state.xcr0)
+      : "c" (0 /* XCR number to read */)
+      : "rax", "rdx"
+      );
+
+  /* Restore host value of XCR0. */
+  asm __volatile__ (
+      "xsetbv\n"
+      : : "c" (0 /* XCR number to write */),
+          "a" (host_state.xcr0),
+          "d" (host_state.xcr0 >> 32)
+      );
 #endif
 
   /* Save a copy of the TS flag state */
@@ -3171,6 +3236,9 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
     case VM_REG_BND3_UPPER:
       retval = vm_descs[vmid].state.bnd3[1];
       break;
+    case VM_REG_XCR0:
+      retval = vm_descs[vmid].state.xcr0;
+      break;
 #endif
 
     default:
@@ -3311,6 +3379,9 @@ sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
       break;
     case VM_REG_BND3_UPPER:
       vm_descs[vmid].state.bnd3[1] = data;
+      break;
+    case VM_REG_XCR0:
+      vm_descs[vmid].state.xcr0 = data;
       break;
 #endif
 

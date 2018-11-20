@@ -277,7 +277,9 @@ enum sva_vm_reg {
   VM_REG_BND0_LOWER, VM_REG_BND0_UPPER,
   VM_REG_BND1_LOWER, VM_REG_BND1_UPPER,
   VM_REG_BND2_LOWER, VM_REG_BND2_UPPER,
-  VM_REG_BND3_LOWER, VM_REG_BND3_UPPER
+  VM_REG_BND3_LOWER, VM_REG_BND3_UPPER,
+
+  VM_REG_XCR0
 #endif
 };
 
@@ -349,6 +351,14 @@ typedef struct sva_vmx_guest_state {
    * index 1.
    */
   uint64_t bnd0[2], bnd1[2], bnd2[2], bnd3[2];
+
+  /*
+   * Extended Control Register 0 (XCR0)
+   *
+   * This governs the use of the XSAVE feature and enables/disables MPX
+   * (since MPX is an XSAVE-enabled feature).
+   */
+  uint64_t xcr0;
 #endif
 
   /*

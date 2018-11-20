@@ -456,6 +456,13 @@ typedef struct vmx_host_state_t {
   /* Host FP State that needs to be saved/restored across VM entries/exits */
   sva_fp_state_t fp;
 
+  /*
+   * Extended Control Register 0 (XCR0)
+   *
+   * This governs the use of the XSAVE feature and enables/disables MPX
+   * (since MPX is an XSAVE-enabled feature).
+   */
+  uint64_t xcr0;
 } vmx_host_state_t;
 
 /**********
