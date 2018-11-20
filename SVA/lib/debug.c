@@ -1441,6 +1441,17 @@ sva_print_mpx_regs(void) {
           [bnd3] "r" (bnd3)
       );
 
+  /* Store XCR0 into memory. */
+  uint64_t xcr0;
+  asm __volatile__ (
+      "xgetbv\n"
+      "shlq $32, %%rdx\n"
+      "orq %%rdx, %%rax\n"
+      : "=a" (xcr0)
+      : "c" (0 /* XCR number to read */)
+      : "rax", "rdx"
+      );
+
   printf("MPX bounds registers:\n");
   printf("BND0: 0x%lx-0x%lx\tBND1: 0x%lx-0x%lx\n",
       bnd0[0], bnd0[1], bnd1[0], bnd1[1]);
@@ -1448,4 +1459,5 @@ sva_print_mpx_regs(void) {
       bnd2[0], bnd2[1], bnd3[0], bnd3[1]);
 
   printf("MSR IA32_BNDCFGS: 0x%lx\n", rdmsr(MSR_IA32_BNDCFGS));
+  printf("XCR0: 0x%lx\n", xcr0);
 }
