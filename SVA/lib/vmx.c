@@ -610,8 +610,8 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    * Ensure that the inputs are mapped and accessible.  If they are not, then
    * trap here.
    */
-  sva_check_memory_read  (initial_ctrls, sizeof (struct sva_vmx_vm_ctrls));
-  sva_check_memory_read  (initial_state, sizeof (struct sva_vmx_guest_state));
+  sva_check_memory_read(initial_ctrls, sizeof(struct sva_vmx_vm_ctrls));
+  sva_check_memory_read(initial_state, sizeof(struct sva_vmx_guest_state));
 
   /*
    * Scan the vm_descs array for the first free slot, i.e., the first entry
