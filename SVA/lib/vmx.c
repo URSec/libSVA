@@ -545,9 +545,8 @@ sva_initvmx(void) {
   if (query_vmx_result(rflags) == VM_SUCCEED) {
     DBGPRNT(("SVA VMX support successfully initialized.\n"));
 
-    if ( usevmx ) {
-      sva_vmx_initialized = 1;
-    }
+    sva_vmx_initialized = 1;
+
     return 1;
   } else {
     DBGPRNT(("Could not enter VMX host mode. "
