@@ -431,7 +431,8 @@ typedef struct vm_desc_t {
  *      entries/exits.
  */
 typedef struct vmx_host_state_t {
-  /* Pointer to the descriptor for the VM currently loaded on this processor.
+  /*
+   * Pointer to the descriptor for the VM currently loaded on this processor.
    * If no VM is loaded, this should be set to null.
    *
    * NOTE: any code that allocates a vmx_host_state_t is responsible for
@@ -442,7 +443,8 @@ typedef struct vmx_host_state_t {
    */
   vm_desc_t * active_vm;
 
-  /* Host GPRs that need to be saved/restored across VM entries/exits
+  /*
+   * Host GPRs that need to be saved/restored across VM entries/exits
    *
    * Note: we do not need to save/restore RAX, RBX, RCX, and RDX since we use
    * them as inputs and outputs for the inline assembly block that handles
@@ -456,6 +458,7 @@ typedef struct vmx_host_state_t {
   /* Host FP State that needs to be saved/restored across VM entries/exits */
   sva_fp_state_t fp;
 
+#ifdef MPX
   /*
    * Extended Control Register 0 (XCR0)
    *
@@ -463,6 +466,7 @@ typedef struct vmx_host_state_t {
    * (since MPX is an XSAVE-enabled feature).
    */
   uint64_t xcr0;
+#endif
 } vmx_host_state_t;
 
 /**********

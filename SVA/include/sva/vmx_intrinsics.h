@@ -273,6 +273,8 @@ enum sva_vm_reg {
   VM_REG_R8,  VM_REG_R9,  VM_REG_R10, VM_REG_R11,
   VM_REG_R12, VM_REG_R13, VM_REG_R14, VM_REG_R15,
 
+  VM_REG_CR2,
+
 #ifdef MPX
   VM_REG_BND0_LOWER, VM_REG_BND0_UPPER,
   VM_REG_BND1_LOWER, VM_REG_BND1_UPPER,
@@ -368,6 +370,10 @@ typedef struct sva_vmx_guest_state {
   uint64_t rbp, rsi, rdi;
   uint64_t r8,  r9,  r10, r11;
   uint64_t r12, r13, r14, r15;
+
+  /* Control registers not automatically saved/restored by processor */
+  uint64_t cr2;
+  /* TODO: also handle CR8 */
 
   /* FP State */
   sva_fp_state_t fp;

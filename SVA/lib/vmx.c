@@ -1826,7 +1826,7 @@ run_vm(unsigned char use_vmresume) {
           "a" (host_state.active_vm->state.xcr0),
           "d" (host_state.active_vm->state.xcr0 >> 32)
       );
-#endif
+#endif /* #ifdef MPX */
 
   /*
    * This is where the magic happens.
@@ -2019,6 +2019,28 @@ run_vm(unsigned char use_vmresume) {
       "bndmov %c[guest_bnd3](%%rax), %%bnd3\n"
 #endif
 
+      /*** Restore guest CR2 ***
+       *
+       * Note: we do not need to save/restore the host CR2 because it should
+       * always be dead (safe to clobber) here. CR2 should only ever have a
+       * live value during the very short window of time between a page fault
+       * being dispatched and the page-fault handler re-enabling interrupts.
+       *
+       * I can't think of a scenario in which it would ever be correct or
+       * reasonable to call sva_launch/resumevm() during a page fault
+       * handler. The system software shouldn't expect CR2 to be maintained
+       * consistently outside of a page fault handler, so it should be fine
+       * with it being randomly clobbered by sva_launch/resumevm().
+       *
+       * When we do "Virtual Ghost for VMs" in the future to protect VMs from
+       * compromised host system software, we may need to *clear* CR2 after
+       * VM exit to prevent sensitive guest state from being leaked (page
+       * fault access patterns could be relevant in side-channel attacks),
+       * but that's not a concern for now.
+       */
+      "movq %c[guest_cr2](%%rax), %%rbp\n" // move guest CR2 to temp reg
+      "movq %%rbp, %%cr2\n"
+
       /*** Restore guest GPRs ***
        * We will restore RAX last, since we need a register in which to keep
        * the pointer to the active VM descriptor. (The instruction that
@@ -2107,6 +2129,10 @@ run_vm(unsigned char use_vmresume) {
       "movq %%r15, %c[guest_r15](%%rax)\n"
       /* (Now all the GPRs are free for our own use in this code.) */
 
+      /*** Save guest CR2 ***/
+      "movq %%cr2, %%rbp\n" // move guest CR2 to temp reg
+      "movq %%rbp, %c[guest_cr2](%%rax)\n"
+
 #ifdef MPX
       /*** Save guest MPX bounds registers ***/
       "bndmov %%bnd0, %c[guest_bnd0](%%rax)\n"
@@ -2145,6 +2171,13 @@ run_vm(unsigned char use_vmresume) {
       "movq %c[host_r13](%%rax), %%r13\n"
       "movq %c[host_r14](%%rax), %%r14\n"
       "movq %c[host_r15](%%rax), %%r15\n"
+      /*
+       * (Note: from here to the end of the asm block, we are only free to
+       * use the GPRs RAX, RBX, RCX, and RDX, as the rest of them, which we
+       * just restored above, contain potentially-live values which "belong"
+       * to the compiler. RBX and RDX are used as outputs from the asm block
+       * and will be set below.)
+       */
 
       /* Put the saved RFLAGS (VMX error code) into RDX for output from the
        * asm block.
@@ -2201,7 +2234,8 @@ run_vm(unsigned char use_vmresume) {
          [guest_r12] "i" (offsetof(vm_desc_t, state.r12)),
          [guest_r13] "i" (offsetof(vm_desc_t, state.r13)),
          [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
-         [guest_r15] "i" (offsetof(vm_desc_t, state.r15))
+         [guest_r15] "i" (offsetof(vm_desc_t, state.r15)),
+         [guest_cr2] "i" (offsetof(vm_desc_t, state.cr2))
 #ifdef MPX
          ,
          [guest_bnd0] "i" (offsetof(vm_desc_t, state.bnd0)),
@@ -3294,6 +3328,10 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
       retval = vm_descs[vmid].state.r15;
       break;
 
+    case VM_REG_CR2:
+      retval = vm_descs[vmid].state.cr2;
+      break;
+
 #ifdef MPX
     case VM_REG_BND0_LOWER:
       retval = vm_descs[vmid].state.bnd0[0];
@@ -3436,6 +3474,10 @@ sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
       break;
     case VM_REG_R15:
       vm_descs[vmid].state.r15 = data;
+      break;
+
+    case VM_REG_CR2:
+      vm_descs[vmid].state.cr2 = data;
       break;
 
 #ifdef MPX
