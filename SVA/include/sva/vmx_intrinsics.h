@@ -273,6 +273,8 @@ enum sva_vm_reg {
   VM_REG_R8,  VM_REG_R9,  VM_REG_R10, VM_REG_R11,
   VM_REG_R12, VM_REG_R13, VM_REG_R14, VM_REG_R15,
 
+  VM_REG_CR2,
+
 #ifdef MPX
   VM_REG_BND0_LOWER, VM_REG_BND0_UPPER,
   VM_REG_BND1_LOWER, VM_REG_BND1_UPPER,
@@ -317,6 +319,38 @@ typedef struct sva_vmx_vm_ctrls {
  *  A structure describing the state of a guest system virtualized by a VM.
  */
 typedef struct sva_vmx_guest_state {
+#ifdef SVA_LLC_PART
+  /*** Padding for protection against side-channel attacks ***
+   *
+   * SVA's VM entry/exit code must access guest state structures in SVA
+   * protected memory to save/restore guest registers. Some of these
+   * registers need to be saved/restored during the time window between
+   * switching to the OS cache partition and VM entry (and likewise on VM
+   * exit).
+   *
+   * Any SVA protected memory that we touch while in the OS cache partition
+   * becomes vulnerable to side-channel attacks launched by the OS or VMs.
+   * That's harmless for the guest state structure because guest state is
+   * already under control of the system software. However, we want to make
+   * sure that there's no sensitive data adjacent to it in the same cache
+   * lines(s) that will also be made vulnerable to side-channel attacks.
+   *
+   * To ensure this, we place an amount of padding on each side of the
+   * guest-state structure equal to the size of a last-level cache line. A
+   * LLC cache line is 64 B on our current development hardware (Skylake) and
+   * most/all other Intel Core processors.
+   *
+   * NOTE: Hardcoding 64 B of padding is fine for our prototype, but a
+   * production version of SVA should have a more robust solution that works
+   * with any cache line size.
+   *
+   * These padding fields (here and at the end of the structure) do not need
+   * to be initialized in any way by the system software. SVA does not read
+   * or write them.
+   */
+  uint8_t llc_padding_front[64];
+#endif /* #ifdef SVA_LLC_PART */
+
   /*
    *** STATE NOT SAVED/RESTORED BY PROCESSOR ON VM ENTRY/EXIT ***
    * (i.e. needs to be saved/restored by SVA)
@@ -336,6 +370,10 @@ typedef struct sva_vmx_guest_state {
   uint64_t rbp, rsi, rdi;
   uint64_t r8,  r9,  r10, r11;
   uint64_t r12, r13, r14, r15;
+
+  /* Control registers not automatically saved/restored by processor */
+  uint64_t cr2;
+  /* TODO: also handle CR8 */
 
   /* FP State */
   sva_fp_state_t fp;
@@ -420,6 +458,13 @@ typedef struct sva_vmx_guest_state {
   uint64_t activity_state;
   uint64_t interruptibility_state;
   uint64_t pending_debug_exceptions;
+
+#ifdef SVA_LLC_PART
+  /*** Padding for protection against side-channel attacks ***
+   * (64 B = size of a cache line on Intel Core processors)
+   */
+  uint8_t llc_padding_back[64];
+#endif
 } sva_vmx_guest_state;
 
 /*
