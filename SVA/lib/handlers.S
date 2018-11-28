@@ -183,9 +183,10 @@ Trap:
   movq %rcx, %gs:0x290
   movq %rdx, %gs:0x298
   
+  /* Switch to the SVA cache partition. */
   movl $COS_MSR, %ecx
-  movl $0, %edx
-  movl $SVA_COS, %eax
+  movl $SVA_COS, %eax  /* lower 32 bits = SVA_COS */
+  movl $0, %edx        /* upper 32 bits = 0 */
   wrmsr
 
   movq %gs:0x298, %rdx
@@ -423,9 +424,10 @@ L15:
 #endif
 
 #ifdef SVA_LLC_PART
+  /* Switch to the OS cache partition. */
   movl $COS_MSR, %ecx
-  movl $0, %edx
-  movl $OS_COS, %eax
+  movl $OS_COS, %eax  /* lower 32 bits = OS_COS */
+  movl $0, %edx       /* upper 32 bits = 0 */
   wrmsr
 #endif
 
@@ -462,9 +464,10 @@ two:
   cli
 
 #ifdef SVA_LLC_PART
+  /* Switch to the SVA cache partition. */
   movl $COS_MSR, %ecx
-  movl $0, %edx
-  movl $SVA_COS, %eax
+  movl $SVA_COS, %eax  /* lower 32 bits = SVA_COS */
+  movl $0, %edx        /* upper 32 bits = 0 */
   wrmsr
 #endif
 
@@ -616,23 +619,30 @@ L14:
 
   /* Determine whether we interrupted user or supervisor mode execution. */
   cmpq $USERCS, 8(%rsp)
-  jne 1f
+  jne L21_supervisorcase
 
 #ifdef SVA_LLC_PART
   movq %rax, %gs:0x288
   movq %rcx, %gs:0x290
   movq %rdx, %gs:0x298
 
-  movl $COS_MSR, %ecx
-  movl $0, %edx
-
-  movq %gs:0x260, %rax              // Test whether secmemSize is 0; if yes, use kernel's LLC partition
+  /* User mode case: switch to the application cache partition. */
+  /*
+   * Test whether secmemSize is 0; if so, this is not a ghosting application,
+   * and we should use the OS's LLC partition instead of a separate one for
+   * the the application.
+   */
+  movq %gs:0x260, %rax
   movq CPU_THREAD(%rax), %rax
   movq 0x7d58(%rax), %rax
-  testq %rax, %rax
-  je L29
+  testq %rax, %rax    /* sets zero flag if we should use OS partition */
 
-  movl $APP_COS, %eax
+  movl $COS_MSR, %ecx
+  movl $0, %edx       /* upper 32 bits = 0 in both cases */
+  movl $APP_COS, %eax /* lower 32 bits = APP_COS */
+  jnz L29_wrmsr       /* skip next instruction if using app partition */
+  movl $OS_COS, %eax  /* lower 32 bits = OS_COS  */
+L29_wrmsr:
   wrmsr
 
   movq %gs:0x298, %rdx
@@ -640,39 +650,39 @@ L14:
   movq %gs:0x288, %rax 
 #endif
 
-  /* We came from user mode.  First switch to the kernel %GS register. */
+  /*
+   * We came from user mode. Switch to the kernel %GS register before
+   * returning.
+   */
   swapgs
+  jmp L28_iret
 
-#ifdef SVA_LLC_PART
-  jmp L21
-#endif
-
-1:
+L21_supervisorcase:
 
 #ifdef SVA_LLC_PART
   movq %rax, %gs:0x288
   movq %rcx, %gs:0x290
   movq %rdx, %gs:0x298
-  movl $COS_MSR, %ecx
-  movl $0, %edx
-  jmp L28
 
-L29:
-  swapgs
-L28:
-  movl $OS_COS, %eax
+  /* Switch to the OS cache partition. */
+  movl $COS_MSR, %ecx
+  movl $OS_COS, %eax  /* lower 32 bits = OS_COS */
+  movl $0, %edx       /* upper 32 bits = 0 */
   wrmsr
 
   movq %gs:0x298, %rdx
   movq %gs:0x290, %rcx
   movq %gs:0x288, %rax
-L21:
 #endif
 
   /*
    * Return to the calling code.  On x86_64, this will restore the stack
    * pointer regardless of whether we came from user mode or kernel mode.
+   *
+   * We came from user mode, so we will switch to the kernel %GS register
+   * before returning.
    */
+L28_iret:
   iretq
 
 /*
@@ -710,9 +720,10 @@ SVAsyscall:
   movq %rcx, %gs:0x290
   movq %rdx, %gs:0x298  
 
+  /* Switch to the SVA cache partition. */
   movl $COS_MSR, %ecx
-  movl $0, %edx
-  movl $SVA_COS, %eax
+  movl $SVA_COS, %eax  /* lower 32 bits = SVA_COS */
+  movl $0, %edx        /* upper 32 bits = 0 */
   wrmsr
 
   movq %gs:0x298, %rdx
@@ -925,9 +936,10 @@ L17:
 #endif
 
 #ifdef SVA_LLC_PART
+  /* Switch to the OS cache partition. */
   movl $COS_MSR, %ecx
-  movl $0, %edx
-  movl $OS_COS, %eax
+  movl $OS_COS, %eax  /* lower 32 bits = OS_COS */
+  movl $0, %edx       /* upper 32 bits = 0 */
   wrmsr
 #endif
 
@@ -944,9 +956,10 @@ sc_ret:
   cli
 
 #ifdef SVA_LLC_PART
+  /* Switch to the SVA cache partition. */
   movl $COS_MSR, %ecx
-  movl $0, %edx
-  movl $SVA_COS, %eax
+  movl $SVA_COS, %eax  /* lower 32 bits = SVA_COS */
+  movl $0, %edx        /* upper 32 bits = 0 */
   wrmsr
 #endif
 
@@ -1035,21 +1048,23 @@ L18:
   movq %rcx, %gs:0x290
   movq %rdx, %gs:0x298
 
-  movl $COS_MSR, %ecx
-  movl $0, %edx
-
-  movq %gs:0x260, %rax              // Test whether secmemSize is 0; if yes, use kernel's LLC partition
+  /* Switch to the application cache partition. */
+  /*
+   * Test whether secmemSize is 0; if so, this is not a ghosting application,
+   * and we should use the OS's LLC partition instead of a separate one for
+   * the the application.
+   */
+  movq %gs:0x260, %rax
   movq CPU_THREAD(%rax), %rax
   movq 0x7d58(%rax), %rax 
-  testq %rax, %rax
-  je L30
+  testq %rax, %rax    /* sets zero flag if we should use OS partition */
 
-  movl $APP_COS, %eax
-  jmp L31
-L30:
-  movl $OS_COS, %eax
-
-L31:
+  movl $COS_MSR, %ecx
+  movl $0, %edx       /* upper 32 bits = 0 in both cases */
+  movl $APP_COS, %eax /* lower 32 bits = APP_COS */
+  jnz L31_wrmsr       /* skip next instruction if using app partition */
+  movl $OS_COS, %eax  /* lower 32 bits = OS_COS  */
+L31_wrmsr:
   wrmsr
 
   movq %gs:0x298, %rdx
