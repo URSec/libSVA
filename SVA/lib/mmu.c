@@ -2280,6 +2280,7 @@ void usersva_to_kernel_pcid(void) {
 #endif
 
 #ifdef SVA_LLC_PART
+  /* Switch to the OS cache partition. */
   wrmsr(COS_MSR, OS_COS);
 #endif
 }
@@ -2325,6 +2326,7 @@ void kernel_to_usersva_pcid(void) {
 #endif
 
 #ifdef SVA_LLC_PART
+  /* Switch to the SVA cache partition. */
   wrmsr(COS_MSR, SVA_COS);
 #endif
 }
