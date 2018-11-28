@@ -478,6 +478,26 @@ sva_print_vmx_msrs(void) {
   printf("CPU physical-address width (MAXPHYADDR): 0x%hhx\n", paddrwidth);
   printf("CPU linear-address width: 0x%hhx\n", laddrwidth);
 
+#ifdef SVA_LLC_PART
+  /* Use CPUID to determine limits on RMID and COS features */
+  uint64_t max_rmid, max_cos;
+  asm __volatile__ (
+      "movl $0x0f, %%eax\n"
+      "movl $0x1, %%ecx\n"
+      "cpuid\n"
+      "movq %%rcx, %[max_rmid]\n"
+      "movl $0x10, %%eax\n"
+      "movl $0x1, %%ecx\n"
+      "cpuid\n"
+      "movq %%rcx, %[max_cos]\n"
+      : [max_rmid] "=rm" (max_rmid), [max_cos] "=rm" (max_cos)
+      :
+      : "rax", "rbx", "rcx", "rdx", "cc"
+      );
+  printf("Highest allowed RMID: 0x%lx\n", max_rmid);
+  printf("Highest allowed COS: 0x%lx\n", max_cos);
+#endif
+
   printf("\n------------------------------\n");
 }
 
