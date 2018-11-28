@@ -2718,9 +2718,33 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     return readvmcs_unchecked(field, data);
   }
   switch (field) {
-    /* TODO: implement checks. For now we treat all fields as safe. */
-    default:
+    /*
+     * These VMCS controls are safe to read unconditionally.
+     */
+    case VMCS_GUEST_RIP:
+    case VMCS_GUEST_RSP:
+    case VMCS_GUEST_RFLAGS:
+    case VMCS_VM_EXIT_REASON:
+    case VMCS_EXIT_QUAL:
+    case VMCS_GUEST_LINEAR_ADDR:
+    case VMCS_GUEST_PHYS_ADDR:
+    case VMCS_VM_EXIT_INTERRUPTION_INFO:
+    case VMCS_VM_EXIT_INTERRUPTION_ERROR_CODE:
+    case VMCS_IDT_VECTORING_INFO_FIELD:
+    case VMCS_IDT_VECTORING_ERROR_CODE:
+    case VMCS_VM_EXIT_INSTR_LENGTH:
+    case VMCS_VM_EXIT_INSTR_INFO:
+    case VMCS_VM_INSTR_ERROR:
       return readvmcs_unchecked(field, data);
+
+    default:
+      printf("SVA: Attempted read from VMCS field: 0x%lx (", field);
+      print_vmcs_field_name(field);
+      printf("\n");
+      panic("SVA: Disallowed read to unrecognized VMCS field.\n");
+
+      /* Unreachable code to silence compiler warning */
+      return -1;
   }
 }
 
@@ -3200,8 +3224,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
       return writevmcs_unchecked(field, data);
 
     default:
-      printf("SVA: Attempted write to VMCS field: 0x%lx (",
-          field);
+      printf("SVA: Attempted write to VMCS field: 0x%lx (", field);
       print_vmcs_field_name(field);
       printf("); value = 0x%lx\n", data);
       panic("SVA: Disallowed write to unrecognized VMCS field.\n");
