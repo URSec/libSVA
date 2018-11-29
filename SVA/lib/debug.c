@@ -1448,6 +1448,7 @@ sva_print_vmcs_allowed_settings() {
  */
 void
 sva_print_mpx_regs(void) {
+#ifdef MPX
   /* Store the MPX bounds registers into memory. */
   uint64_t bnd0[2], bnd1[2], bnd2[2], bnd3[2];
   asm __volatile__ (
@@ -1480,4 +1481,5 @@ sva_print_mpx_regs(void) {
 
   printf("MSR IA32_BNDCFGS: 0x%lx\n", rdmsr(MSR_IA32_BNDCFGS));
   printf("XCR0: 0x%lx\n", xcr0);
+#endif
 }
