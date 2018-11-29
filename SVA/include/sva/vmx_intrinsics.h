@@ -352,8 +352,8 @@ typedef struct sva_vmx_guest_state {
 #endif /* #ifdef SVA_LLC_PART */
 
   /*
-   *** STATE NOT SAVED/RESTORED BY PROCESSOR ON VM ENTRY/EXIT ***
-   * (i.e. needs to be saved/restored by SVA)
+   **** STATE NOT SAVED/RESTORED BY PROCESSOR ON VM ENTRY/EXIT ***
+   *    (i.e. that needs to be saved/restored by SVA)
    *
    * These fields always contain the latest values that represent the current
    * state of the guest.
@@ -407,9 +407,8 @@ typedef struct sva_vmx_guest_state {
    * VM entry/exit. The copies here are only used to store the initial values
    * provided to sva_allocvm() (which can't be saved to the VMCS until the VM
    * is actually loaded onto the processor). They are loaded into the VMCS by
-   * the run_vm() function the first time the VM is run. Thereafter, the
-   * copies here should be ignored since the VMCS contains the up-to-date
-   * values.
+   * sva_loadvm() the first time the VM is loaded. Thereafter, the copies
+   * here should be ignored since the VMCS contains the up-to-date values.
    */
 
   /* Program counter and stack pointer */

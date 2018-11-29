@@ -342,7 +342,8 @@ struct vmcs_vm_entry_interrupt_info_field {
  *  null, the descriptor can be assumed to not be assigned to a VM.)
  */
 typedef struct vm_desc_t {
-  /* Physical-address pointer to the VM's Virtual Machine Control Structure
+  /*
+   * Physical-address pointer to the VM's Virtual Machine Control Structure
    * (VMCS) frame.
    *
    * The VMCS contains numerous fields for controlling various aspects of the
@@ -366,7 +367,8 @@ typedef struct vm_desc_t {
    */
   uintptr_t vmcs_paddr;
 
-  /* Has the VM been launched since it was last made active (loaded) onto the
+  /*
+   * Has the VM been launched since it was last made active (loaded) onto the
    * processor? (true/false)
    *
    * (If and only if so, we should use the VMRESUME instruction for VM entry
@@ -374,32 +376,57 @@ typedef struct vm_desc_t {
    */
   unsigned char is_launched;
 
-  /* Has this VM ever been run?
+  /*
+   * Initial values of all VMCS controls for this VM.
    *
-   * There are a few VMCS fields which SVA needs to set to known values
-   * before the first run of a VM, but which will never need to be changed
-   * after that. This flag tells us if we need to do so on VM entry.
+   * This stores the initial settings provided to sva_allocvm() when creating
+   * a VM so that they can be written to the VMCS the first time it is loaded
+   * onto the processor. This is necessary because Intel's hardware interface
+   * only allows us to write to VMCS fields when the VMCS is active on the
+   * processor.
+   *
+   * This structure is not used any more after the first load of the VMCS.
+   * Once it's been loaded, the system software can use sva_writevmcs() to
+   * update individual VMCS fields.
    */
-  unsigned char has_run;
+  sva_vmx_vm_ctrls initial_ctrls;
 
-  /* Current values of all VMCS controls for this VM. */
-  sva_vmx_vm_ctrls ctrls;
-
-  /* State of the guest system virtualized by this VM.
+  /*
+   * State of the guest system virtualized by this VM.
    *
-   * GPRs are saved here on VM exit and restored on next VM entry.
+   * This structure includes two groups of fields:
    *
-   * RIP and RSP are also stored here, and these values are used to
-   * initialize RIP and RSP before the first VM launch.
+   * 1. Non-VMCS-resident state fields that must be saved and loaded by the
+   *    host on VM entry and exit. These are managed by SVA and "live" in
+   *    this structure when a VM is not running. The system software can read
+   *    and write these using the sva_getvmreg() and sva_setvmreg()
+   *    intrinsics.
    *
-   * NOTE: For now, the RIP and RSP fields here are not updated on VM exit or
-   * re-loaded on VM entry. (The processor takes care of saving/restoring
-   * them through fields in the VMCS.) We only save or load these here
-   * on-demand when the hypervisor wants to see or edit the guest's state.
+   * 2. VMCS-resident state fields that are automatically saved and loaded by
+   *    the processor on VM entry and exit. These are *only* stored in this
+   *    structure during the window of time between a new VM being created by
+   *    sva_allocvm() and when that VM is first loaded with sva_loadvmcs()
+   *    (our first opportunity to write to the VMCS). Thereafter, they are
+   *    managed by the processor and the values stored here are "dead". The
+   *    system software should read and write these using sva_readvmcs() and
+   *    sva_writevmcs().
    */
   sva_vmx_guest_state state;
 
-  /* Extended page-table pointer (EPT) for this VM.
+  /*
+   * Have VMCS fields been loaded with their initial values provided to
+   * sva_allocvm()?
+   *
+   * These initial values are stored in "initial_ctrls" and "state" above (as
+   * appropriate) and are written to the VMCS at the first opportunity,
+   * namely, the first time the VMCS is loaded. sva_loadvm() will set this
+   * flag after initializing the values to ensure that we don't attempt to
+   * reinstall the initial values on subsequent loads of the VMCS.
+   */
+  unsigned char vmcs_fields_initialized;
+
+  /*
+   * Extended page-table pointer (EPT) for this VM.
    *
    * Set on VM creation by the sva_allocvm() intrinsic, and accessed
    * thereafter by the sva_load_eptable() and sva_save_eptable() intrinsics.
