@@ -342,7 +342,8 @@ struct vmcs_vm_entry_interrupt_info_field {
  *  null, the descriptor can be assumed to not be assigned to a VM.)
  */
 typedef struct vm_desc_t {
-  /* Physical-address pointer to the VM's Virtual Machine Control Structure
+  /*
+   * Physical-address pointer to the VM's Virtual Machine Control Structure
    * (VMCS) frame.
    *
    * The VMCS contains numerous fields for controlling various aspects of the
@@ -366,7 +367,8 @@ typedef struct vm_desc_t {
    */
   uintptr_t vmcs_paddr;
 
-  /* Has the VM been launched since it was last made active (loaded) onto the
+  /*
+   * Has the VM been launched since it was last made active (loaded) onto the
    * processor? (true/false)
    *
    * (If and only if so, we should use the VMRESUME instruction for VM entry
@@ -374,7 +376,8 @@ typedef struct vm_desc_t {
    */
   unsigned char is_launched;
 
-  /* Has this VM ever been run?
+  /*
+   * Has this VM ever been run?
    *
    * There are a few VMCS fields which SVA needs to set to known values
    * before the first run of a VM, but which will never need to be changed
@@ -385,7 +388,8 @@ typedef struct vm_desc_t {
   /* Current values of all VMCS controls for this VM. */
   sva_vmx_vm_ctrls ctrls;
 
-  /* State of the guest system virtualized by this VM.
+  /*
+   * State of the guest system virtualized by this VM.
    *
    * GPRs are saved here on VM exit and restored on next VM entry.
    *
@@ -399,7 +403,8 @@ typedef struct vm_desc_t {
    */
   sva_vmx_guest_state state;
 
-  /* Extended page-table pointer (EPT) for this VM.
+  /*
+   * Extended page-table pointer (EPT) for this VM.
    *
    * Set on VM creation by the sva_allocvm() intrinsic, and accessed
    * thereafter by the sva_load_eptable() and sva_save_eptable() intrinsics.
