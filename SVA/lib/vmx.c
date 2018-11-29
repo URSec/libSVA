@@ -667,14 +667,17 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
   }
 
   /*
-   * Initialize VMCS controls.
+   * Save initial values of VMCS controls to be initialized the first the the
+   * VMCS is loaded. (Intel's hardware interface doesn't let us write to a
+   * VMCS unless it is active on the processor, so we can't do that here.)
    */
-  vm_descs[vmid].ctrls = *initial_ctrls;
+  vm_descs[vmid].initial_ctrls = *initial_ctrls;
 
   /*
    * Initialize the guest system state (registers, program counter, etc.).
    */
   vm_descs[vmid].state = *initial_state;
+
   /*
    * Initialize the Extended Page Table Pointer (EPTP).
    *
@@ -884,7 +887,8 @@ sva_loadvm(size_t vmid) {
     }
   }
 
-  /* Bounds check on vmid.
+  /*
+   * Bounds check on vmid.
    *
    * (vmid is unsigned, so this also checks for negative values.)
    */
@@ -893,7 +897,8 @@ sva_loadvm(size_t vmid) {
       panic("Fatal error: specified out-of-bounds VM ID!\n");
     }
   }
-  /* If this VM descriptor indicated by this ID has a null VMCS pointer, it
+  /*
+   * If this VM descriptor indicated by this ID has a null VMCS pointer, it
    * is not a valid descriptor. (i.e., it is an empty slot not assigned to
    * any VM)
    */
@@ -902,7 +907,8 @@ sva_loadvm(size_t vmid) {
       panic("Fatal error: tried to load an unallocated VM!\n");
     }
   }
-  /* If there is currently a VM active on the processor, it must be unloaded
+  /*
+   * If there is currently a VM active on the processor, it must be unloaded
    * before we can load a new one. Return an error.
    *
    * A non-null active_vm pointer indicates there is an active VM.
@@ -921,7 +927,8 @@ sva_loadvm(size_t vmid) {
   /* Set the indicated VM as the active one. */
   host_state.active_vm = &vm_descs[vmid];
 
-  /* Use the VMPTRLD instruction to make the indicated VM's VMCS active on
+  /*
+   * Use the VMPTRLD instruction to make the indicated VM's VMCS active on
    * the processor.
    */
   DBGPRNT(("Using VMPTRLD to make active the VMCS at paddr 0x%lx...\n",
@@ -948,6 +955,99 @@ sva_loadvm(size_t vmid) {
     usersva_to_kernel_pcid();
     sva_exit_critical(rflags);
     return -1;
+  }
+
+  /*
+   * If this is the first time this VMCS has been loaded, write the initial
+   * values of VMCS fields provided to sva_allocvm() to the VMCS.
+   *
+   * We had to wait until now to do this (instead of doing it immediately in
+   * sva_allocvm()) because Intel's hardware interface doesn't let you write
+   * to a VMCS that isn't currently active on the processor.
+   */
+  if (!host_state.active_vm->vmcs_fields_initialized) {
+    DBGPRNT(("sva_loadvm(): First time this VMCS has been loaded. "
+          "Initializing VMCS controls...\n"));
+
+    /*
+     * Set the VPID (Virtual Processor ID) field to be equal to the VM ID
+     * assigned to this VM by SVA.
+     *
+     * The VPID distinguishes TLB entries belonging to the VM from those
+     * belonging to the host and to other VMs.
+     *
+     * It must NOT be set to 0; that is used for the host.
+     */
+    /* TODO: SVA should really be using 16-bit integers for VM ID's, since
+     * VPIDs are limited to 16 bits. This is a processor-imposed hard limit on
+     * the number of VMs we can run concurrently if we want to take advantage
+     * of the VPID feature.
+     *
+     * Note also that we will need to avoid assigning 0 as a VM ID, since VPID
+     * = 0 is used to designate the host (and VM entry will fail if we attempt
+     * to use it for a VM).
+     *
+     * Also note: when we (in the future) want to support multi-CPU guests,
+     * each virtual CPU will require its own VMCS and VPID. Think about how we
+     * want to handle this: should the hypervisor be responsible for creating
+     * an independent "VM" (as far as SVA is concerned) for each VCPU and
+     * coordinating between them? Or is there a compelling reason for SVA to
+     * track them together? If so, we will need to devise a new scheme for
+     * allocating VPIDs, independent of SVA's VM IDs.
+     */
+    writevmcs_unchecked(VMCS_VPID, vmid);
+
+    /*
+     * Set the "CR3-target count" VM execution control to 0. The value doesn't
+     * actually matter because we are using EPT (and thus there are no
+     * restrictions on what the guest can load into CR3); but if we leave the
+     * value uninitialized, the processor may throw an error on VM entry if the
+     * value is greater than 4.
+     */
+    writevmcs_unchecked(VMCS_CR3_TARGET_COUNT, 0);
+
+    /*
+     * Set VMCS link pointer to indicate that we are not using VMCS shadowing.
+     *
+     * (SVA currently does not support VMCS shadowing.)
+     */
+    uint64_t vmcs_link_ptr = 0xffffffffffffffff;
+    writevmcs_unchecked(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
+
+    /*
+     * Set VM-entry/exit MSR load/store counts to 0 to indicate that we will
+     * not use the general-purpose MSR save/load feature.
+     *
+     * Some MSRs are individually saved/loaded on entry/exit as part of SVA's
+     * guest state management.
+     */
+    writevmcs_unchecked(VMCS_VM_ENTRY_MSR_LOAD_COUNT, 0);
+    writevmcs_unchecked(VMCS_VM_EXIT_MSR_LOAD_COUNT, 0);
+    writevmcs_unchecked(VMCS_VM_EXIT_MSR_STORE_COUNT, 0);
+
+    /*
+     * Load the initial values of VMCS controls that were passed to
+     * sva_allocvm() when this VM was created.
+     *
+     * FIXME: return error code instead of void from update_vmcs_ctrls() to
+     * handle errors cleanly
+     */
+    update_vmcs_ctrls();
+
+    /*
+     * Load the initial values of VMCS-resident guest state fields that were
+     * passed to sva_allocvm() when this VM was created.
+     *
+     * FIXME: return error code instead of void from this function to handle
+     * errors cleanly
+     */
+    save_restore_guest_state(0 /* this is a "restore" operation */);
+
+    /*
+     * Mark that we've initialized these fields so we don't try to do this
+     * again the next time this VMCS is loaded.
+     */
+    host_state.active_vm->vmcs_fields_initialized = 1;
   }
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -1477,105 +1577,6 @@ sva_resumevm(void) {
  */
 static int
 run_vm(unsigned char use_vmresume) {
-  /*
-   * If this is the first time this VM has ever been run, set any VMCS fields
-   * that have known values and will never need to be changed as long as the
-   * VM exists.
-   */
-  if (!host_state.active_vm->has_run) {
-    DBGPRNT(("run_vm: Setting fixed VMCS controls for first run of VM...\n"));
-
-    /*
-     * Set the VPID (Virtual Processor ID) field to be equal to the VM ID
-     * assigned to this VM by SVA.
-     *
-     * The VPID distinguishes TLB entries belonging to the VM from those
-     * belonging to the host and to other VMs.
-     *
-     * It must NOT be set to 0; that is used for the host.
-     */
-    /* TODO: SVA should really be using 16-bit integers for VM ID's, since
-     * VPIDs are limited to 16 bits. This is a processor-imposed hard limit on
-     * the number of VMs we can run concurrently if we want to take advantage
-     * of the VPID feature.
-     *
-     * Note also that we will need to avoid assigning 0 as a VM ID, since VPID
-     * = 0 is used to designate the host (and VM entry will fail if we attempt
-     * to use it for a VM).
-     *
-     * Also note: when we (in the future) want to support multi-CPU guests,
-     * each virtual CPU will require its own VMCS and VPID. Think about how we
-     * want to handle this: should the hypervisor be responsible for creating
-     * an independent "VM" (as far as SVA is concerned) for each VCPU and
-     * coordinating between them? Or is there a compelling reason for SVA to
-     * track them together? If so, we will need to devise a new scheme for
-     * allocating VPIDs, independent of SVA's VM IDs.
-     */
-
-    /*
-     * Determine the numeric ID of this VM. This is equal to its descriptor's
-     * index within the vm_descs array. We only have the active_vm pointer
-     * directly to the descriptor, so we need to do some pointer arithmetic
-     * to get the index.
-     *
-     * TODO: this will no longer be necessary when you change
-     * sva_launch/resumevm() to take a VMID as a parameter.
-     */
-    size_t vmid = host_state.active_vm - vm_descs;
-
-    writevmcs_unchecked(VMCS_VPID, vmid);
-
-    /*
-     * Set the "CR3-target count" VM execution control to 0. The value doesn't
-     * actually matter because we are using EPT (and thus there are no
-     * restrictions on what the guest can load into CR3); but if we leave the
-     * value uninitialized, the processor may throw an error on VM entry if the
-     * value is greater than 4.
-     */
-    writevmcs_unchecked(VMCS_CR3_TARGET_COUNT, 0);
-
-    /*
-     * Set VMCS link pointer to indicate that we are not using VMCS shadowing.
-     *
-     * (SVA currently does not support VMCS shadowing.)
-     */
-    uint64_t vmcs_link_ptr = 0xffffffffffffffff;
-    writevmcs_unchecked(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
-
-    /*
-     * Set VM-entry/exit MSR load/store counts to 0 to indicate that we will
-     * not use the general-purpose MSR save/load feature.
-     *
-     * Some MSRs are individually saved/loaded on entry/exit as part of SVA's
-     * guest stsate management.
-     */
-    writevmcs_unchecked(VMCS_VM_ENTRY_MSR_LOAD_COUNT, 0);
-    writevmcs_unchecked(VMCS_VM_EXIT_MSR_LOAD_COUNT, 0);
-    writevmcs_unchecked(VMCS_VM_EXIT_MSR_STORE_COUNT, 0);
-
-    /*
-     * Load the initial values of VMCS controls that were passed to
-     * sva_allocvm() when this VM was created.
-     */
-    DBGPRNT(("run_vm: Initializing non-fixed VMCS controls for "
-          "first run...\n"));
-    update_vmcs_ctrls();
-
-    /*
-     * Load the initial values of VMCS-resident guest state fields that were
-     * passed to sva_allocvm() when this VM was created.
-     */
-    DBGPRNT(("run_vm: Initializing VMCS-resident guest state fields for "
-          "first run...\n"));
-    save_restore_guest_state(0 /* this is a "restore" operation */);
-
-    /*
-     * Record the fact that we have set these one-time fields so we don't
-     * need to do it again on future runs.
-     */
-    host_state.active_vm->has_run = 1;
-  }
-
   /*
    * Load the VM's extended page table pointer (EPTP) from the VM descriptor.
    *
@@ -2411,33 +2412,47 @@ run_vm(unsigned char use_vmresume) {
  */
 static inline void
 update_vmcs_ctrls() {
+  /*
+   * FIXME: check return values from writevmcs_checked() and bail out sanely
+   * if any of the writes failed for whatever reason
+   *
+   * (This function should probably return an error code instead of void.)
+   */
+
   /* VM execution controls */
   writevmcs_checked(VMCS_PINBASED_VM_EXEC_CTRLS,
-      host_state.active_vm->ctrls.pinbased_exec_ctrls);
+      host_state.active_vm->initial_ctrls.pinbased_exec_ctrls);
   writevmcs_checked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-      host_state.active_vm->ctrls.procbased_exec_ctrls1);
+      host_state.active_vm->initial_ctrls.procbased_exec_ctrls1);
   writevmcs_checked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-      host_state.active_vm->ctrls.procbased_exec_ctrls2);
+      host_state.active_vm->initial_ctrls.procbased_exec_ctrls2);
   writevmcs_checked(VMCS_VM_ENTRY_CTRLS,
-      host_state.active_vm->ctrls.entry_ctrls);
+      host_state.active_vm->initial_ctrls.entry_ctrls);
   writevmcs_checked(VMCS_VM_EXIT_CTRLS,
-      host_state.active_vm->ctrls.exit_ctrls);
+      host_state.active_vm->initial_ctrls.exit_ctrls);
 
   /* Event injection and exception controls */
   writevmcs_checked(VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD,
-      host_state.active_vm->ctrls.entry_interrupt_info);
+      host_state.active_vm->initial_ctrls.entry_interrupt_info);
   writevmcs_checked(VMCS_EXCEPTION_BITMAP,
-      host_state.active_vm->ctrls.exception_exiting_bitmap);
+      host_state.active_vm->initial_ctrls.exception_exiting_bitmap);
 
   /* Control register guest/host masks */
   writevmcs_checked(VMCS_CR0_GUESTHOST_MASK,
-      host_state.active_vm->ctrls.cr0_guesthost_mask);
+      host_state.active_vm->initial_ctrls.cr0_guesthost_mask);
   writevmcs_checked(VMCS_CR4_GUESTHOST_MASK,
-      host_state.active_vm->ctrls.cr4_guesthost_mask);
+      host_state.active_vm->initial_ctrls.cr4_guesthost_mask);
 }
 
 /*
  * Function: save_restore_guest_state()
+ *
+ * FIXME: refactor this function. We no longer need to abstract around
+ * saving/loading like this since scrapped the omnibus get/set guest state
+ * intrinsics. This function is only used for initializing VMCS-resident
+ * guest state fields and should be named accordingly. It should call
+ * writevmcs_checked() directly instead of the (now unnecessary)
+ * read_write_vmcs_field() wrapper.
  *
  * Description:
  *  A local helper function which abstracts around whether we are saving or
@@ -2474,6 +2489,13 @@ update_vmcs_ctrls() {
  */
 static inline void
 save_restore_guest_state(unsigned char saverestore) {
+  /*
+   * FIXME: check return values from writevmcs_checked() and bail out sanely
+   * if any of the writes failed for whatever reason
+   *
+   * (This function should probably return an error code instead of void.)
+   */
+
   // FIXME; debug code
   if (saverestore /* saving state i.e. reading from VMCS */)
     panic("save_restore_guest_state() called in 'save' mode\n");
