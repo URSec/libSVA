@@ -1876,33 +1876,13 @@ run_vm(unsigned char use_vmresume) {
   /* Clear the TS flag to avoid a fptrap */
   __asm__ __volatile__ ("clts");
 
-
-  DBGPRNT(("[VM ENTRY] Saving host FP state\n"));
-
   /* Save the host FP state */
   save_fp( &(host_state.fp) );
-
-  DBGPRNT(("[VM ENTRY] Saved Host FP:\n"));
-  int i;
-  for ( i = 0; i < sizeof(host_state.fp.words); i++ ) {
-    if ( (i % 64) == 0 ) { DBGPRNT(( "\n" )); }
-    else if ( (i % 16) == 0 ) { DBGPRNT(( " " )); }
-    DBGPRNT(( "%02X", host_state.fp.words[i] ));
-  }
-  DBGPRNT(( "\n" ));
 
   /* Set SVA FP structure present bit to always load guest FP state */
   host_state.active_vm->state.fp.present = 1;
   /* Restore Guest FP state */
   load_fp( &(host_state.active_vm->state.fp) );
-
-  DBGPRNT(("[VM ENTRY] Loaded Guest FP state:\n"));
-  for ( i = 0; i < sizeof(host_state.active_vm->state.fp.words); i++ ) {
-    if ( (i % 64) == 0 ) { DBGPRNT(( "\n" )); }
-    else if ( (i % 16) == 0 ) { DBGPRNT(( " " )); }
-    DBGPRNT(( "%02X", host_state.active_vm->state.fp.words[i] ));
-  }
-  DBGPRNT(( "\n" ));
 
   asm __volatile__ (
       /* Save host RFLAGS.
@@ -2297,25 +2277,8 @@ run_vm(unsigned char use_vmresume) {
   /* Save Guest FPU state */
   save_fp( &(host_state.active_vm->state.fp) );
 
-  DBGPRNT(("[VM ENTRY] Saved Guest FP state:\n"));
-  for ( i = 0; i < sizeof(host_state.active_vm->state.fp.words); i++ ) {
-    if ( (i % 64) == 0 ) { DBGPRNT(( "\n" )); }
-    else if ( (i % 16) == 0 ) { DBGPRNT(( " " )); }
-    DBGPRNT(( "%02X", host_state.active_vm->state.fp.words[i] ));
-  }
-  DBGPRNT(( "\n" ));
-
-
   /* Restore Host FPU state */
   load_fp( &(host_state.fp) );
-
-  DBGPRNT(("[VM ENTRY] Restored Host FP state:\n"));
-  for ( i = 0; i < sizeof(host_state.fp.words); i++ ) {
-    if ( (i % 64) == 0 ) { DBGPRNT(( "\n" )); }
-    else if ( (i % 16) == 0 ) { DBGPRNT(( " " )); }
-    DBGPRNT(( "%02X", host_state.fp.words[i] ));
-  }
-  DBGPRNT(( "\n" ));
 
   /* Restore TS flag */
   if ( orig_ts ) {
