@@ -3241,6 +3241,67 @@ writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data) {
 }
 
 /*
+ * Intrinsic: sva_getfp()
+ *
+ * Description:
+ *  Gets the current FPU state of guest virtual machine.
+ *
+ * Parameters:
+ *  - vmid: the numeric handle of the virtual machine whose FPU state we are
+ *          to read.
+ *  - fp_state: a pointer to a buffer where the FPU state will be written   
+ *
+ * Return value:
+ *  True if fetching the guest FPU state succeeded.
+ *  False otherwise
+ */
+unsigned char
+sva_getfp(size_t vmid, unsigned char *fp_state ) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+  
+  if ( usevmx ) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
+  }
+
+  /*
+   * Bounds check on vmid.
+   *
+   * (vmid is unsigned, so this also checks for negative values.)
+   */
+  if ( usevmx ) {
+    if (vmid >= MAX_VMS) {
+      panic("Fatal error: specified out-of-bounds VM ID!\n");
+    }
+  }
+
+  const size_t fp_state_size = 512; 
+
+  if ( usevmx ) {
+    /* Check if it's safe to write to the region pointed to */
+    sva_check_memory_write( fp_state, fp_state_size ); /* Assumes FPU state size of 512B */
+  }
+
+  /* Do the copy from the guest VM structure to the (pointed to) output buffer */
+  memcpy( fp_state, &(vm_descs[vmid].state.fp.words), fp_state_size );
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+
+  return 1;
+}
+
+
+/*
  * Intrinsic: sva_getvmreg()
  *
  * Description:
