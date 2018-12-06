@@ -174,10 +174,32 @@ get_frame_from_os(void) {
         pte_t * pte_ptr = get_pteVaddr(pde_ptr, kerndmap_vaddr);
         if (isPresent(pte_ptr)) {
           /* The frame is still present in the kernel's direct map. */
+#if 0
           panic("SVA: OS gave us a frame for secure memory which it didn't "
               "remove from its direct map. The OS is lying to us and has "
               "been terminated with extreme prejudice. "
               "Frame physical address: 0x%lx\n", paddr);
+#endif
+
+          /*
+           * Forcibly remove the frame from the kernel's direct map.
+           *
+           * TODO: Find out why this is sometimes necessary. In theory this
+           * should never happen with a non-compromised kernel, and we should
+           * therefore be able to just panic instead of trying to "fix" the
+           * problem.
+           *
+           * Most of the time FreeBSD correctly removes its mapping, but
+           * we've observed that it sometimes fails to do so under "heavier"
+           * demand for ghost memory. (Specifically, this was observed when
+           * running the lmbench test "open_close" with GHOSTING=1.)
+           */
+#if 0
+          printf("SVA: OS gave us a frame for secure memory which it didn't "
+              "remove from its direct map. SVA will remove it. "
+              "Frame physical address: 0x%lx\n", paddr);
+#endif
+          __update_mapping(pte_ptr, ZERO_MAPPING);
         }
       }
     }
