@@ -7,7 +7,8 @@ then
     exit;
 fi
 
-export SRC_ROOT=`pwd`
+SRC_ROOT=`pwd`
+
 KERNNAME=shade_w_checks
 
 # Enable setup steps
@@ -47,11 +48,6 @@ function reinstallkernel {
   pushd $SRC_ROOT/usr/src
   sudo time make installkernel INSTKERNNAME=$KERNNAME __MAKE_CONF=$SRC_ROOT/make.conf
   popd
-
-  echo Deleting old /sva90/boot/$KERNNAME...
-  sudo rm -r /sva90/boot/$KERNNAME
-  echo Moving /boot/$KERNNAME to /sva90/boot/$KERNNAME...
-  sudo mv /boot/$KERNNAME /sva90/boot/
 
 }
 
