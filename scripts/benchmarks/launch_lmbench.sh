@@ -12,9 +12,6 @@ RESULTS_DIR=./results
 # Location of LMBench
 DIR=/usr/local/lib/lmbench/bin/amd64-freebsd9.3
 
-# Location of directories and files needed by test
-TMPDIR=`pwd`
-
 # Dummy file with random contents
 DUMMY=random.file
 
@@ -25,7 +22,7 @@ TIMESTAMP=$(date '+%Y%m%d_%H%M%S');
 GHOST_BENCH=1
 
 # Path to custom libc (for ghosting)  
-$GHOST_LIBC=/xdong/temp/lib/libc.so.7
+GHOST_LIBC=/xdong/temp/lib/libc.so.7
 
 if [ $GHOST_BENCH -eq 1 ]; then
     echo "Running Benchmarks with GHOSTING ENABLED"
