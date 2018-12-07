@@ -837,7 +837,8 @@ sva_freevm(size_t vmid) {
      */
     SVA_ASSERT(pgRefCount(ptpDesc) > 0,
         "SVA: MMU: frame metadata inconsistency detected "
-        "(attempted to decrement refcount below zero)");
+        "(attempted to decrement refcount below zero)"
+        "[EPTP released by freevm]");
     ptpDesc->count--;
   }
 

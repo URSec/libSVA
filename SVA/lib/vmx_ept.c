@@ -547,7 +547,8 @@ load_eptable_internal(
            */
           SVA_ASSERT(pgRefCount(old_ptpDesc) > 0,
                      "SVA: MMU: frame metadata inconsistency detected "
-                     "(attempted to decrement refcount below zero)");
+                     "(attempted to decrement refcount below zero)"
+                     "[EPTP replaced by sva_load_eptable()]");
           old_ptpDesc->count--;
       }
   }
