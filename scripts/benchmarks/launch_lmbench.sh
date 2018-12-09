@@ -50,7 +50,7 @@ do
   if [ $GHOST_BENCH -eq 0 ]; then
       $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $RESULTS_DIR/nullSyscall_$TIMESTAMP
   else
-      #GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $RESULTS_DIR/nullSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $RESULTS_DIR/nullSyscall_$TIMESTAMP
   fi
 done
 
@@ -61,7 +61,7 @@ do
   if [ $GHOST_BENCH -eq 0 ]; then
       $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $RESULTS_DIR/forkSyscall_$TIMESTAMP
   else
-      #GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $RESULTS_DIR/forkSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $RESULTS_DIR/forkSyscall_$TIMESTAMP
   fi
 done
 
