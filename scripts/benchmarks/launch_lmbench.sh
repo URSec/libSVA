@@ -12,7 +12,11 @@ RESULTS_DIR=./results
 # Location of LMBench
 DIR=/usr/local/lib/lmbench/bin/amd64-freebsd9.3
 
+# Location of directories and files needed by test
+TMPDIR=`pwd`
+
 # Dummy file with random contents
+FSDIR=/root/vmx_bench/scripts/results
 DUMMY=random.file
 
 # Capture date
@@ -30,6 +34,11 @@ else
     echo "Running Benchmarks with GHOSTING DISABLED"
 fi
 
+# Disable core dumps because lmbench (particularly the fork+exec test) tends
+# to creash when they're enabled. (We haven't yet figured out why, but it
+# seems to run fine with dumps disabled.)
+ulimit -c 0
+
 echo "Generating Random Content File: $FSDIR/$DUMMY"
 head -c 10000000 /dev/urandom > $RESULTS_DIR/$DUMMY
 echo "Benchmark started on: $TIMESTAMP"
@@ -41,7 +50,7 @@ do
   if [ $GHOST_BENCH -eq 0 ]; then
       $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $RESULTS_DIR/nullSyscall_$TIMESTAMP
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $RESULTS_DIR/nullSyscall_$TIMESTAMP
+      #GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $RESULTS_DIR/nullSyscall_$TIMESTAMP
   fi
 done
 
@@ -52,7 +61,7 @@ do
   if [ $GHOST_BENCH -eq 0 ]; then
       $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $RESULTS_DIR/forkSyscall_$TIMESTAMP
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $RESULTS_DIR/forkSyscall_$TIMESTAMP
+      #GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $RESULTS_DIR/forkSyscall_$TIMESTAMP
   fi
 done
 
