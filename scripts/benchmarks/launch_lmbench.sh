@@ -6,9 +6,6 @@ REPS=1000
 # Number of benchmarking runs
 NUM_ROUNDS=10
 
-# Ouput file directory
-RESULTS_DIR=./results
-
 # Location of LMBench
 DIR=/usr/local/lib/lmbench/bin/amd64-freebsd9.3
 
@@ -40,7 +37,7 @@ fi
 ulimit -c 0
 
 echo "Generating Random Content File: $FSDIR/$DUMMY"
-head -c 10000000 /dev/urandom > $RESULTS_DIR/$DUMMY
+head -c 10000000 /dev/urandom > $FSDIR/$DUMMY
 echo "Benchmark started on: $TIMESTAMP"
 
 echo "Running benchmark: Syscalls"
@@ -48,9 +45,9 @@ echo "Running benchmark: Syscalls"
 for i in $(seq 1 10)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
-      $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $RESULTS_DIR/nullSyscall_$TIMESTAMP
+      $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $FSDIR/nullSyscall_$TIMESTAMP
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $RESULTS_DIR/nullSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $FSDIR/nullSyscall_$TIMESTAMP
   fi
 done
 
@@ -59,9 +56,9 @@ echo "Running benchmark: Fork"
 for i in $(seq 1 10)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
-      $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $RESULTS_DIR/forkSyscall_$TIMESTAMP
+      $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $FSDIR/forkSyscall_$TIMESTAMP
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $RESULTS_DIR/forkSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $FSDIR/forkSyscall_$TIMESTAMP
   fi
 done
 
@@ -70,9 +67,9 @@ echo "Running benchmark: Fork+Exec"
 for i in $(seq 1 10)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
-      $DIR/lat_proc -N $REPS exec 2>&1 | tee -a $RESULTS_DIR/execSyscall_$TIMESTAMP
+      $DIR/lat_proc -N $REPS exec 2>&1 | tee -a $FSDIR/execSyscall_$TIMESTAMP
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS exec 2>&1 | tee -a $RESULTS_DIR/execSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS exec 2>&1 | tee -a $FSDIR/execSyscall_$TIMESTAMP
   fi
 done
 
@@ -81,9 +78,9 @@ echo "Running benchmark: MMap"
 for i in $(seq 1 10)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
-      $DIR/lat_mmap -N $REPS 1m $FSDIR/$DUMMY 2>&1 | tee -a $RESULTS_DIR/mmapSyscall_$TIMESTAMP
+      $DIR/lat_mmap -N $REPS 1m $FSDIR/$DUMMY 2>&1 | tee -a $FSDIR/mmapSyscall_$TIMESTAMP
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_mmap -N $REPS 1m $FSDIR/$DUMMY 2>&1 | tee -a $RESULTS_DIR/mmapSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_mmap -N $REPS 1m $FSDIR/$DUMMY 2>&1 | tee -a $FSDIR/mmapSyscall_$TIMESTAMP
   fi
 done
 
@@ -92,9 +89,9 @@ echo "Running benchmark: Pagefaults"
 for i in $(seq 1 10)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
-      $DIR/lat_pagefault -N $REPS $FSDIR/$DUMMY 2>&1 | tee -a $RESULTS_DIR/pgSyscall_$TIMESTAMP
+      $DIR/lat_pagefault -N $REPS $FSDIR/$DUMMY 2>&1 | tee -a $FSDIR/pgSyscall_$TIMESTAMP
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_pagefault -N $REPS $FSDIR/$DUMMY 2>&1 | tee -a $RESULTS_DIR/pgSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_pagefault -N $REPS $FSDIR/$DUMMY 2>&1 | tee -a $FSDIR/pgSyscall_$TIMESTAMP
   fi
 done
 
@@ -103,9 +100,9 @@ echo "Running benchmark: Open/Close"
 for i in $(seq 1 10)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
-      /xdong/lmbench_bin/lat_syscall -N $REPS open 2>&1 | tee -a $RESULTS_DIR/openSyscall_$TIMESTAMP
+      /xdong/lmbench_bin/lat_syscall -N $REPS open 2>&1 | tee -a $FSDIR/openSyscall_$TIMESTAMP
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC /xdong/lmbench_bin/lat_syscall -N $REPS open 2>&1 | tee -a $RESULTS_DIR/openSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC /xdong/lmbench_bin/lat_syscall -N $REPS open 2>&1 | tee -a $FSDIR/openSyscall_$TIMESTAMP
   fi
 done
 
