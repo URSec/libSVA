@@ -42,7 +42,7 @@ echo "Benchmark started on: $TIMESTAMP"
 
 echo "Running benchmark: Syscalls"
 # System call latency
-for i in $(seq 1 10)
+for i in $(seq 1 $NUM_ROUNDS)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
       $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $FSDIR/nullSyscall_$TIMESTAMP
@@ -53,7 +53,7 @@ done
 
 # fork
 echo "Running benchmark: Fork"
-for i in $(seq 1 10)
+for i in $(seq 1 $NUM_ROUNDS)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
       $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $FSDIR/forkSyscall_$TIMESTAMP
@@ -64,7 +64,7 @@ done
 
 # fork+exec
 echo "Running benchmark: Fork+Exec"
-for i in $(seq 1 10)
+for i in $(seq 1 $NUM_ROUNDS)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
       $DIR/lat_proc -N $REPS exec 2>&1 | tee -a $FSDIR/execSyscall_$TIMESTAMP
@@ -75,7 +75,7 @@ done
 
 # mmap
 echo "Running benchmark: MMap"
-for i in $(seq 1 10)
+for i in $(seq 1 $NUM_ROUNDS)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
       $DIR/lat_mmap -N $REPS 1m $FSDIR/$DUMMY 2>&1 | tee -a $FSDIR/mmapSyscall_$TIMESTAMP
@@ -86,7 +86,7 @@ done
 
 # pagefault
 echo "Running benchmark: Pagefaults"
-for i in $(seq 1 10)
+for i in $(seq 1 $NUM_ROUNDS)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
       $DIR/lat_pagefault -N $REPS $FSDIR/$DUMMY 2>&1 | tee -a $FSDIR/pgSyscall_$TIMESTAMP
@@ -97,7 +97,7 @@ done
 
 echo "Running benchmark: Open/Close"
 # Open/Close Test
-for i in $(seq 1 10)
+for i in $(seq 1 $NUM_ROUNDS)
 do
   if [ $GHOST_BENCH -eq 0 ]; then
       /xdong/lmbench_bin/lat_syscall -N $REPS open 2>&1 | tee -a $FSDIR/openSyscall_$TIMESTAMP
@@ -107,14 +107,14 @@ do
 done
 
 # Context switching Test
-#for i in $(seq 1 10)
+#for i in $(seq 1 $NUM_ROUNDS)
 #do
 #  $DIR/lat_ctx -N $REPS 0k 2 2>&1 | tee -a ctx
 #done
 
 
 # Creating/remove files
-#for i in $(seq 1 10)
+#for i in $(seq 1 $NUM_ROUNDS)
 #do
 #  echo "Running lat_fs: $i"
 #  $DIR/lat_fs -N $REPS $FSDIR/tmp 2>&1 | tee -a fsSyscall
