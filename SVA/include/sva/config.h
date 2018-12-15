@@ -98,8 +98,12 @@ getProcessorID() {
    * Use the CPUID instruction to get a local APIC2 ID for the processor.
    */
   unsigned int apicID;
-  __asm__ __volatile__ ("movl $0xB, %%eax\ncpuid" : "=d" (apicID)
-          : : "a", "b", "c");
+  __asm__ __volatile__ (
+      "movl $0xB, %%eax\n"
+      "cpuid"
+      : "=d" (apicID)
+      : : "rax", "rbx", "rcx"
+      );
 
   /*
    * Convert the APIC2 ID into an SVA logical processor ID.
