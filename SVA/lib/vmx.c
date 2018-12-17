@@ -18,6 +18,7 @@
 #include <sva/mmu.h>
 #include <sva/mpx.h>
 #include <sva/config.h>
+#include <sva/callbacks.h>
 
 #include "icat.h"
 
@@ -691,10 +692,18 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    * Allocate a physical frame of SVA secure memory from the frame cache to
    * serve as this VM's Virtual Machine Control Structure.
    *
-   * This frame is not mapped anywhere except in SVA's DMAP, ensuring that
+   * This frame is protected by SVA's SFI instrumentation, ensuring that
    * the OS cannot touch it without going through an SVA intrinsic.
    */
-  vm_descs[vmid].vmcs_paddr = alloc_frame();
+  if (usevmx) {
+    vm_descs[vmid].vmcs_paddr = alloc_frame();
+  } else {
+    /*
+     * Unchecked version: get a frame directly from the OS without going
+     * through the secmem allocation callback and frame cahce infrastructure.
+     */
+    vm_descs[vmid].vmcs_paddr = kernel_alloc_frame_unchecked();
+  }
 
   /* Zero-fill the VMCS frame, for good measure. */
   unsigned char * vmcs_vaddr = getVirtualSVADMAP(vm_descs[vmid].vmcs_paddr);
@@ -745,7 +754,11 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
 
     /* Return the VMCS frame to the frame cache. */
     DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));
-    free_frame(vm_descs[vmid].vmcs_paddr);
+    if (usevmx) {
+      free_frame(vm_descs[vmid].vmcs_paddr);
+    } else {
+      kernel_free_frame_unchecked(vm_descs[vmid].vmcs_paddr);
+    }
 
     /* Restore the VM descriptor to a clear state so that it is interpreted
      * as a free slot.
@@ -824,27 +837,31 @@ sva_freevm(size_t vmid) {
     }
   }
 
+  /*
+   * Decrement the refcount for the VM's top-level extended-page-table page
+   * to reflect the fact that this VM is no longer using it.
+   */
+  page_desc_t *ptpDesc = getPageDescPtr(vm_descs[vmid].eptp);
+  /*
+   * Check that the refcount isn't already zero (in which case we'd
+   * underflow). If so, our frame metadata has become inconsistent (as a
+   * reference clearly exists).
+   */
   if (usevmx) {
-    /*
-     * Decrement the refcount for the VM's top-level extended-page-table page
-     * to reflect the fact that this VM is no longer using it.
-     */
-    page_desc_t *ptpDesc = getPageDescPtr(vm_descs[vmid].eptp);
-    /*
-     * Check that the refcount isn't already zero (in which case we'd
-     * underflow). If so, our frame metadata has become inconsistent (as a
-     * reference clearly exists).
-     */
     SVA_ASSERT(pgRefCount(ptpDesc) > 0,
         "SVA: MMU: frame metadata inconsistency detected "
         "(attempted to decrement refcount below zero)"
         "[EPTP released by freevm]");
-    ptpDesc->count--;
   }
+  ptpDesc->count--;
 
   /* Return the VMCS frame to the frame cache. */
   DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));
-  free_frame(vm_descs[vmid].vmcs_paddr);
+  if (usevmx) {
+    free_frame(vm_descs[vmid].vmcs_paddr);
+  } else {
+    kernel_free_frame_unchecked(vm_descs[vmid].vmcs_paddr);
+  }
 
   /* Zero-fill this slot in the vm_descs struct to mark it as unused. */
   memset(&vm_descs[vmid], 0, sizeof(vm_desc_t));
@@ -1219,12 +1236,7 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
    * Perform the read if it won't leak sensitive information to the system
    * software (or if it can be sanitized).
    */
-  int retval;
-  if (usevmx) {
-    retval = readvmcs_checked(field, data);
-  } else { 
-    retval = readvmcs_unchecked(field, data);
-  }
+  int retval = readvmcs_checked(field, data);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -1303,12 +1315,7 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
    * Vet the value to be written to ensure that it will not compromise system
    * security, and perform the write.
    */
-  int retval; 
-  if (usevmx) { 
-    retval = writevmcs_checked(field, data);
-  } else { 
-    retval = writevmcs_unchecked(field, data);
-  }
+  int retval = writevmcs_checked(field, data);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();

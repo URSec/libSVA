@@ -25,4 +25,15 @@ extern void releaseSVAMemory (uintptr_t, uintptr_t size);
 extern int printf(const char *, ...);
 extern int panic(const char *, ...);
 
+/*
+ * These callbacks are an insecure alternative to the secmem frame allocation
+ * functions. They are intended to be used only to support benchmarking
+ * comparisons where the baseline should not include secmem overhead.
+ *
+ * (The motivating example of this is some SVA-VMX code which skips numerous
+ * security checks when a compile-time option is set accordingly.)
+ */
+uintptr_t kernel_alloc_frame_unchecked(void);
+void kernel_free_frame_unchecked(uintptr_t paddr);
+
 #endif
