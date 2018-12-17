@@ -18,7 +18,6 @@
 #include <sva/mmu.h>
 #include <sva/mpx.h>
 #include <sva/config.h>
-#include <sva/callbacks.h>
 
 #include "icat.h"
 
@@ -695,15 +694,7 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    * This frame is protected by SVA's SFI instrumentation, ensuring that
    * the OS cannot touch it without going through an SVA intrinsic.
    */
-  if (usevmx) {
-    vm_descs[vmid].vmcs_paddr = alloc_frame();
-  } else {
-    /*
-     * Unchecked version: get a frame directly from the OS without going
-     * through the secmem allocation callback and frame cahce infrastructure.
-     */
-    vm_descs[vmid].vmcs_paddr = kernel_alloc_frame_unchecked();
-  }
+  vm_descs[vmid].vmcs_paddr = alloc_frame();
 
   /* Zero-fill the VMCS frame, for good measure. */
   unsigned char * vmcs_vaddr = getVirtualSVADMAP(vm_descs[vmid].vmcs_paddr);
@@ -754,11 +745,7 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
 
     /* Return the VMCS frame to the frame cache. */
     DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));
-    if (usevmx) {
-      free_frame(vm_descs[vmid].vmcs_paddr);
-    } else {
-      kernel_free_frame_unchecked(vm_descs[vmid].vmcs_paddr);
-    }
+    free_frame(vm_descs[vmid].vmcs_paddr);
 
     /* Restore the VM descriptor to a clear state so that it is interpreted
      * as a free slot.
@@ -857,11 +844,7 @@ sva_freevm(size_t vmid) {
 
   /* Return the VMCS frame to the frame cache. */
   DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));
-  if (usevmx) {
-    free_frame(vm_descs[vmid].vmcs_paddr);
-  } else {
-    kernel_free_frame_unchecked(vm_descs[vmid].vmcs_paddr);
-  }
+  free_frame(vm_descs[vmid].vmcs_paddr);
 
   /* Zero-fill this slot in the vm_descs struct to mark it as unused. */
   memset(&vm_descs[vmid], 0, sizeof(vm_desc_t));
