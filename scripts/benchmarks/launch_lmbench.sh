@@ -111,20 +111,9 @@ for i in $(seq 1 $NUM_ROUNDS)
 do
   OUTFILE=$FSDIR/openClose_$TIMESTAMP
   if [ $GHOST_BENCH -eq 0 ]; then
-      /xdong/lmbench_bin/lat_syscall -N $REPS open 2>&1 | tee -a $OUTFILE
+      $DIR/lat_syscall -N $REPS open 2>&1 | tee -a $OUTFILE
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC /xdong/lmbench_bin/lat_syscall -N $REPS open 2>&1 | tee -a $OUTFILE
-  fi
-done
-
-echo "Running benchmark: Read"
-for i in $(seq 1 $NUM_ROUNDS)
-do
-  OUTFILE=$FSDIR/read_$TIMESTAMP
-  if [ $GHOST_BENCH -eq 0 ]; then
-      $DIR/lat_syscall -N $REPS read 2>&1 | tee -a $OUTFILE
-  else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS read 2>&1 | tee -a $OUTFILE
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS open 2>&1 | tee -a $OUTFILE
   fi
 done
 
