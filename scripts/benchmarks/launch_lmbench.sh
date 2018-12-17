@@ -41,82 +41,189 @@ head -c 10000000 /dev/urandom > $FSDIR/$DUMMY
 echo "Benchmark started on: $TIMESTAMP"
 
 echo "Running benchmark: Syscalls"
-# System call latency
 for i in $(seq 1 $NUM_ROUNDS)
 do
+  OUTFILE=$FSDIR/nullSyscall_$TIMESTAMP
   if [ $GHOST_BENCH -eq 0 ]; then
-      $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $FSDIR/nullSyscall_$TIMESTAMP
+      $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $OUTFILE
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $FSDIR/nullSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS null 2>&1 | tee -a $OUTFILE
   fi
 done
 
-# fork
-echo "Running benchmark: Fork"
+echo "Running benchmark: Fork+Exit"
 for i in $(seq 1 $NUM_ROUNDS)
 do
+  OUTFILE=$FSDIR/forkExit_$TIMESTAMP
   if [ $GHOST_BENCH -eq 0 ]; then
-      $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $FSDIR/forkSyscall_$TIMESTAMP
+      $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $OUTFILE
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $FSDIR/forkSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS fork 2>&1 | tee -a $OUTFILE
   fi
 done
 
-# fork+exec
 echo "Running benchmark: Fork+Exec"
 for i in $(seq 1 $NUM_ROUNDS)
 do
+  OUTFILE=$FSDIR/forkExec_$TIMESTAMP
   if [ $GHOST_BENCH -eq 0 ]; then
-      $DIR/lat_proc -N $REPS exec 2>&1 | tee -a $FSDIR/execSyscall_$TIMESTAMP
+      $DIR/lat_proc -N $REPS exec 2>&1 | tee -a $OUTFILE
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS exec 2>&1 | tee -a $FSDIR/execSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS exec 2>&1 | tee -a $OUTFILE
   fi
 done
 
-# mmap
+echo "Running benchmark: Fork+Shell"
+for i in $(seq 1 $NUM_ROUNDS)
+do
+  OUTFILE=$FSDIR/forkShell_$TIMESTAMP
+  if [ $GHOST_BENCH -eq 0 ]; then
+      $DIR/lat_proc -N $REPS shell 2>&1 | tee -a $OUTFILE
+  else
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS shell 2>&1 | tee -a $OUTFILE
+  fi
+done
+
 echo "Running benchmark: MMap"
 for i in $(seq 1 $NUM_ROUNDS)
 do
+  OUTFILE=$FSDIR/mmap_$TIMESTAMP
   if [ $GHOST_BENCH -eq 0 ]; then
-      $DIR/lat_mmap -N $REPS 1m $FSDIR/$DUMMY 2>&1 | tee -a $FSDIR/mmapSyscall_$TIMESTAMP
+      $DIR/lat_mmap -N $REPS 1m $FSDIR/$DUMMY 2>&1 | tee -a $OUTFILE
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_mmap -N $REPS 1m $FSDIR/$DUMMY 2>&1 | tee -a $FSDIR/mmapSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_mmap -N $REPS 1m $FSDIR/$DUMMY 2>&1 | tee -a $OUTFILE
   fi
 done
 
-# pagefault
 echo "Running benchmark: Pagefaults"
 for i in $(seq 1 $NUM_ROUNDS)
 do
+  OUTFILE=$FSDIR/pgFault_$TIMESTAMP
   if [ $GHOST_BENCH -eq 0 ]; then
-      $DIR/lat_pagefault -N $REPS $FSDIR/$DUMMY 2>&1 | tee -a $FSDIR/pgSyscall_$TIMESTAMP
+      $DIR/lat_pagefault -N $REPS $FSDIR/$DUMMY 2>&1 | tee -a $OUTFILE
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_pagefault -N $REPS $FSDIR/$DUMMY 2>&1 | tee -a $FSDIR/pgSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_pagefault -N $REPS $FSDIR/$DUMMY 2>&1 | tee -a $OUTFILE
   fi
 done
 
 echo "Running benchmark: Open/Close"
-# Open/Close Test
 for i in $(seq 1 $NUM_ROUNDS)
 do
+  OUTFILE=$FSDIR/openClose_$TIMESTAMP
   if [ $GHOST_BENCH -eq 0 ]; then
-      /xdong/lmbench_bin/lat_syscall -N $REPS open 2>&1 | tee -a $FSDIR/openSyscall_$TIMESTAMP
+      /xdong/lmbench_bin/lat_syscall -N $REPS open 2>&1 | tee -a $OUTFILE
   else
-      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC /xdong/lmbench_bin/lat_syscall -N $REPS open 2>&1 | tee -a $FSDIR/openSyscall_$TIMESTAMP
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC /xdong/lmbench_bin/lat_syscall -N $REPS open 2>&1 | tee -a $OUTFILE
   fi
 done
 
-# Context switching Test
-#for i in $(seq 1 $NUM_ROUNDS)
-#do
-#  $DIR/lat_ctx -N $REPS 0k 2 2>&1 | tee -a ctx
-#done
+echo "Running benchmark: Read"
+for i in $(seq 1 $NUM_ROUNDS)
+do
+  OUTFILE=$FSDIR/read_$TIMESTAMP
+  if [ $GHOST_BENCH -eq 0 ]; then
+      $DIR/lat_syscall -N $REPS read 2>&1 | tee -a $OUTFILE
+  else
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS read 2>&1 | tee -a $OUTFILE
+  fi
+done
+
+echo "Running benchmark: Read"
+for i in $(seq 1 $NUM_ROUNDS)
+do
+  OUTFILE=$FSDIR/read_$TIMESTAMP
+  if [ $GHOST_BENCH -eq 0 ]; then
+      $DIR/lat_syscall -N $REPS read 2>&1 | tee -a $OUTFILE
+  else
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS read 2>&1 | tee -a $OUTFILE
+  fi
+done
+
+echo "Running benchmark: Write"
+for i in $(seq 1 $NUM_ROUNDS)
+do
+  OUTFILE=$FSDIR/write_$TIMESTAMP
+  if [ $GHOST_BENCH -eq 0 ]; then
+      $DIR/lat_syscall -N $REPS write 2>&1 | tee -a $OUTFILE
+  else
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS write 2>&1 | tee -a $OUTFILE
+  fi
+done
+
+echo "Running benchmark: Stat"
+for i in $(seq 1 $NUM_ROUNDS)
+do
+  OUTFILE=$FSDIR/stat_$TIMESTAMP
+  if [ $GHOST_BENCH -eq 0 ]; then
+      $DIR/lat_syscall -N $REPS stat 2>&1 | tee -a $OUTFILE
+  else
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_syscall -N $REPS stat 2>&1 | tee -a $OUTFILE
+  fi
+done
+
+echo "Running benchmark: Context Switch"
+for i in $(seq 1 $NUM_ROUNDS)
+do
+  OUTFILE=$FSDIR/contextSwitch_$TIMESTAMP
+  if [ $GHOST_BENCH -eq 0 ]; then
+      $DIR/lat_ctx -N $REPS 0k 2 2>&1 | tee -a $OUTFILE
+  else
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_ctx -N $REPS 0k 2 2>&1 | tee -a $OUTFILE
+  fi
+done
+
+echo "Running benchmark: SigHandler Install"
+for i in $(seq 1 $NUM_ROUNDS)
+do
+  OUTFILE=$FSDIR/sigInstall_$TIMESTAMP
+  if [ $GHOST_BENCH -eq 0 ]; then
+      $DIR/lat_sig -N $REPS install 2>&1 | tee -a $OUTFILE
+  else
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_sig -N $REPS install 2>&1 | tee -a $OUTFILE
+  fi
+done
 
 
-# Creating/remove files
-#for i in $(seq 1 $NUM_ROUNDS)
-#do
-#  echo "Running lat_fs: $i"
-#  $DIR/lat_fs -N $REPS $FSDIR/tmp 2>&1 | tee -a fsSyscall
-#done
+echo "Running benchmark: SigHandler Delivery"
+for i in $(seq 1 $NUM_ROUNDS)
+do
+  OUTFILE=$FSDIR/sigDeliver_$TIMESTAMP
+  if [ $GHOST_BENCH -eq 0 ]; then
+      $DIR/lat_sig -N $REPS catch 2>&1 | tee -a $OUTFILE
+  else
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_sig -N $REPS catch 2>&1 | tee -a $OUTFILE
+  fi
+done
 
+echo "Running benchmark: Select"
+for i in $(seq 1 $NUM_ROUNDS)
+do
+  OUTFILE=$FSDIR/select_$TIMESTAMP
+  if [ $GHOST_BENCH -eq 0 ]; then
+      $DIR/lat_select -N $REPS file 2>&1 | tee -a $OUTFILE
+  else
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_select -N $REPS file 2>&1 | tee -a $OUTFILE
+  fi
+done
+    
+echo "Running benchmark: Fcntl Lock"
+for i in $(seq 1 $NUM_ROUNDS)
+do
+  OUTFILE=$FSDIR/fcntl_$TIMESTAMP
+  if [ $GHOST_BENCH -eq 0 ]; then
+      $DIR/lat_fcntl -N $REPS 2>&1 | tee -a $OUTFILE
+  else
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_fcntl -N $REPS 2>&1 | tee -a $OUTFILE
+  fi
+done
+
+echo "Running benchmark: Pipe"
+for i in $(seq 1 $NUM_ROUNDS)
+do
+  OUTFILE=$FSDIR/pipe_$TIMESTAMP
+  if [ $GHOST_BENCH -eq 0 ]; then
+      $DIR/lat_pipe -N $REPS 2>&1 | tee -a $OUTFILE
+  else
+      GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_pipe -N $REPS 2>&1 | tee -a $OUTFILE
+  fi
+done
