@@ -9,7 +9,29 @@ fi
 
 SRC_ROOT=`pwd`
 
-KERNNAME=shade_w_checks
+KERNNAME=new_kernel
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+    key="$1"
+    case $key in
+        -k|--kernname)
+            KERNNAME="$2"
+            shift # past argument
+            shift # past value
+            ;;
+        -j|--jobs)
+            JOBS="$2"
+            shift # past argument
+            shift # past value
+            ;;
+        *)    # unknown option
+            POSITIONAL+=("$1") # save it in an array for later
+            shift # past argument
+            ;;
+    esac
+done
 
 # Enable setup steps
 do_configure=0
@@ -17,7 +39,7 @@ do_buildsva=1
 do_buildllvm=0
 do_buildkern=1
 do_nextboot=0
-do_90=1
+do_90=0
 do_reboot=0
 
 # configure options
@@ -39,7 +61,7 @@ function rebuildkernel {
 function rebuildkernel_j32 {
 
   pushd $SRC_ROOT/usr/src
-  time make buildkernel INSTKERNNAME=$KERNNAME __MAKE_CONF=$SRC_ROOT/make.conf -j32
+  time make buildkernel INSTKERNNAME=$KERNNAME __MAKE_CONF=$SRC_ROOT/make.conf ${JOBS:+'-j'}$JOBS
   popd
 }
 
