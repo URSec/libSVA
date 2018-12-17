@@ -21,6 +21,11 @@ do
             shift # past argument
             shift # past value
             ;;
+        -j|--jobs)
+            JOBS="$2"
+            shift # past argument
+            shift # past value
+            ;;
         *)    # unknown option
             POSITIONAL+=("$1") # save it in an array for later
             shift # past argument
@@ -56,7 +61,7 @@ function rebuildkernel {
 function rebuildkernel_j32 {
 
   pushd $SRC_ROOT/usr/src
-  time make buildkernel INSTKERNNAME=$KERNNAME __MAKE_CONF=$SRC_ROOT/make.conf -j32
+  time make buildkernel INSTKERNNAME=$KERNNAME __MAKE_CONF=$SRC_ROOT/make.conf ${JOBS:+'-j'}$JOBS
   popd
 }
 
