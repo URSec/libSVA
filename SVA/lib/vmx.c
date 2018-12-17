@@ -1522,15 +1522,6 @@ sva_resumevm(void) {
  *  mode (VM entry/exit).
  *
  *  This entails:
- *  - Updating any VMCS controls that have become stale, either because the
- *    VM is being run for the first time or because the hypervisor has edited
- *    them since the last time it was run.
- *
- *  - Updating any guest-state fields in the VMCS that have become stale,
- *    either because the VM is being run for the first time or because the
- *    hypervisor has edited them (using the sva_setvmstate() intrinsic) since
- *    the last time it was run.
- *
  *  - Loading the extended page table pointer (EPTP) for the VM.
  *
  *  - Setting various VMCS fields containing host state to be restored on VM
@@ -1540,8 +1531,7 @@ sva_resumevm(void) {
  *
  *  - Saving additional host state that will not automatically be restored by
  *    the processor on VM exit. This includes all the general purpose
- *    registers (TODO: and probably the floating point and other specialized
- *    computation registers).
+ *    registers and floating-point state.
  *
  *  - Restoring guest state that is not automatically loaded by the processor
  *    on VM entry.
