@@ -36,6 +36,9 @@ fi
 # seems to run fine with dumps disabled.)
 ulimit -c 0
 
+# Set cache partitions
+/xdong/other_expr/sva-isa-measure/tools/syscall_cache_part 0xfff0 0xc 0x3
+
 echo "Generating Random Content File: $FSDIR/$DUMMY"
 head -c 10000000 /dev/urandom > $FSDIR/$DUMMY
 echo "Benchmark started on: $TIMESTAMP"
@@ -77,11 +80,13 @@ echo "Running benchmark: Fork+Shell"
 for i in $(seq 1 $NUM_ROUNDS)
 do
   OUTFILE=$FSDIR/forkShell_$TIMESTAMP
+  cp $DIR/hello /tmp
   if [ $GHOST_BENCH -eq 0 ]; then
       $DIR/lat_proc -N $REPS shell 2>&1 | tee -a $OUTFILE
   else
       GHOSTING=1 LD_PRELOAD=$GHOST_LIBC $DIR/lat_proc -N $REPS shell 2>&1 | tee -a $OUTFILE
   fi
+  rm -f /tmp/hello 
 done
 
 echo "Running benchmark: MMap"
