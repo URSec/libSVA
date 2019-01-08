@@ -2225,6 +2225,40 @@ run_vm(unsigned char use_vmresume) {
 
 #ifdef MPX
   /*
+   * Save guest's MPX supervisor-mode configuration register (the MSR
+   * IA32_BNDCFGS).
+   *
+   * This piece of state is unusual in that it is VMCS-resident but only
+   * partially managed automatically by the processor on VM entry/exit.  It
+   * is loaded from the VMCS on VM entry (if the hypervisor chooses to enable
+   * the "Load IA32_BNDCFGS" VM-entry control), and can be cleared on VM exit
+   * for the host's benefit (if the hypervisor chooses to enable the "Clear
+   * IA32_BNDCFGS" VM-exit control), but there is no corresponding way to
+   * *save* the guest's value on exit. Basically, a "Save IA32_BNDCFGS"
+   * VM-exit control is conspicuously absent.
+   *
+   * Thus, we need to save the value ourselves on VM exit, although we don't
+   * need to load it on VM entry. We store it to the VMCS instead of to our
+   * own guest state structure.
+   *
+   * Note: SVA does not require the hypervisor to use (or not use) either the
+   * "Load IA32_BNDCFGS" VM-entry control or the "Clear IA32_BNDCFGS" VM-exit
+   * control. If the former is unused, the host's value of BNDCFGS will be
+   * retained by the guest, which is fine from a security perspective because
+   * it contains no sensitive information (only the BNDENABLE and BNDPRESERVE
+   * bits are set). The latter doesn't matter because SVA always reloads its
+   * own value into BNDCFGS after VM exit (see below), so it doesn't matter
+   * whether the hypervisor leaves the guest's value there or clears it on VM
+   * exit.
+   */
+  uint64_t guest_bndcfgs = rdmsr(MSR_IA32_BNDCFGS);
+  /*
+   * Unchecked write is OK since we know this value was just in use by the
+   * guest.
+   */
+  writevmcs_unchecked(VMCS_GUEST_IA32_BNDCFGS, guest_bndcfgs);
+
+  /*
    * Restore MPX supervisor-mode configuration and bounds register 0 to the
    * values used by SVA to implement its SFI.
    *
@@ -2679,10 +2713,14 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
   switch (field) {
     /*
      * These VMCS controls are safe to read unconditionally.
+     *
+     * (This is not an exhaustive list of safe fields. We've only added the
+     * ones that we've actually needed thusfar for our toy hypervisor.)
      */
     case VMCS_GUEST_RIP:
     case VMCS_GUEST_RSP:
     case VMCS_GUEST_RFLAGS:
+    case VMCS_GUEST_IA32_BNDCFGS:
     case VMCS_VM_EXIT_REASON:
     case VMCS_EXIT_QUAL:
     case VMCS_GUEST_LINEAR_ADDR:
@@ -2699,8 +2737,8 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     default:
       printf("SVA: Attempted read from VMCS field: 0x%lx (", field);
       print_vmcs_field_name(field);
-      printf("\n");
-      panic("SVA: Disallowed read to unrecognized VMCS field.\n");
+      printf(")\n");
+      panic("SVA: Disallowed read to VMCS field not on read whitelist.\n");
 
       /* Unreachable code to silence compiler warning */
       return -1;
@@ -3116,6 +3154,9 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
 
     /*
      * These VMCS controls are safe to write unconditionally.
+     *
+     * (This is not an exhaustive list of safe fields. We've only added the
+     * ones that we've actually needed thusfar for our toy hypervisor.)
      */
     case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
     case VMCS_EXCEPTION_BITMAP:
@@ -3186,7 +3227,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
       printf("SVA: Attempted write to VMCS field: 0x%lx (", field);
       print_vmcs_field_name(field);
       printf("); value = 0x%lx\n", data);
-      panic("SVA: Disallowed write to unrecognized VMCS field.\n");
+      panic("SVA: Disallowed write to VMCS field not on write whitelist.\n");
 
       /* Unreachable code to silence compiler warning */
       return -1;
