@@ -2720,6 +2720,8 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     case VMCS_GUEST_RIP:
     case VMCS_GUEST_RSP:
     case VMCS_GUEST_RFLAGS:
+    case VMCS_GUEST_DR7:
+    case VMCS_GUEST_IA32_DEBUGCTL:
     case VMCS_GUEST_IA32_BNDCFGS:
     case VMCS_VM_EXIT_REASON:
     case VMCS_EXIT_QUAL:
@@ -2732,6 +2734,7 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     case VMCS_VM_EXIT_INSTR_LENGTH:
     case VMCS_VM_EXIT_INSTR_INFO:
     case VMCS_VM_INSTR_ERROR:
+    case VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:
       return readvmcs_unchecked(field, data);
 
     default:
