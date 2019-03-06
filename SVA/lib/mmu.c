@@ -738,7 +738,6 @@ initDeclaredPage (unsigned long frameAddr) {
      */
     if (((*page_entry) & PG_PS) == 0) {
       page_entry_store (page_entry, setMappingReadOnly(*page_entry));
-      sva_mm_flush_tlb (vaddr);
     }
   }
 
