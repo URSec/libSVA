@@ -24,6 +24,7 @@
 
 SVA/include/sva/asmconfig.h
 SVA/lib/*.o
+SVA/lib/libsva.a
 make.conf
 config.log
 config.status
