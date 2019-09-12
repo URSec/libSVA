@@ -126,13 +126,13 @@ cpuid_1_ecx(void) {
    * is implemented.)
    */
 
-  uint32_t cpuid_ecx = 0xdeadbeef;
+  uint32_t cpuid_ecx = 0xdeadbeef, dummy;
   DBGPRNT(("Executing CPUID with 1 in EAX...\n"));
   asm __volatile__ (
       "cpuid"
-      : "=c" (cpuid_ecx)
-      : "a" (1)
-      : "eax", "ebx", "ecx", "edx"
+      : "=a" (dummy), "=c" (cpuid_ecx)
+      : "a" (1), "c" (0)
+      : "ebx", "edx"
       );
   DBGPRNT(("Value of ECX after CPUID:1 = 0x%x\n", cpuid_ecx));
 

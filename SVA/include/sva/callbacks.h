@@ -15,6 +15,8 @@
 #ifndef SVA_CALLBACKS_H
 #define SVA_CALLBACKS_H
 
+#include <stdint.h>
+
 #include <sys/types.h>
 
 /* Kernel callback function for allocating memory */

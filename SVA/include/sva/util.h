@@ -16,6 +16,8 @@
 #ifndef _SVA_UTIL_H
 #define _SVA_UTIL_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

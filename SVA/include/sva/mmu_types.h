@@ -23,6 +23,8 @@
 #ifndef SVA_MMU_TYPES_H
 #define SVA_MMU_TYPES_H
 
+#include <stdint.h>
+
 #include <sys/types.h>
 
 typedef uintptr_t cr3_t;

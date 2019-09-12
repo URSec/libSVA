@@ -23,7 +23,10 @@
 #include <sva/vmx.h>
 #include <sva/vmx_intrinsics.h>
 #include <sva/mpx.h>
+
+#ifdef __FreeBSD__
 #include <machine/frame.h>
+#endif
 
 /*****************************************************************************
  * Assertion Code
@@ -72,6 +75,8 @@ assertGoodIC (void) {
 /*****************************************************************************
  * Cheater's Code
  ****************************************************************************/
+
+#ifdef __FreeBSD__
 
 /*
  * Function: sva_trapframe()
@@ -309,6 +314,8 @@ sva_icontext (struct trapframe * tf) {
 }
 #endif
 
+#endif /* __FreeBSD__ */
+
 static void
 print_icontext (char * s, sva_icontext_t * p) {
   printf ("rip: 0x%lx   rsp: 0x%lx   rbp: 0x%lx \n", p->rip, p->rsp, p->rbp);
@@ -471,7 +478,7 @@ sva_print_vmx_msrs(void) {
       "cpuid"
       : "=a" (cpuid_addrwidth)
       : "a" (0x80000008)
-      : "eax", "ebx", "ecx", "edx"
+      : "ebx", "ecx", "edx"
       );
   uint8_t paddrwidth = (uint8_t) cpuid_addrwidth;
   uint8_t laddrwidth = (uint8_t) (cpuid_addrwidth >> 8);

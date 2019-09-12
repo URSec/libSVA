@@ -15,6 +15,8 @@
 #ifndef _SVA_UESRGHOST_H
 #define _SVA_UESRGHOST_H
 
+#include <stdint.h>
+
 /*
  * Function: sva_get_key()
  *
