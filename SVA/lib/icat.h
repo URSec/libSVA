@@ -8,13 +8,19 @@
  *
  *===----------------------------------------------------------------------===
  *
- * This file defines constants that SVA uses for configuring the Intel Cache
- * Allocation Technology (Intel CAT) feature.
+ * This file defines constants and macros that SVA uses for configuring the
+ * Intel Cache Allocation Technology (Intel CAT) feature.
  *
  * This file is designed to be used by both assembly and C code.
  *
  *===----------------------------------------------------------------------===
  */
+
+#ifndef _SVA_ICAT_H
+#define _SVA_ICAT_H
+
+#include <sva/asmconfig.h>
+#include <sva/msr.h>
 
 /* Intel CAT MSR */
 #define COS_MSR 0xc8f
@@ -46,3 +52,51 @@
 #define APP_COS 0
 #define OS_COS  1
 #define SVA_COS 2
+
+#ifdef __ASSEMBLER__
+
+#ifdef SVA_LLC_PART
+
+.macro cache_part_switch to:req, saveloc=none
+.ifeqs "\to", "sva"
+  WRMSRL $COS_MSR, $SVA_COS, \saveloc
+.else
+.ifeqs "\to", "os"
+  WRMSRL $COS_MSR, $OS_COS, \saveloc
+.else
+.ifeqs "\to", "app"
+  save_msr_regs \saveloc
+
+  /*
+   * Test whether secmemSize is 0; if so, this is not a ghosting application,
+   * and we should use the OS's LLC partition instead of a separate one for
+   * the the application.
+   */
+  movq %gs:0x260, %rax
+  movq CPU_THREAD(%rax), %rax
+  movq 0x7d58(%rax), %rax
+  testq %rax, %rax    /* sets zero flag if we should use OS partition */
+  movl $OS_COS, %edx
+  movl $APP_COS, %eax
+  cmovzl %edx, %eax
+
+  WRMSRL $COS_MSR, %eax, none
+
+  restore_msr_regs \saveloc
+.else
+  .err Invalid cache partition
+.endif
+.endif
+.endif
+.endm
+
+#else /* SVA_LLC_PART */
+
+.macro cache_part_switch to:req, saveloc=none
+.endm
+
+#endif /* SVA_LLC_PART */
+
+#endif /* __ASSEMBLER__ */
+
+#endif /* _SVA_ICAT_H */

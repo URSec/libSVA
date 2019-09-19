@@ -147,22 +147,7 @@ SVAbadtrap:
  *  o The error code and trap number should have been pushed on to the stack. 
  */
 Trap:
-
-#ifdef SVA_LLC_PART
-  movq %rax, %gs:0x288
-  movq %rcx, %gs:0x290
-  movq %rdx, %gs:0x298
-  
-  /* Switch to the SVA cache partition. */
-  movl $COS_MSR, %ecx
-  movl $SVA_COS, %eax  /* lower 32 bits = SVA_COS */
-  movl $0, %edx        /* upper 32 bits = 0 */
-  wrmsr
-
-  movq %gs:0x298, %rdx
-  movq %gs:0x290, %rcx
-  movq %gs:0x288, %rax
-#endif
+  cache_part_switch sva stack
 
   /*
    * Switch to the stack segment.
@@ -393,13 +378,7 @@ L11:
 L15:
 #endif
 
-#ifdef SVA_LLC_PART
-  /* Switch to the OS cache partition. */
-  movl $COS_MSR, %ecx
-  movl $OS_COS, %eax  /* lower 32 bits = OS_COS */
-  movl $0, %edx       /* upper 32 bits = 0 */
-  wrmsr
-#endif
+  cache_part_switch os
 
   /*
    * If the trapno is page fault, check whether the faulting 
@@ -432,15 +411,7 @@ two:
    * Disable interrupts.
    */
   cli
-
-#ifdef SVA_LLC_PART
-  /* Switch to the SVA cache partition. */
-  movl $COS_MSR, %ecx
-  movl $SVA_COS, %eax  /* lower 32 bits = SVA_COS */
-  movl $0, %edx        /* upper 32 bits = 0 */
-  wrmsr
-#endif
-
+  cache_part_switch sva
 
 #ifdef SVA_ASID_PG 
   movq %cr3, %r15  //change PCID from 1 (kernel) to 0 (SVA)
@@ -591,34 +562,7 @@ L14:
   cmpq $USERCS, 8(%rsp)
   jne L21_supervisorcase
 
-#ifdef SVA_LLC_PART
-  movq %rax, %gs:0x288
-  movq %rcx, %gs:0x290
-  movq %rdx, %gs:0x298
-
-  /* User mode case: switch to the application cache partition. */
-  /*
-   * Test whether secmemSize is 0; if so, this is not a ghosting application,
-   * and we should use the OS's LLC partition instead of a separate one for
-   * the the application.
-   */
-  movq %gs:0x260, %rax
-  movq CPU_THREAD(%rax), %rax
-  movq 0x7d58(%rax), %rax
-  testq %rax, %rax    /* sets zero flag if we should use OS partition */
-
-  movl $COS_MSR, %ecx
-  movl $0, %edx       /* upper 32 bits = 0 in both cases */
-  movl $APP_COS, %eax /* lower 32 bits = APP_COS */
-  jnz L29_wrmsr       /* skip next instruction if using app partition */
-  movl $OS_COS, %eax  /* lower 32 bits = OS_COS  */
-L29_wrmsr:
-  wrmsr
-
-  movq %gs:0x298, %rdx
-  movq %gs:0x290, %rcx
-  movq %gs:0x288, %rax 
-#endif
+  cache_part_switch app stack
 
   /*
    * We came from user mode. Switch to the kernel %GS register before
@@ -628,22 +572,7 @@ L29_wrmsr:
   jmp L28_iret
 
 L21_supervisorcase:
-
-#ifdef SVA_LLC_PART
-  movq %rax, %gs:0x288
-  movq %rcx, %gs:0x290
-  movq %rdx, %gs:0x298
-
-  /* Switch to the OS cache partition. */
-  movl $COS_MSR, %ecx
-  movl $OS_COS, %eax  /* lower 32 bits = OS_COS */
-  movl $0, %edx       /* upper 32 bits = 0 */
-  wrmsr
-
-  movq %gs:0x298, %rdx
-  movq %gs:0x290, %rcx
-  movq %gs:0x288, %rax
-#endif
+  cache_part_switch os stack
 
   /*
    * Return to the calling code.  On x86_64, this will restore the stack
@@ -685,21 +614,7 @@ SVAsyscall:
   /* We came from user mode.  First switch to the kernel %GS register. */
   swapgs
 
-#ifdef SVA_LLC_PART
-  movq %rax, %gs:0x288
-  movq %rcx, %gs:0x290
-  movq %rdx, %gs:0x298  
-
-  /* Switch to the SVA cache partition. */
-  movl $COS_MSR, %ecx
-  movl $SVA_COS, %eax  /* lower 32 bits = SVA_COS */
-  movl $0, %edx        /* upper 32 bits = 0 */
-  wrmsr
-
-  movq %gs:0x298, %rdx
-  movq %gs:0x290, %rcx
-  movq %gs:0x288, %rax
-#endif
+  cache_part_switch sva tls
 
   /*
    * Save the stack pointer (%rsp) and frame pointer (%rbp) of the application.
@@ -905,13 +820,7 @@ SVAsyscall:
 L17:
 #endif
 
-#ifdef SVA_LLC_PART
-  /* Switch to the OS cache partition. */
-  movl $COS_MSR, %ecx
-  movl $OS_COS, %eax  /* lower 32 bits = OS_COS */
-  movl $0, %edx       /* upper 32 bits = 0 */
-  wrmsr
-#endif
+  cache_part_switch os
 
   /*
    * Call the system software system call handler.
@@ -924,14 +833,7 @@ sc_ret:
    * Disable interrupts.
    */
   cli
-
-#ifdef SVA_LLC_PART
-  /* Switch to the SVA cache partition. */
-  movl $COS_MSR, %ecx
-  movl $SVA_COS, %eax  /* lower 32 bits = SVA_COS */
-  movl $0, %edx        /* upper 32 bits = 0 */
-  wrmsr
-#endif
+  cache_part_switch sva
 
 #ifdef SVA_ASID_PG
   //change PCID from 1 (kernel) to 0 (SVA)
@@ -1013,34 +915,7 @@ L18:
   movq IC_R15(%rsp), %r15
   movq IC_RBP(%rsp), %rbp
 
-#ifdef SVA_LLC_PART
-  movq %rax, %gs:0x288
-  movq %rcx, %gs:0x290
-  movq %rdx, %gs:0x298
-
-  /* Switch to the application cache partition. */
-  /*
-   * Test whether secmemSize is 0; if so, this is not a ghosting application,
-   * and we should use the OS's LLC partition instead of a separate one for
-   * the the application.
-   */
-  movq %gs:0x260, %rax
-  movq CPU_THREAD(%rax), %rax
-  movq 0x7d58(%rax), %rax 
-  testq %rax, %rax    /* sets zero flag if we should use OS partition */
-
-  movl $COS_MSR, %ecx
-  movl $0, %edx       /* upper 32 bits = 0 in both cases */
-  movl $APP_COS, %eax /* lower 32 bits = APP_COS */
-  jnz L31_wrmsr       /* skip next instruction if using app partition */
-  movl $OS_COS, %eax  /* lower 32 bits = OS_COS  */
-L31_wrmsr:
-  wrmsr
-
-  movq %gs:0x298, %rdx
-  movq %gs:0x290, %rcx
-  movq %gs:0x288, %rax
-#endif
+  cache_part_switch app stack
 
   /*
    * Restore the user-space stack pointer.
