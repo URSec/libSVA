@@ -57,6 +57,17 @@
 
 #ifdef SVA_LLC_PART
 
+
+/**
+ * Switch cache partitions.
+ *
+ * @param to      The target partition, must be either "sva", "os", or "app"
+ * @param saveloc The method used to save registers clobbered during the
+ *                switching process, must be either "none" (don't save
+ *                registers), "stack" (save registers by pushing them to the
+ *                stack), or "tls" (save registers in thread-local storage,
+ *                accessed via the `%gs` segment)
+ */
 .macro cache_part_switch to:req, saveloc=none
 .ifeqs "\to", "sva"
   WRMSRL $COS_MSR, $SVA_COS, \saveloc
@@ -92,6 +103,12 @@
 
 #else /* SVA_LLC_PART */
 
+/**
+ * Does nothing if cache partition switching is disabled.
+ *
+ * @param to      ignored
+ * @param saveloc ignored
+ */
 .macro cache_part_switch to:req, saveloc=none
 .endm
 
