@@ -98,7 +98,7 @@
  * @param saveloc How to save and restore clobbered registers; see
  *                `save_msr_regs` for details
  */
-.macro WRMSRL msr:req, val:req, saveloc=none
+.macro WRMSR_LO msr:req, val:req, saveloc=none
   WRMSR \msr, \val, $0, \saveloc
 .endm
 
@@ -113,7 +113,7 @@
  * @param saveloc  How to save and restore clobbered registers; see
  *                 `save_msr_regs` for details
  */
-.macro WRMSRQ msr:req, combined:req, saveloc=none
+.macro WRMSRL msr:req, combined:req, saveloc=none
   save_msr_regs \saveloc
   movl \msr, %ecx
   movq \combined, %rax

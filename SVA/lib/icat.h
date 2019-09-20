@@ -70,10 +70,10 @@
  */
 .macro cache_part_switch to:req, saveloc=none
 .ifeqs "\to", "sva"
-  WRMSRL $COS_MSR, $SVA_COS, \saveloc
+  WRMSR_LO $COS_MSR, $SVA_COS, \saveloc
 .else
 .ifeqs "\to", "os"
-  WRMSRL $COS_MSR, $OS_COS, \saveloc
+  WRMSR_LO $COS_MSR, $OS_COS, \saveloc
 .else
 .ifeqs "\to", "app"
   save_msr_regs \saveloc
@@ -91,7 +91,7 @@
   movl $APP_COS, %eax
   cmovzl %edx, %eax
 
-  WRMSRL $COS_MSR, %eax, none
+  WRMSR_LO $COS_MSR, %eax, none
 
   restore_msr_regs \saveloc
 .else
