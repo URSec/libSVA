@@ -301,13 +301,8 @@ L10:
    * Switch to the kernel stack.  If coming from user space, use the kernel
    * stack pointer specified by the kernel.  Otherwise, use the previous
    * kernel stack pointer.
-   *
-   * NOTE: The offset to the code segment is hard-coded here because I couldn't
-   *       get the macro magic working properly.  If the interrupt context
-   *       layout changes, the offset used to look for the code segment will
-   *       also need to change.
    */
-  cmpq $USERCS, 0xa0(%rsp)
+  cmpq $USERCS, IC_CS(%rsp)
   cmoveq 4(%rbx), %rsp
   cmovneq IC_RSP(%rsp), %rsp
 
@@ -546,7 +541,7 @@ L14:
   /*
    * Remove the current interrupt context.
    */
-  addq $0x98, %rsp
+  addq $(IC_TRSIZE + 0x10 /* trap number and error code */), %rsp
 
   /* Determine whether we interrupted user or supervisor mode execution. */
   cmpq $USERCS, 8(%rsp)
