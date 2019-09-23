@@ -101,46 +101,50 @@ typedef struct sva_icontext {
   unsigned short es;
   unsigned short ds;
 
-  unsigned long rdi;                  // 0x10
-  unsigned long rsi;                  // 0x18
+  /* Segment bases */
+  unsigned long fsbase;               // 0x10
+  unsigned long gsbase;               // 0x18
 
-  unsigned long rax;                  // 0x20
-  unsigned long rbx;                  // 0x28
-  unsigned long rcx;                  // 0x30
-  unsigned long rdx;                  // 0x38
+  unsigned long rdi;                  // 0x20
+  unsigned long rsi;                  // 0x28
 
-  unsigned long r8;                   // 0x40
-  unsigned long r9;                   // 0x48
-  unsigned long r10;                  // 0x50
-  unsigned long r11;                  // 0x58
-  unsigned long r12;                  // 0x60
-  unsigned long r13;                  // 0x68
-  unsigned long r14;                  // 0x70
-  unsigned long r15;                  // 0x78
+  unsigned long rax;                  // 0x30
+  unsigned long rbx;                  // 0x38
+  unsigned long rcx;                  // 0x40
+  unsigned long rdx;                  // 0x48
+
+  unsigned long r8;                   // 0x50
+  unsigned long r9;                   // 0x58
+  unsigned long r10;                  // 0x60
+  unsigned long r11;                  // 0x68
+  unsigned long r12;                  // 0x70
+  unsigned long r13;                  // 0x78
+  unsigned long r14;                  // 0x80
+  unsigned long r15;                  // 0x88
 
   /*
    * Keep this register right here.  We'll use it in assembly code, and we
    * place it here for easy saving and recovery.
    */
-  unsigned long rbp;                  // 0x80
+  unsigned long rbp;                  // 0x90
 
   /* Hardware trap number */
-  unsigned long trapno;               // 0x88
+  unsigned long trapno;               // 0x98
 
   /*
    * These values are automagically saved by the x86_64 hardware upon an
    * interrupt or exception.
    */
-  unsigned long code;                 // 0x90
-  unsigned long rip;                  // 0x98
-  unsigned long cs;                   // 0xa0
-  unsigned long rflags;               // 0xa8
-  unsigned long * rsp;                // 0xb0
-  unsigned long ss;                   // 0xb8
+  unsigned long code;                 // 0xa0
+  unsigned long rip;                  // 0xa8
+  unsigned long cs;                   // 0xb0
+  unsigned long rflags;               // 0xb8
+  unsigned long * rsp;                // 0xc0
+  unsigned long ss;                   // 0xc8
 
   /* Flags whether the interrupt context is valid */
-  unsigned long valid;                // 0xc0
-  sva_fp_state_t * fpstate;           // 0xc8
+  unsigned long valid;                // 0xd0
+  sva_fp_state_t * fpstate;           // 0xd8
 } __attribute__ ((aligned (16))) sva_icontext_t;
 
 /*
@@ -163,63 +167,67 @@ typedef struct {
   unsigned short es;
   unsigned short ds;
 
-  unsigned long rdi;                  // 0x10
-  unsigned long rsi;                  // 0x18
+  /* Segment bases */
+  unsigned long fsbase;               // 0x10
+  unsigned long gsbase;               // 0x18
 
-  unsigned long rax;                  // 0x20
-  unsigned long rbx;                  // 0x28
-  unsigned long rcx;                  // 0x30
-  unsigned long rdx;                  // 0x38
+  unsigned long rdi;                  // 0x20
+  unsigned long rsi;                  // 0x28
 
-  unsigned long r8;                   // 0x40
-  unsigned long r9;                   // 0x48
-  unsigned long r10;                  // 0x50
-  unsigned long r11;                  // 0x58
-  unsigned long r12;                  // 0x60
-  unsigned long r13;                  // 0x68
-  unsigned long r14;                  // 0x70
-  unsigned long r15;                  // 0x78
+  unsigned long rax;                  // 0x30
+  unsigned long rbx;                  // 0x38
+  unsigned long rcx;                  // 0x40
+  unsigned long rdx;                  // 0x48
+
+  unsigned long r8;                   // 0x50
+  unsigned long r9;                   // 0x58
+  unsigned long r10;                  // 0x60
+  unsigned long r11;                  // 0x68
+  unsigned long r12;                  // 0x70
+  unsigned long r13;                  // 0x78
+  unsigned long r14;                  // 0x80
+  unsigned long r15;                  // 0x88
 
   /*
    * Keep this register right here.  We'll use it in assembly code, and we
    * place it here for easy saving and recovery.
    */
-  unsigned long rbp;                  // 0x80
+  unsigned long rbp;                  // 0x90
 
   /* Hardware trap number */
-  unsigned long trapno;               // 0x88
+  unsigned long trapno;               // 0x98
 
   /*
    * These values are automagically saved by the x86_64 hardware upon an
    * interrupt or exception.
    */
-  unsigned long code;                 // 0x90
-  unsigned long rip;                  // 0x98
-  unsigned long cs;                   // 0xa0
-  unsigned long rflags;               // 0xa8
-  unsigned long * rsp;                // 0xb0
-  unsigned long ss;                   // 0xb8
+  unsigned long code;                 // 0xa0
+  unsigned long rip;                  // 0xa8
+  unsigned long cs;                   // 0xb0
+  unsigned long rflags;               // 0xb8
+  unsigned long * rsp;                // 0xc0
+  unsigned long ss;                   // 0xc8
 
   /* Flag for whether the integer state is valid */
-  unsigned long valid;                // 0xc0
+  unsigned long valid;                // 0xd0
 
   /* Store another RIP value for the second return */
-  unsigned long hackRIP;              // 0xc8
+  unsigned long hackRIP;              // 0xd8
 
   /* Kernel stack pointer */
-  unsigned long kstackp;              // 0xd0
+  unsigned long kstackp;              // 0xe0
 
   /* CR3 register */
-  unsigned long cr3;                  // 0xd8
+  unsigned long cr3;                  // 0xe8
 
   /* Current interrupt context location */
-  sva_icontext_t * currentIC;         // 0xe0
+  sva_icontext_t * currentIC;         // 0xf0
 
   /* Current setting of IST3 in the TSS */
-  unsigned long ist3;                // 0xe8
+  unsigned long ist3;                // 0xf8
 
   /* Floating point state */
-  sva_fp_state_t fpstate;            // 0xf0
+  sva_fp_state_t fpstate;            // 0x100
 
   /* Pointer to invoke frame */
   struct invoke_frame * ifp;
