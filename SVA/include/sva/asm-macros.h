@@ -27,4 +27,25 @@ x:
 	.size x, . - x
 	
 
+#define IC_STACK_SIZE 4096
+
+/**
+ * Get a pointer to the TLS block
+ *
+ * Requires that the current stack (`%rsp`) be the interrupt context stack.
+ *
+ * @param reg The register into which to place the TLS pointer
+ */
+.macro get_tls_ptr reg:req
+  movq %rsp, \reg
+  orq $(IC_STACK_SIZE - 1), \reg
+
+  /*
+   * At this point, `\reg` points to the last byte of the interrupt context
+   * stack. Since the TLS pointer is stored as the last quadword of the
+   * interrupt context stack, we need to offset `\reg` by -7.
+   */
+  movq -7(\reg), \reg
+.endm
+
 #endif /* _SVA_ASM_MACROS_H */

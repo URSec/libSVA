@@ -40,16 +40,6 @@ ENTRY(trap\trapnum)
   /* Push the trap number */
   movq $\trapnum, 0(%rsp)
 
-#ifdef SVA_USE_GS
-  /* Determine whether we interrupted user or supervisor mode execution. */
-  cmpq $USERCS, 24(%rsp)
-  jne 1f
-
-  /* We came from user mode.  First switch to the kernel %GS register. */
-  swapgs
-1:
-#endif
-
   /* Call the common trap code. */
   jmp Trap
 END(trap\trapnum)
@@ -142,8 +132,6 @@ SVAbadtrap:
  *  This code is common code for all trap and interrupt handlers.
  *
  * Preconditions:
- *  o The GS register should be pointing to the base of the interrupt context
- *    for the current processor.
  *  o The error code and trap number should have been pushed on to the stack. 
  */
 Trap:
@@ -152,10 +140,10 @@ Trap:
   /*
    * Switch to the stack segment.
    */
-  movq %rax, %gs:0x268
+  pushq %rax
   movw $0x28, %ax
   movw %ax, %ss
-  movq %gs:0x268, %rax
+  popq %rax
 
   /*
    * Allocate space for the SVA Interrupt Context.  Note that the hardware
@@ -201,7 +189,9 @@ Trap:
   /* Flag the interrupt context as valid */
   movq $1, IC_VALID(%rsp)
 
-
+  /* Initialize the TLS pointer in %gs.base */
+  get_tls_ptr %rax
+  wrgsbase %rax
 
 #ifdef MPX
   /* Reset the MPX bounds register for SFI checks */
@@ -562,13 +552,19 @@ L14:
   cmpq $USERCS, 8(%rsp)
   jne L21_supervisorcase
 
-  cache_part_switch app stack
-
   /*
-   * We came from user mode. Switch to the kernel %GS register before
-   * returning.
+   * We need access to the TLS to determine if the application is ghosting.
    */
-  swapgs
+  pushq %rax
+  rdgsbase %rax
+  pushq %rax
+  get_tls_ptr %rax
+  wrgsbase %rax
+  cache_part_switch app stack
+  popq %rax
+  wrgsbase %rax
+  popq %rax
+
   jmp L28_iret
 
 L21_supervisorcase:
@@ -577,9 +573,6 @@ L21_supervisorcase:
   /*
    * Return to the calling code.  On x86_64, this will restore the stack
    * pointer regardless of whether we came from user mode or kernel mode.
-   *
-   * We came from user mode, so we will switch to the kernel %GS register
-   * before returning.
    */
 L28_iret:
   iretq
@@ -688,7 +681,6 @@ SVAsyscall:
 
   /* Push a NULL invoke pointer into the Interrupt Context */
   pushq $0
-
 
   /*
    * Mark the interrupt context as valid.  Additionally, set the fork bit
@@ -887,7 +879,10 @@ L18:
   movq CPU_TSSP(%rbp), %rbx
   addq $IC_SIZE, TSS_IST3(%rbx)
 
- /*
+  /* First, switch back to the user %gs.base */
+  swapgs
+
+  /*
    * Copy the registers from the interrupt context back on to the processor.
    */
   movw IC_FS(%rsp), %cx
@@ -915,15 +910,23 @@ L18:
   movq IC_R15(%rsp), %r15
   movq IC_RBP(%rsp), %rbp
 
+  /*
+   * We need access to the TLS to determine if the application is ghosting.
+   */
+  pushq %rax
+  rdgsbase %rax
+  pushq %rax
+  get_tls_ptr %rax
+  wrgsbase %rax
   cache_part_switch app stack
+  popq %rax
+  wrgsbase %rax
+  popq %rax
 
   /*
    * Restore the user-space stack pointer.
    */
   movq IC_RSP(%rsp), %rsp
-
-  /* We came from user mode.  First switch to the kernel %GS register. */
-  swapgs
  
   /*
    * Return to the calling code.
