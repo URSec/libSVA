@@ -253,12 +253,9 @@ Trap:
    * context.
    */
   movq CPU_TSSP(%rbp), %rbx
-  movq %rsp, TSS_IST3(%rbx)
-
-  /*
-   * Adjust it to point to the first byte of the current interrupt context.
-   */
-  subq $0x10, TSS_IST3(%rbx)
+  movq %rsp, %rax
+  subq $0x10, %rax
+  movq %rax, TSS_IST3(%rbx)
 
   /*
    * Switch to the kernel stack.  If coming from user space, use the kernel
