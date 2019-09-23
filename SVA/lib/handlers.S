@@ -173,6 +173,12 @@ Trap:
   movq %rsi, IC_RSI(%rsp)
   movq %rdi, IC_RDI(%rsp)
 
+  /* Save the segment bases */
+  rdgsbase %rax
+  rdfsbase %rcx
+  movq %rax, IC_GSBASE(%rsp)
+  movq %rcx, IC_FSBASE(%rsp)
+
   /* Save the segment registers */
   movw %ds, %ax
   movw %es, %bx
@@ -513,12 +519,19 @@ L14:
   /*
    * Copy the registers from the interrupt context back on to the processor.
    */
-  movw IC_FS(%rsp), %ax
-  movw IC_ES(%rsp), %bx
-  movw IC_DS(%rsp), %cx
-  movw %ax, %fs
-  movw %bx, %es
-  movw %cx, %ds
+  movw IC_GS(%rsp), %ax
+  movw IC_FS(%rsp), %bx
+  movw IC_ES(%rsp), %cx
+  movw IC_DS(%rsp), %dx
+  movw %ax, %gs
+  movw %bx, %fs
+  movw %cx, %es
+  movw %dx, %ds
+
+  movq IC_FSBASE(%rsp), %rax
+  movq IC_GSBASE(%rsp), %rcx
+  wrfsbase %rax
+  wrgsbase %rcx
 
   movq IC_RDI(%rsp), %rdi
   movq IC_RSI(%rsp), %rsi
@@ -611,6 +624,14 @@ SVAsyscall:
   movq %rbp, %gs:0x270
 
   /*
+   * Save the application's %gs.base.
+   */
+  swapgs
+  rdgsbase %rbp
+  swapgs
+  movq %rbp, %gs:0x278
+
+  /*
    * Get the location of the Interrupt Context within the current thread and
    * make the stack pointer point to it.
    */
@@ -666,6 +687,10 @@ SVAsyscall:
 
   pushq %rsi
   pushq %rdi
+
+  pushq %gs:0x278
+  rdfsbase %rax
+  pushq %rax
 
   movw %ds, %ax
   movw %es, %bx
@@ -880,12 +905,19 @@ L18:
   /*
    * Copy the registers from the interrupt context back on to the processor.
    */
-  movw IC_FS(%rsp), %cx
-  movw IC_ES(%rsp), %bx
-  movw IC_DS(%rsp), %ax
-  movw %cx, %fs
-  movw %bx, %es
-  movw %ax, %ds
+  movw IC_GS(%rsp), %ax
+  movw IC_FS(%rsp), %bx
+  movw IC_ES(%rsp), %cx
+  movw IC_DS(%rsp), %dx
+  movw %ax, %gs
+  movw %bx, %fs
+  movw %cx, %es
+  movw %dx, %ds
+
+  movq IC_FSBASE(%rsp), %rax
+  movq IC_GSBASE(%rsp), %rcx
+  wrfsbase %rax
+  wrgsbase %rcx
 
   movq IC_RDI(%rsp), %rdi
   movq IC_RSI(%rsp), %rsi
