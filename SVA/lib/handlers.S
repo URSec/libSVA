@@ -206,49 +206,6 @@ Trap:
   bndmk (%rax,%rdx), %bnd0
 #endif
 
-#ifdef SVA_ASID_PG
-  movq %cr3, %r15
-  movq $0xfff, %r14
-  movq %r15, %r13
-  andq %r14, %r13 //PCID
-  shlq $2,   %r13
-  movq IC_VALID(%rsp), %r14
-  orq  %r13, %r14
-  movq %r14, IC_VALID(%rsp)
-  testq %r13, %r13 //if PCID = 0, it is already SVA PCID. Do nothing.
-  je   L10   
-
-  movq %r15, %r13
-  shrq $12, %r13
-  movq $0xffffffffff, %r14
-  andq %r14, %r13
-  shlq $5, %r13
-  addq $24, %r13
-  movq page_desc(%r13), %r14
-  movq $0x10, %r13   //check whether PML4_SWITCH_DISABLE is set. If set, stop switching pml4 ptp
-  andq %r14, %r13 
-  testq %r13, %r13
-  jne L9
-  cmovneq %r14, %r15  
-
-L9:
-  shrq $12, %r15  //change PCID from 1 (kernel) to 0 (SVA/PCID)
-  shlq $12, %r15
-  movq $0x8000000000000000,  %r14
-  orq  %r14, %r15
-  movq %r15, %cr3 
-
-#if 0
-  movq  tsc_read_enable_sva(%rip), %r14
-  testq %r14, %r14
-  je L10
-  movq as_num(%rip), %r15
-  addq $1, %r15
-  movq %r15, as_num(%rip)
-#endif
-L10:
-#endif
-
   /*
    * Configure the process to trigger a floating point fault while in
    * kernel mode.  This requires disabling the EM bit and enabling the MP and
@@ -334,41 +291,6 @@ L10:
   xorq %rcx, %rcx
 #endif
  
-#ifdef SVA_ASID_PG 
- movq %cr3, %r15  //change PCID from 0 (SVA) to 1 (kernel)
- movq %r15, %r13
- shrq $12, %r13
- movq $0xffffffffff, %r14
- andq %r14, %r13
- shlq $5, %r13
- addq $24, %r13
- movq page_desc(%r13), %r14
- movq $0x10, %r13
- andq %r14, %r13
- testq %r13, %r13
- jne L11
- cmovneq %r14, %r15  
-
-L11:
- shrq $12,  %r15
- shlq $12,  %r15
- orq  $1,   %r15
- movq $0x8000000000000000,  %r14
- orq  %r14, %r15
- movq %r15, %cr3 
-
-#if 0
- movq  tsc_read_enable_sva(%rip), %r14
- testq %r14, %r14
- je L15
- movq as_num(%rip), %r15
- addq $1, %r15
- movq %r15, as_num(%rip)
-#endif
-
-L15:
-#endif
-
   cache_part_switch os
 
   /*
@@ -403,40 +325,6 @@ two:
    */
   cli
   cache_part_switch sva
-
-#ifdef SVA_ASID_PG 
-  movq %cr3, %r15  //change PCID from 1 (kernel) to 0 (SVA)
-  movq %r15, %r13
-  shrq $12, %r13
-  movq $0xffffffffff, %r14
-  andq %r14, %r13
-  shlq $5, %r13
-  addq $24, %r13
-  movq page_desc(%r13), %r14
-  movq $0x10, %r13
-  andq %r14, %r13
-  testq %r13, %r13
-  jne L12
-  cmovneq %r14, %r15  
-
-L12:
-  shrq $12,  %r15
-  shlq $12,  %r15
-  movq $0x8000000000000000,   %r14
-  orq  %r14, %r15
-  movq %r15, %cr3
-
-#if 0
-  movq  tsc_read_enable_sva(%rip), %r14
-  testq %r14, %r14
-  je L16
-  movq as_num(%rip), %r15
-  addq $1, %r15
-  movq %r15, as_num(%rip)
-#endif
-
-L16:
-#endif
  
   /*
    * Switch the stack pointer back to the interrupt context.
@@ -449,13 +337,7 @@ L16:
    * performed without a subsequent sva_ipush_function).
    */
   movq $1, %rdi
-#ifdef SVA_ASID_PG
-  movq IC_VALID(%rsp), %rbx
-  andq $1, %rbx
-  testq $1, %rbx
-#else
   testq $1, IC_VALID(%rsp)
-#endif
   je invalidIC
 
   /*
@@ -466,55 +348,6 @@ L16:
   addq $IC_SIZE, CPU_NEWIC(%rbp)
   movq CPU_TSSP(%rbp), %rbx
   addq $IC_SIZE, TSS_IST3(%rbx)
-
-#ifdef SVA_ASID_PG
-  movq IC_VALID(%rsp), %rax //restore the PCID where the trap occurs
-  movq %rax, %rbx
-  movq $0x3, %rcx
-  andq %rcx, %rbx
-  movq %rbx, IC_VALID(%rsp)
-  shrq $2, %rax
-  movq %cr3, %rbx
-  movq $0xfff, %rcx
-  andq %rbx, %rcx
-  subq %rcx, %rax
-  testq %rax, %rax
-  je L14
-
-  movq %rbx, %rcx
-  shrq $12, %rcx
-  movq $0xffffffffff, %r14
-  andq %r14, %rcx
-  shlq $5, %rcx
-  addq $24, %rcx
-  movq page_desc(%rcx), %r14
-  movq $0x10, %rcx
-  andq %r14, %rcx
-  testq %rcx, %rcx
-  jne L13
-  cmovneq %r14, %rbx  
-
-L13:
-  shrq $12, %rbx
-  shlq $12, %rbx
-  orq  %rax, %rbx
-  movq $0x8000000000000000,  %r14
-  orq  %r14, %rbx
-  movq %rbx, %cr3
-
-#if 0
-  movq  tsc_read_enable_sva(%rip), %r14
-  testq %r14, %r14
-  je L14
-  movq as_num(%rip), %rbx
-  addq $1, %rbx
-  movq %rbx, as_num(%rip)
-#endif
-  
-L14:   
-#endif
-
-
 
   /*
    * Copy the registers from the interrupt context back on to the processor.
@@ -802,36 +635,6 @@ SVAsyscall:
   xorq %rdi, %rdi
 #endif
 
-#ifdef SVA_ASID_PG 
-  //change PCID from 0 (SVA) to 1 (kernel)
-  movq %cr3, %r15
-  movq %r15, %r13
-  shrq $12, %r13
-  movq $0xffffffffff, %r14
-  andq %r14, %r13
-  shlq $5, %r13
-  addq $24, %r13
-  movq page_desc(%r13), %r14
-  cmovneq %r14, %r15  
-  shrq $12,  %r15
-  shlq $12,  %r15
-  orq  $1,   %r15
-  movq $0x8000000000000000,   %r14
-  orq  %r14, %r15
-  movq %r15, %cr3
-
-#if 0
-  movq  tsc_read_enable_sva(%rip), %r14
-  testq %r14, %r14
-  je L17
-  movq as_num(%rip), %r15
-  addq $1, %r15
-  movq %r15, as_num(%rip)
-#endif
-
-L17:
-#endif
-
   cache_part_switch os
 
   /*
@@ -846,35 +649,6 @@ sc_ret:
    */
   cli
   cache_part_switch sva
-
-#ifdef SVA_ASID_PG
-  //change PCID from 1 (kernel) to 0 (SVA)
-  movq %cr3, %r15
-  movq %r15, %r13
-  shrq $12, %r13
-  movq $0xffffffffff, %r14
-  andq %r14, %r13
-  shlq $5, %r13
-  addq $24, %r13
-  movq page_desc(%r13), %r14
-  cmovneq %r14, %r15 
-  shrq $12,  %r15
-  shlq $12,  %r15
-  movq $0x8000000000000000,   %r14
-  orq  %r14, %r15
-  movq %r15, %cr3
-
-#if 0
-  movq  tsc_read_enable_sva(%rip), %r14
-  testq %r14, %r14
-  je L18
-  movq as_num(%rip), %r15
-  addq $1, %r15
-  movq %r15, as_num(%rip)
-#endif
-
-L18:   
-#endif
 
   /*
    * Switch the stack pointer back to the interrupt context.
