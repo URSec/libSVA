@@ -358,18 +358,17 @@ two:
   movw %cx, %es
   movw %dx, %ds
 
+  /*
+   * We need access to the TLS to determine if the application is ghosting, so
+   * we delay restoring %gs.base until after the cache partition switch.
+   */
   movq IC_FSBASE(%rsp), %rax
-  movq IC_GSBASE(%rsp), %rcx
   wrfsbase %rax
-  wrgsbase %rcx
 
   movq IC_RDI(%rsp), %rdi
   movq IC_RSI(%rsp), %rsi
 
-  movq IC_RAX(%rsp), %rax
   movq IC_RBX(%rsp), %rbx
-  movq IC_RCX(%rsp), %rcx
-  movq IC_RDX(%rsp), %rdx
 
   movq  IC_R8(%rsp), %r8
   movq  IC_R9(%rsp), %r9
@@ -381,38 +380,40 @@ two:
   movq IC_R15(%rsp), %r15
   movq IC_RBP(%rsp), %rbp
 
-  /*
-   * Remove the current interrupt context.
-   */
-  addq $(IC_TRSIZE + 0x10 /* trap number and error code */), %rsp
-
   /* Determine whether we interrupted user or supervisor mode execution. */
-  cmpq $USERCS, 8(%rsp)
+  cmpq $USERCS, IC_CS(%rsp)
   jne L21_supervisorcase
 
-  /*
-   * We need access to the TLS to determine if the application is ghosting.
-   */
-  pushq %rax
-  rdgsbase %rax
-  pushq %rax
-  get_tls_ptr %rax
-  wrgsbase %rax
-  cache_part_switch app stack
-  popq %rax
-  wrgsbase %rax
-  popq %rax
+  cache_part_switch app
 
   jmp L28_iret
 
 L21_supervisorcase:
-  cache_part_switch os stack
+  cache_part_switch os
 
   /*
    * Return to the calling code.  On x86_64, this will restore the stack
    * pointer regardless of whether we came from user mode or kernel mode.
    */
 L28_iret:
+  /*
+   * Restore %gs.base
+   */
+  movq IC_GSBASE(%rsp), %rax
+  wrgsbase %rax
+
+  /*
+   * Restore WRMSR-clobbered registers
+   */
+  movq IC_RAX(%rsp), %rax
+  movq IC_RCX(%rsp), %rcx
+  movq IC_RDX(%rsp), %rdx
+
+  /*
+   * Remove the current interrupt context.
+   */
+  addq $(IC_TRSIZE + 0x10 /* trap number and error code */), %rsp
+
   iretq
 
 /*
@@ -685,18 +686,17 @@ sc_ret:
   movw %cx, %es
   movw %dx, %ds
 
+  /*
+   * We need access to the TLS to determine if the application is ghosting, so
+   * we delay restoring %gs.base until after the cache partition switch.
+   */
   movq IC_FSBASE(%rsp), %rax
-  movq IC_GSBASE(%rsp), %rcx
   wrfsbase %rax
-  wrgsbase %rcx
 
   movq IC_RDI(%rsp), %rdi
   movq IC_RSI(%rsp), %rsi
 
-  movq IC_RAX(%rsp), %rax
   movq IC_RBX(%rsp), %rbx
-  movq IC_RIP(%rsp), %rcx   /* Put the %rip in %rcx for sysret instruction */
-  movq IC_RDX(%rsp), %rdx
 
   movq  IC_R8(%rsp), %r8
   movq  IC_R9(%rsp), %r9
@@ -708,18 +708,20 @@ sc_ret:
   movq IC_R15(%rsp), %r15
   movq IC_RBP(%rsp), %rbp
 
+  cache_part_switch app
+
   /*
-   * We need access to the TLS to determine if the application is ghosting.
+   * Restore %gs.base
    */
-  pushq %rax
-  rdgsbase %rax
-  pushq %rax
-  get_tls_ptr %rax
+  movq IC_GSBASE(%rsp), %rax
   wrgsbase %rax
-  cache_part_switch app stack
-  popq %rax
-  wrgsbase %rax
-  popq %rax
+
+  /*
+   * Restore WRMSR-clobbered registers
+   */
+  movq IC_RAX(%rsp), %rax
+  movq IC_RIP(%rsp), %rcx   /* Put the %rip in %rcx for sysret instruction */
+  movq IC_RDX(%rsp), %rdx
 
   /*
    * Restore the user-space stack pointer.
