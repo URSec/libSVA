@@ -589,8 +589,8 @@ sva_init_primary () {
 
   /* Initialize the IDT of the primary processor */
   init_interrupt_table(0);
-  init_idt (0);
   init_dispatcher ();
+  init_idt (0);
 
   init_mmu ();
   init_mpx ();
@@ -622,6 +622,10 @@ sva_init_secondary () {
   init_debug ();
 #endif
 
+#if 0
+  init_interrupt_table(0);
+  init_dispatcher ();
+#endif
   /*
    * Initialize the IDT of the primary processor
    * FIXME: For now, we use the primary processor's IDT.  When we can, we
@@ -630,10 +634,6 @@ sva_init_secondary () {
    */
   init_idt (0);
 
-#if 0
-  init_interrupt_table(0);
-  init_dispatcher ();
-#endif
 #if 0
   init_mmu ();
 #endif
