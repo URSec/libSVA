@@ -297,18 +297,18 @@ Trap:
    * instead for ghost memory page faults.
    */
   cmpq $14, %rdi
-  jne one
+  jne .Lcall_handler
   movq %rsi, %rax
   shrq $32, %rax
   cmp $0xfffffd00, %eax
-  jb one
+  jb .Lcall_handler
   cmp $0xfffffd80, %eax
-  jae one
+  jae .Lcall_handler
   callq trap_pfault_ghost
   RETTARGET
-  jmp two 
+  jmp .Lout
 
-one:
+.Lcall_handler:
   /*
    * Call the trap handler registered by the OS for this trap.
    */
@@ -316,7 +316,7 @@ one:
   callq *(%rax,%rdi,8)
   RETTARGET
 
-two:
+.Lout:
   /*
    * Disable interrupts.
    */
@@ -382,20 +382,20 @@ two:
 
   /* Determine whether we interrupted user or supervisor mode execution. */
   cmpq $USERCS, IC_CS(%rsp)
-  jne L21_supervisorcase
+  jne .Lsupervisor_return
 
   cache_part_switch app
 
-  jmp L28_iret
+  jmp .Liret
 
-L21_supervisorcase:
+.Lsupervisor_return:
   cache_part_switch os
 
   /*
    * Return to the calling code.  On x86_64, this will restore the stack
    * pointer regardless of whether we came from user mode or kernel mode.
    */
-L28_iret:
+.Liret:
   /*
    * Restore %gs.base
    */
