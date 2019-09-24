@@ -366,9 +366,11 @@ init_idt (unsigned int procID) {
   extern void * idt;
 
   /*
-   * Load our descriptor table on to the processor.
+   * Load our descriptor table on to the processor. NB: The IDT limit is
+   * actually the last addressable byte and should therefore be set to
+   * `sizeof(sva_idt) - 1`.
    */
-  sva_idtreg.rd_limit = sizeof (sva_idt);
+  sva_idtreg.rd_limit = sizeof(sva_idt) - 1;
   sva_idtreg.rd_base = (uintptr_t) &(sva_idt[0]);
   __asm__ __volatile__ ("lidt (%0)" : : "r" (&sva_idtreg));
   idt = (void *) sva_idtreg.rd_base;
