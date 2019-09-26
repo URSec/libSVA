@@ -601,6 +601,15 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
     checkIntegerForLoad (new);
 
     /*
+     * A NULL kernel stack indicates that this integer state was switch from
+     * without a kernel stack switch, so we can't switch kernel stacks when
+     * switching back to it.
+     */
+    if (new->kstackp == 0) {
+        panic("SVA: Attempted to switch kernel stack to user-only integer state!");
+    }
+
+    /*
      * Switch the CPU over to using the new set of interrupt contexts.
      */
     cpup->currentThread = newThread;

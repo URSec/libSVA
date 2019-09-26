@@ -198,7 +198,7 @@ findNextFreeThread (void) {
      */
     sva_icontext_t * icontextp = newThread->interruptContexts + maxIC - 1;
     newThread->integerState.ist3 = ((uintptr_t) icontextp) - 0x10;
-    newThread->integerState.kstackp = newThread->integerState.ist3;
+    newThread->integerState.kstackp = 0;
 
     /*
      * Generate a random identifier for the new thread.
