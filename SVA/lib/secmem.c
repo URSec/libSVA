@@ -863,7 +863,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
 void
 trap_pfault_ghost(unsigned trapno, void * trapAddr) {
   struct CPUState * cpup = getCPUState();
-  sva_icontext_t * p = getCPUState()->newCurrentIC;
+  sva_icontext_t * p = cpup->newCurrentIC;
   uintptr_t vaddr = (unsigned long)(trapAddr) & ~(PAGE_MASK);
   sva_ghost_fault(vaddr, p->code); 
 }

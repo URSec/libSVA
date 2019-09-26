@@ -160,10 +160,9 @@ sva_invokestrncpy (char * dst, const char * src, uintptr_t count) {
   struct invoke_frame frame;
 
   /* Return value */
-  uintptr_t ret = 0;
+  uintptr_t res;
 
   /* Other variables */
-  uintptr_t res;
   uintptr_t __d0, __d1, __d2;
 
   /*

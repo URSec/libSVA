@@ -561,7 +561,6 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
  */
 static inline void
 updateNewPageData(page_entry_t mapping, unsigned char isEPT) {
-  uintptr_t newPA = mapping & PG_FRAME;
   page_desc_t *newPG = getPageDescPtr(mapping);
 
   /*
@@ -930,9 +929,6 @@ getPhysicalAddrSVADMAP (void * v) {
  */
 unsigned char
 getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
-  /* Mask to get the proper number of bits from the virtual address */
-  static const uintptr_t vmask = 0x0000000000000fffu;
-
   /* Virtual address to convert */
   uintptr_t vaddr  = ((uintptr_t) v);
 
@@ -1015,9 +1011,6 @@ getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
  */
 uintptr_t
 getPhysicalAddr (void * v) {
-  /* Mask to get the proper number of bits from the virtual address */
-  static const uintptr_t vmask = 0x0000000000000fffu;
-
   /* Virtual address to convert */
   uintptr_t vaddr  = ((uintptr_t) v);
 
@@ -1076,15 +1069,8 @@ getPhysicalAddr (void * v) {
 
 void
 removeOSDirectMap (void * v) {
-
-  /* Mask to get the proper number of bits from the virtual address */
-  static const uintptr_t vmask = 0x0000000000000fffu;
-
   /* Virtual address to convert */
   uintptr_t vaddr  = ((uintptr_t) v);
-
-  /* Offset into the page table */
-  uintptr_t offset = 0;
 
   /*
    * Get the currently active page table.
@@ -2385,21 +2371,11 @@ remap_internal_memory (uintptr_t * firstpaddr) {
   extern char _svaend[];
 
   /*
-   * Determine how much memory we need to map into the SVA VM address space.
-   */
-  uintptr_t svaSize = ((uintptr_t) _svaend) - ((uintptr_t) _svastart);
-
-  /*
    * Disable protections.
    */
 #ifndef SVA_DMAP
   unprotect_paging();
 #endif
-  /*
-   * Create a PML4E for the SVA address space.
-   */
-  pml4e_t pml4eVal;
-
   /*
    * Get the PML4E of the current page table.  If there isn't one in the
    * table, add one.

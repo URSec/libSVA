@@ -289,6 +289,7 @@ sva_ipush_function1 (void (*newf)(int), uintptr_t param) {
  */
 static inline void
 checkIntegerForLoad (sva_integer_state_t * p) {
+#if 0
   /* Current code segment */
   unsigned int cs;
 
@@ -300,7 +301,7 @@ checkIntegerForLoad (sva_integer_state_t * p) {
 
   /* System call disable mask */
   extern unsigned int sva_sys_disabled;
-
+#endif
 #if 0
   /* Disable interrupts */
   __asm__ __volatile__ ("cli");
@@ -449,8 +450,10 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
   }
   sva_integer_state_t * new =  newThread ? &(newThread->integerState) : 0;
 
+#if 0
   /* Variables for registers for debugging */
   uintptr_t rsp, rbp;
+#endif
 
   /*
    * If there is no place for new state, flag an error.
