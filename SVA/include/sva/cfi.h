@@ -23,6 +23,8 @@
 /* Labels used in comparisons: This includes the prefetchnta portion */
 #define CHECKLABEL 0x48c98948
 
+#ifdef __ASSEMBLER__
+
 /* Macro for call */
 #define CALLQ(x) callq x ; \
                  movq %rcx,%rcx ; \
@@ -53,5 +55,7 @@
               xchg %bx, %bx ; \
               23: movq $0xfea, %rax;
 
-#endif
+#endif /* __ASSEMBLER__ */
+
+#endif /* SVA_CFI_H */
               /* addq  $0x8, %rcx ; \ */
