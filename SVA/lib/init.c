@@ -577,7 +577,7 @@ sva_init_primary () {
   init_segs ();
   init_debug ();
 #endif
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
    	tsc_tmp = sva_read_tsc();
 
@@ -614,7 +614,7 @@ sva_init_primary () {
 void
 sva_init_secondary () {
 
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 #if 0

@@ -101,7 +101,7 @@ struct CPUState * CPUState = realCPUState;
  */
 void *
 sva_getCPUState (tss_t * tssp) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -184,7 +184,7 @@ void
 sva_icontext_setretval (unsigned long high,
                         unsigned long low,
                         unsigned char error) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -232,7 +232,7 @@ sva_icontext_setretval (unsigned long high,
  */
 void
 sva_icontext_restart (unsigned long r10, unsigned long rip) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -269,7 +269,7 @@ sva_icontext_restart (unsigned long r10, unsigned long rip) {
 unsigned char
 sva_register_general_exception (unsigned char number,
                                 genfault_handler_t handler) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -347,7 +347,7 @@ sva_register_memory_exception (unsigned char number, memfault_handler_t handler)
  */
 unsigned char
 sva_register_interrupt (unsigned char number, interrupt_handler_t interrupt) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 

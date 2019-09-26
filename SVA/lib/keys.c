@@ -118,7 +118,7 @@ struct translation translations [4096] __attribute__ ((section ("svamem")));
  */
 void *
 sva_translate(void * entryPoint) {
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 

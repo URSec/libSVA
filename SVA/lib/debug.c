@@ -93,7 +93,7 @@ sva_trapframe (struct trapframe * tf) {
   /*
    * Fetch the currently available interrupt context.
    */
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
   	tsc_tmp = sva_read_tsc();
 
@@ -188,7 +188,7 @@ sva_syscall_trapframe (struct trapframe * tf) {
   /*
    * Fetch the currently available interrupt context.
    */
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -392,7 +392,7 @@ sva_checkptr (uintptr_t p) {
   // If we're in kernel memory but not above the secure memory region, hit a
   // breakpoint.
   //
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 

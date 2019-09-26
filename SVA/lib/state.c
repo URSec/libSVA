@@ -78,7 +78,7 @@ getThreadRID (void) {
  */
 uintptr_t
 sva_icontext_getpc (void) {
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -119,7 +119,7 @@ sva_ipush_function5 (void *newf,
                      uintptr_t p3,
                      uintptr_t p4,
                      uintptr_t p5) {
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();   
 
@@ -418,7 +418,7 @@ flushSecureMemory (struct SVAThread * threadp) {
  */
 uintptr_t
 sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -691,7 +691,7 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
  */
 void *
 sva_ialloca (uintptr_t size, uintptr_t alignment, void * initp) {
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -818,7 +818,7 @@ sva_ialloca (uintptr_t size, uintptr_t alignment, void * initp) {
  */
 void
 sva_load_icontext (void) {
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -889,7 +889,7 @@ sva_load_icontext (void) {
  */
 unsigned char
 sva_save_icontext (void) {
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -976,7 +976,7 @@ svaDummy (void) {
  */
 void
 sva_reinit_icontext (void * handle, unsigned char priv, uintptr_t stackp, uintptr_t arg) {
-  uint64_t tsc_tmp;  
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -1129,7 +1129,7 @@ sva_reinit_icontext (void * handle, unsigned char priv, uintptr_t stackp, uintpt
  */
 void
 sva_release_stack (uintptr_t id) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
  
@@ -1206,7 +1206,7 @@ sva_init_stack (unsigned char * start_stackp,
                 uintptr_t arg2,
                 uintptr_t arg3) {
  
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 

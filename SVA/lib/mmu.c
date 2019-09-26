@@ -188,7 +188,7 @@ init_mmu () {
  */
 static inline void
 page_entry_store (unsigned long *page_entry, page_entry_t newVal) {
-  uint64_t tsc_tmp; 
+  uint64_t tsc_tmp = 0;
   if (tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -1762,7 +1762,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
  */
 void
 sva_mm_load_pgtable (void * pg_ptr) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -1901,7 +1901,7 @@ sva_mm_load_pgtable (void * pg_ptr) {
  */
 void 
 sva_load_cr0 (unsigned long val) {
-    uint64_t tsc_tmp;
+    uint64_t tsc_tmp = 0;
     if(tsc_read_enable_sva)
        tsc_tmp = sva_read_tsc();
 
@@ -2641,7 +2641,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
               uintptr_t * firstpaddr,
               uintptr_t btext,
               uintptr_t etext) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if (tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -2789,7 +2789,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
  */
 void
 sva_declare_l1_page (uintptr_t frameAddr) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
   kernel_to_usersva_pcid();
@@ -2868,7 +2868,7 @@ sva_declare_l1_page (uintptr_t frameAddr) {
  */
 void
 sva_declare_l2_page (uintptr_t frameAddr) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -2944,7 +2944,7 @@ sva_declare_l2_page (uintptr_t frameAddr) {
  */
 void
 sva_declare_l3_page (uintptr_t frameAddr) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
   kernel_to_usersva_pcid();
@@ -3019,7 +3019,7 @@ sva_declare_l3_page (uintptr_t frameAddr) {
  */
 void
 sva_declare_l4_page (uintptr_t frameAddr) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -3164,7 +3164,7 @@ printPTES (uintptr_t vaddr) {
  */
 void
 sva_remove_page (uintptr_t paddr) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
   
@@ -3365,7 +3365,7 @@ uintptr_t sva_get_kernel_pml4pg(uintptr_t paddr)
  */
 void
 sva_remove_mapping(page_entry_t * pteptr) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
     tsc_tmp = sva_read_tsc();
 
@@ -3425,7 +3425,7 @@ sva_remove_mapping(page_entry_t * pteptr) {
  */
 void
 sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned long va) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -3480,7 +3480,7 @@ sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned lon
  */
 void
 sva_update_l1_mapping(pte_t * pteptr, page_entry_t val) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -3522,7 +3522,7 @@ sva_update_l1_mapping(pte_t * pteptr, page_entry_t val) {
  */
 void
 sva_update_l2_mapping(pde_t * pdePtr, page_entry_t val) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -3557,7 +3557,7 @@ sva_update_l2_mapping(pde_t * pdePtr, page_entry_t val) {
  * Updates a level3 mapping 
  */
 void sva_update_l3_mapping(pdpte_t * pdptePtr, page_entry_t val) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
@@ -3590,7 +3590,7 @@ void sva_update_l3_mapping(pdpte_t * pdptePtr, page_entry_t val) {
  * updates a level4 mapping 
  */
 void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
-  uint64_t tsc_tmp;
+  uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
