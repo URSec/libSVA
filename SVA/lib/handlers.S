@@ -675,9 +675,6 @@ sc_ret:
   movq CPU_TSSP(%rbp), %rbx
   addq $IC_SIZE, TSS_IST3(%rbx)
 
-  /* First, switch back to the user %gs.base */
-  swapgs
-
   /*
    * Copy the registers from the interrupt context back on to the processor.
    */
@@ -714,8 +711,12 @@ sc_ret:
 
   cache_part_switch app
 
+  /* Switch back to the user %gs.base. */
+  swapgs
+
   /*
-   * Restore %gs.base
+   * User space's %gs.base may have been modified, so make sure to load it from
+   * the interrupt context.
    */
   movq IC_GSBASE(%rsp), %rax
   wrgsbase %rax
