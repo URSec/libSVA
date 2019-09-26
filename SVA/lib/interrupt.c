@@ -107,7 +107,7 @@ sva_getCPUState (tss_t * tssp) {
 
 
   /* Index of next available CPU state */
-  static int nextIndex __attribute__ ((section ("svamem"))) = 0;
+  static unsigned int nextIndex __attribute__ ((section ("svamem"))) = 0;
   struct SVAThread * st;
   int index;
 

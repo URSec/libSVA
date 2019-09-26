@@ -657,7 +657,7 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
   }
 
   /* If there were no free slots, return failure. */
-  if (vmid == -1) {
+  if (vmid == (size_t)-1) {
     DBGPRNT(("Error: all %lu VM IDs are in use; cannot create a new VM.\n",
           MAX_VMS));
 

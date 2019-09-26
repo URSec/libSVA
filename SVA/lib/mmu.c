@@ -1962,7 +1962,6 @@ void
 declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
         numPgEntries, enum page_type_t pageLevel ) 
 { 
-  int i;
   int traversedPTEAlready;
   enum page_type_t subLevelPgType;
   unsigned long numSubLevelPgEntries;
@@ -2125,7 +2124,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
    * Iterate through all the entries of this page, recursively calling the
    * walk on all sub entries.
    */
-  for (i = 0; i < numSubLevelPgEntries; i++){
+  for (unsigned long i = 0; i < numSubLevelPgEntries; i++){
     if ((pageLevel == PG_L4) && (i == 256))
       continue;
 #if 0
@@ -2507,9 +2506,9 @@ remap_internal_memory (uintptr_t * firstpaddr) {
 
 void
 sva_create_dmap(void * KPML4phys, void * DMPDPphys,
-void * DMPDphys, void * DMPTphys, int ndmpdp, int ndm1g)
+void * DMPDphys, void * DMPTphys, unsigned long ndmpdp, unsigned long ndm1g)
 {
-  int i, j;
+  unsigned long i, j;
 
   for (i = 0; i < NPTEPG * NPDEPG * ndmpdp; i++) {
     ((pte_t *)DMPTphys)[i] = (uintptr_t) i << PAGE_SHIFT;
@@ -3211,7 +3210,7 @@ sva_remove_page (uintptr_t paddr) {
      * all levels of the paging hierarchy.)
      */
     page_entry_t *ptp_vaddr = (page_entry_t *) getVirtualSVADMAP(paddr);
-    for (int i = 0; i < NPTEPG; i++) {
+    for (unsigned long i = 0; i < NPTEPG; i++) {
       if (isPresent_maybeEPT(&ptp_vaddr[i], isEPT)) {
         /* Remove the mapping */
         page_desc_t *mappedPg = getPageDescPtr(ptp_vaddr[i]);

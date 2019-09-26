@@ -922,7 +922,7 @@ static inline unsigned char isDirectMap (void * p) {
 }
 
 /* The number of active references to the page */
-static inline int pgRefCount(page_desc_t *page) { return page->count; }
+static inline unsigned int pgRefCount(page_desc_t *page) { return page->count; }
 
 /* Page type queries */
 static inline int isL1Pg (page_desc_t *page) { return page->type == PG_L1; }
