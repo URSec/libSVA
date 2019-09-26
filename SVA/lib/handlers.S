@@ -195,8 +195,8 @@ Trap:
   /* Flag the interrupt context as valid */
   movq $1, IC_VALID(%rsp)
 
-  cmpq $USERCS, IC_CS(%rsp)
-  jne 1f
+  testq $0x3, IC_CS(%rsp)
+  jz 1f
   /* We came from user space: switch to the kernel %gs.base */
   swapgs
 1:
@@ -264,9 +264,9 @@ Trap:
    * stack pointer specified by the kernel.  Otherwise, use the previous
    * kernel stack pointer.
    */
-  cmpq $USERCS, IC_CS(%rsp)
-  cmoveq 4(%rbx), %rsp
-  cmovneq IC_RSP(%rsp), %rsp
+  testq $0x3, IC_CS(%rsp)
+  cmovnzq 4(%rbx), %rsp
+  cmovzq IC_RSP(%rsp), %rsp
 
   /*
    * Zero out live registers that could be spilled to the stack.  Without
@@ -383,8 +383,8 @@ Trap:
   movq IC_RBP(%rsp), %rbp
 
   /* Determine whether we interrupted user or supervisor mode execution. */
-  cmpq $USERCS, IC_CS(%rsp)
-  jne .Lsupervisor_return
+  testq $0x3, IC_CS(%rsp)
+  jz .Lsupervisor_return
 
   cache_part_switch app
 
