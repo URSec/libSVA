@@ -195,9 +195,11 @@ Trap:
   /* Flag the interrupt context as valid */
   movq $1, IC_VALID(%rsp)
 
-  /* Initialize the TLS pointer in %gs.base */
-  get_tls_ptr %rax
-  wrgsbase %rax
+  cmpq $USERCS, IC_CS(%rsp)
+  jne 1f
+  /* We came from user space: switch to the kernel %gs.base */
+  swapgs
+1:
 
 #ifdef MPX
   /* Reset the MPX bounds register for SFI checks */
@@ -386,6 +388,8 @@ Trap:
 
   cache_part_switch app
 
+  /* Switch back to the user %gs.base. */
+  swapgs
   jmp .Liret
 
 .Lsupervisor_return:
