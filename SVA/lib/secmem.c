@@ -713,9 +713,6 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
   /* Physical address of allocated secure memory pointer */
   uintptr_t sp;
 
-  /* The address of the PML4e page table */
-  pml4e_t pml4e;
-
   /*
    * Get the current interrupt context; the arguments will be in it.
    */
@@ -724,11 +721,12 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
 
   /* copy-on-write page fault */
   if ((code & PGEX_P) && (code & PGEX_W)) {
-    pml4e_t *pml4e_ptr = get_pml4eVaddr(get_pagetable(), vaddr);
-    if (!isPresent(pml4e_ptr))
+    /* The address of the PML4e page table */
+    pml4e_t *pml4e = get_pml4eVaddr(get_pagetable(), vaddr);
+    if (!isPresent(pml4e))
       panic("sva_ghost_fault: cow pgfault pml4e %p does not exist\n", pml4e);
 
-    pdpte_t *pdpte = get_pdpteVaddr(pml4e_ptr, vaddr);
+    pdpte_t *pdpte = get_pdpteVaddr(pml4e, vaddr);
     if (!isPresent(pdpte))
       panic("sva_ghost_fault: cow pgfault pdpte %p does not exist\n", pdpte);
 
@@ -832,7 +830,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
      * Map the memory into a part of the address space reserved for secure
      * memory.
      */
-    pml4e = mapSecurePage((uintptr_t) vaddr, paddr);
+    pml4e_t pml4e = mapSecurePage((uintptr_t) vaddr, paddr);
 
     /*
      * If this is the first piece of secure memory that we've allocated,
