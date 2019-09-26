@@ -113,7 +113,7 @@ sva_icontext_getpc (void) {
  *    This should be addressed at some point.
  */
 void
-sva_ipush_function5 (void *newf,
+sva_ipush_function5 (void (*newf)(),
                      uintptr_t p1,
                      uintptr_t p2,
                      uintptr_t p3,
@@ -147,7 +147,7 @@ sva_ipush_function5 (void *newf,
     unsigned index = 0;
     unsigned char found = 0;
     for (index = 0; index < threadp->numPushTargets; ++index) {
-      if (threadp->validPushTargets[index] == newf) {
+      if (threadp->validPushTargets[index] == (void*)newf) {
         found = 1;
         break;
       }
@@ -1333,7 +1333,7 @@ sva_init_stack (unsigned char * start_stackp,
    * Initialize the arguments to the system call.  Also setup the interrupt
    * context and return function pointer.
    */
-  args->return_rip = sc_ret;
+  args->return_rip = (void*)sc_ret;
 
   /*
    * Initialze the integer state of the new thread of control.

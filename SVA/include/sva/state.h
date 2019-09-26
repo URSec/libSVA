@@ -440,7 +440,7 @@ extern void sva_reset_stack_to(void (*f)(void));
  * Individual State Components
  ****************************************************************************/
 
-extern void sva_ipush_function5 (void *f,
+extern void sva_ipush_function5 (void (*f)(),
                                  uintptr_t p1,
                                  uintptr_t p2,
                                  uintptr_t p3,

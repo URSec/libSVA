@@ -67,9 +67,9 @@ extern void sva_register_old_trap      (int number, void *interrupt);
  *  None.
  */
 static inline void
-register_hypercall (unsigned char number, void * handler) {
+register_hypercall (unsigned char number, void (*handler)()) {
   /* Table of functions that handle traps and interrupts */
-  extern void * interrupt_table[256];
+  extern void (*interrupt_table[256])();
 
   /*
    * Put the handler into our dispatch table.

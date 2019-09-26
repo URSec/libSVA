@@ -377,7 +377,7 @@ sva_print_ist3 (unsigned long id) {
 void
 sva_print_inttable (void) {
   extern void default_interrupt (unsigned int number, void * icontext);
-  extern void * interrupt_table[256];
+  extern void (*interrupt_table[256])();
   unsigned index = 0;
   for (unsigned index = 0; index < 256; ++index) {
     if (interrupt_table[index] != default_interrupt)

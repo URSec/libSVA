@@ -31,7 +31,7 @@
 #define sva_state_exception     (28)
 #define sva_safemem_exception   (27)
 
-extern void * interrupt_table[256];
+extern void (*interrupt_table[256])();
 
 
 

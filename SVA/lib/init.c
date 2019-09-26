@@ -94,8 +94,8 @@
 
 #include <sys/types.h>
 
-void register_x86_interrupt (int number, void *interrupt, unsigned char priv);
-void register_x86_trap (int number, void *trap);
+void register_x86_interrupt (int number, void (*interrupt)(void), unsigned char priv);
+void register_x86_trap (int number, void (*trap)(void));
 static void fptrap (void);
 #if 0
 static void init_debug (void);
@@ -119,7 +119,7 @@ struct procMap svaProcMap[numProcessors];
  *
  *  Note that we need one of these per processor.
  */
-extern void * interrupt_table[256];
+extern void (*interrupt_table[256])();
 
 /*
  * Taken from FreeBSD: amd64/segments.h
@@ -181,7 +181,7 @@ sva_debug (void) {
  *  This is based off of the amd64 setidt() code in FreeBSD.
  */
 void
-register_x86_interrupt (int number, void *interrupt, unsigned char priv) {
+register_x86_interrupt (int number, void (*interrupt)(void), unsigned char priv) {
   /*
    * First determine which interrupt table we should be modifying.
    */
@@ -214,7 +214,7 @@ register_x86_interrupt (int number, void *interrupt, unsigned char priv) {
  *  trap    - A function pointer to the system call handler.
  */
 void
-register_x86_trap (int number, void *trap) {
+register_x86_trap (int number, void (*trap)(void)) {
   /*
    * First determine which interrupt table we should be modifying.
    */
@@ -951,7 +951,7 @@ init_dispatcher ()
   register_hypercall     (0x7c, getThreadSecret);
   register_hypercall     (0x7d, installNewPushTarget);
   register_hypercall     (0x7e, freeSecureMemory);
-  register_hypercall     (0x7f, allocSecureMemory);
+  register_hypercall     (0x7f, (void(*)())allocSecureMemory);
 
   return;
 }
