@@ -1418,3 +1418,42 @@ sva_init_stack (unsigned char * start_stackp,
   return (unsigned long) newThread;
 }
 
+/*
+ * Intrinsic: sva_reset_stack_to()
+ *
+ * Description:
+ *  Reset the kernel stack to the most recent interrupt context and jump to the
+ *  provided function.
+ *
+ * Inputs:
+ *  func - The kernel function to execute on the reset stack.
+ *
+ * Return value:
+ *  This intrinsic does not return.
+ */
+void sva_reset_stack_to(void (*f)(void)) {
+    kernel_to_usersva_pcid();
+
+    uint32_t target_insn = *(uint32_t*)f;
+
+    // TODO: alignment check, address space region check, and page-fault safety.
+    if (target_insn != CHECKLABEL) {
+        panic("Attempt to jump to invalid target");
+    }
+
+    uintptr_t rsp;
+    if (sva_was_privileged()) {
+        rsp = (uintptr_t)getCPUState()->newCurrentIC->rsp;
+    } else {
+        rsp = getCPUState()->tssp->rsp0;
+    }
+
+    usersva_to_kernel_pcid();
+
+    asm volatile ("movq %[sp], %%rsp\n\t"
+                  "jmp *%[target]"
+                  : : [sp]"r"(rsp), [target]"rm"(f)
+                  : "memory");
+
+    __builtin_unreachable();
+}

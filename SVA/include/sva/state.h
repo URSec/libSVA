@@ -434,6 +434,8 @@ extern void sva_reinit_icontext (void *, unsigned char, uintptr_t, uintptr_t);
 
 extern void sva_release_stack (uintptr_t id);
 
+extern void sva_reset_stack_to(void (*f)(void));
+
 /*****************************************************************************
  * Individual State Components
  ****************************************************************************/
