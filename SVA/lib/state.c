@@ -756,8 +756,7 @@ sva_ialloca (uintptr_t size, uintptr_t alignment, void * initp) {
     /*
      * Perform the alloca.
      */
-    allocap = icontextp->rsp;
-    allocap -= size;
+    allocap = (void*)((char*)icontextp->rsp - size);
 
     /*
      * Align the pointer.
