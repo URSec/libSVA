@@ -358,13 +358,6 @@ void init_leaf_page_from_mapping(page_entry_t mapping);
  *****************************************************************************
  */
 
-/* CR0 Flags */
-#define     CR0_WP      0x00010000      /* Write protect enable */
-
-/* CR4 Flags */
-#define     CR4_PGE     0x00000080      /* enable global pages */
-#define	    CR4_PCIDE   0x00020000		/* enable PCID */
-
 /*
  * Function: getVirtual()
  *
@@ -548,83 +541,6 @@ get_pagetable (void) {
    * address of the top-level page table.
    */
   return (unsigned char *)(cr3 & PG_FRAME);
-}
-
-/*
- *****************************************************************************
- * Low level register read/write functions
- *****************************************************************************
- */
-#define MSR_REG_EFER    0xC0000080      /* MSR for EFER register */
-
-static inline uint64_t
-rdmsr(u_int msr) {
-  uint32_t low, high;
-  __asm __volatile("rdmsr" : "=a" (low), "=d" (high) : "c" (msr));
-
-  return (low | ((uint64_t)high << 32));
-}
-
-static __inline void
-wrmsr(u_int msr, uint64_t newval) {
-  uint32_t low, high;
-  low = newval;
-  high = newval >> 32;
-  __asm __volatile("wrmsr" : : "a" (low), "d" (high), "c" (msr));
-}
-
-/* 
- * Return the current value in cr0
- */
-static void
-_load_cr0(unsigned long val) {
-  __asm __volatile("movq %0,%%cr0" : : "r" (val));
-}
-
-/*
- * Function: load_cr3
- *
- * Description: 
- *  Load the cr3 with the given value passed in.
- */
-static inline void load_cr3(unsigned long data) {
-  __asm __volatile("movq %0,%%cr3" : : "r" (data) : "memory"); 
-}
-
-/*
- * Function: load_cr4
- *
- * Description: 
- *  Load the cr4 with the given value passed in.
- */
-static inline void load_cr4(unsigned long data) {
-  __asm __volatile("movq %0,%%cr4" : : "r" (data));
-}
-
-static inline u_long
-_rcr0(void) {
-  u_long data;
-  __asm __volatile("movq %%cr0,%0" : "=r" (data));
-  return (data);
-}
-
-static inline u_long
-_rcr3(void) {
-  u_long data;
-  __asm __volatile("movq %%cr3,%0" : "=r" (data));
-  return (data);
-}
-
-static inline u_long
-_rcr4(void) {
-  u_long data;
-  __asm __volatile("movq %%cr4,%0" : "=r" (data));
-  return (data);
-}
-
-static inline uint64_t
-_efer(void) {
-  return rdmsr(MSR_REG_EFER);
 }
 
 /*  
