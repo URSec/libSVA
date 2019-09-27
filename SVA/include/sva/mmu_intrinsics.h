@@ -60,6 +60,7 @@
 
 #include "mmu_types.h"
 #include "state.h"
+#include "util.h"
 
 /*
  *****************************************************************************
@@ -109,8 +110,7 @@ extern void ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread
 static inline void *
 sva_mm_save_pgtable (void)
 {
-  void * p;
-  __asm__ __volatile__ ("movq %%cr3, %0\n" : "=r" (p));
+  void * p = (void*)read_cr3();
   
   return p;
 }

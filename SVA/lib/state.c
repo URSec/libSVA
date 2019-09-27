@@ -529,9 +529,7 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
     /*
      * Save the CR3 register.  We'll need it later for sva_release_stack().
      */
-    uintptr_t cr3;
-    __asm__ __volatile__ ("movq %%cr3, %0\n" : "=r" (cr3));
-    old->cr3 = cr3;
+    old->cr3 = read_cr3();
 
     /*
      * Get a pointer into the page tables for the secure memory region.
@@ -754,9 +752,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
     /*
      * Save the CR3 register.  We'll need it later for sva_release_stack().
      */
-    uintptr_t cr3;
-    __asm__ __volatile__ ("movq %%cr3, %0\n" : "=r" (cr3));
-    old->cr3 = cr3;
+    old->cr3 = read_cr3();
 
     /*
      * Get a pointer into the page tables for the secure memory region.

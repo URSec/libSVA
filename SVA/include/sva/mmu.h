@@ -530,11 +530,8 @@ isPresent_maybeEPT (page_entry_t * pte, unsigned char isEPT) {
  */
 static inline unsigned char *
 get_pagetable (void) {
-  /* Value of the CR3 register */
-  uintptr_t cr3;
-
   /* Get the page table value out of CR3 */
-  __asm__ __volatile__ ("movq %%cr3, %0\n" : "=r" (cr3));
+  uintptr_t cr3 = read_cr3();
 
   /*
    * Mask off the flag bits in CR3, leaving just the 4 kB-aligned physical
