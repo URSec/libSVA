@@ -959,12 +959,7 @@ mapPageReadOnly(page_desc_t * ptePG, page_entry_t mapping) {
  */
 static inline void
 protect_paging(void) {
-  /* The flag value for enabling page protection */
-  const uintptr_t flag = 0x00010000;
-  uintptr_t value = 0;
-  __asm__ __volatile ("movq %%cr0,%0\n": "=r" (value));
-  value |= flag;
-  __asm__ __volatile ("movq %0,%%cr0\n": :"r" (value));
+  write_cr0(read_cr0() | CR0_WP);
 
   if(tsc_read_enable_sva)
 	  wp_num ++;
@@ -981,12 +976,7 @@ protect_paging(void) {
  */
 static inline void
 unprotect_paging(void) {
-  /* The flag value for enabling page protection */
-  const uintptr_t flag = 0xfffffffffffeffff;
-  uintptr_t value;
-  __asm__ __volatile("movq %%cr0,%0\n": "=r"(value));
-  value &= flag;
-  __asm__ __volatile("movq %0,%%cr0\n": : "r"(value));
+  write_cr0(read_cr0() & ~CR0_WP);
 
   if(tsc_read_enable_sva)
 	  wp_num ++;
