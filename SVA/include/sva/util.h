@@ -36,73 +36,99 @@ extern "C" {
  * Low level register read/write functions
  *****************************************************************************
  */
-static inline u_long
-_rcr0(void) {
-  u_long data;
-  __asm __volatile("movq %%cr0,%0" : "=r" (data));
-  return (data);
-}
 
-static inline u_long
-_rcr3(void) {
-  u_long data;
-  __asm __volatile("movq %%cr3,%0" : "=r" (data));
-  return (data);
-}
-
-static inline u_long
-_rcr4(void) {
-  u_long data;
-  __asm __volatile("movq %%cr4,%0" : "=r" (data));
-  return (data);
-}
-
-/*
- * Return the current value in cr0
- */
-static void
-_load_cr0(unsigned long val) {
-  __asm __volatile("movq %0,%%cr0" : : "r" (val));
-}
-
-/*
- * Function: load_cr3
+/**
+ * Get the current value of CR0.
  *
- * Description:
- *  Load the cr3 with the given value passed in.
+ * @return  The current value of CR0
  */
-static inline void load_cr3(unsigned long data) {
-  __asm __volatile("movq %0,%%cr3" : : "r" (data) : "memory");
+static inline uint64_t read_cr0(void) {
+  uint64_t data;
+  __asm __volatile("movq %%cr0, %0" : "=r"(data));
+  return data;
 }
 
-/*
- * Function: load_cr4
+/**
+ * Get the current value of CR3.
  *
- * Description:
- *  Load the cr4 with the given value passed in.
+ * @return  The current value of CR3
  */
-static inline void load_cr4(unsigned long data) {
-  __asm __volatile("movq %0,%%cr4" : : "r" (data));
+static inline uint64_t read_cr3(void) {
+  uint64_t data;
+  __asm __volatile("movq %%cr3, %0" : "=r"(data));
+  return data;
 }
 
-static inline uint64_t
-rdmsr(u_int msr) {
+/**
+ * Get the current value of CR4.
+ *
+ * @return  The current value of CR4
+ */
+static inline uint64_t read_cr4(void) {
+  uint64_t data;
+  __asm __volatile("movq %%cr4, %0" : "=r"(data));
+  return data;
+}
+
+/**
+ * Set the value of CR0.
+ *
+ * @param val The value to set in CR0
+ */
+static inline void write_cr0(uint64_t val) {
+  __asm __volatile("movq %0, %%cr0" : : "r"(val));
+}
+
+/**
+ * Set the value of CR3.
+ *
+ * @param val The value to set in CR3
+ */
+static inline void write_cr3(uint64_t val) {
+  __asm __volatile("movq %0, %%cr3" : : "r"(val) : "memory");
+}
+
+/**
+ * Set the value of CR4.
+ *
+ * @param val The value to set in CR4
+ */
+static inline void write_cr4(uint64_t val) {
+  __asm __volatile("movq %0, %%cr4" : : "r"(val));
+}
+
+/**
+ * Read the value in an MSR.
+ *
+ * @param msr The index of the MSR to read
+ * @return    The value in the MSR
+ */
+static inline uint64_t rdmsr(uint32_t msr) {
   uint32_t low, high;
   __asm __volatile("rdmsr" : "=a" (low), "=d" (high) : "c" (msr));
 
   return (low | ((uint64_t)high << 32));
 }
 
-static __inline void
-wrmsr(u_int msr, uint64_t newval) {
+/**
+ * Set the value in an MSR.
+ *
+ * @param msr The index of the MSR to read
+ * @param val The value to set in the MSR
+ */
+static inline void wrmsr(uint32_t msr, uint64_t val) {
   uint32_t low, high;
-  low = newval;
-  high = newval >> 32;
+  low = val;
+  high = val >> 32;
   __asm __volatile("wrmsr" : : "a" (low), "d" (high), "c" (msr));
 }
 
-static inline uint64_t
-_efer(void) {
+/**
+ * Read the value in the Extended Feature Enable Register (EFER).
+ *
+ * @return  The current value of EFER
+ */
+static inline uint64_t read_efer(void) {
   return rdmsr(MSR_REG_EFER);
 }
 

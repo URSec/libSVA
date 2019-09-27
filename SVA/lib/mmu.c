@@ -1804,7 +1804,7 @@ sva_mm_load_pgtable (void * pg_ptr) {
    * point CR3 to, and decrement it for the old PML4 being switched out.
    */
   page_desc_t *newpml4Desc = getPageDescPtr(new_pml4);
-  page_desc_t *oldpml4Desc = getPageDescPtr(_rcr3());
+  page_desc_t *oldpml4Desc = getPageDescPtr(read_cr3());
 
   SVA_ASSERT(pgRefCount(newpml4Desc) < ((1u << 13) - 1),
       "SVA: MMU: integer overflow in page refcount");
@@ -1869,7 +1869,7 @@ sva_mm_load_pgtable (void * pg_ptr) {
    * address space (which, among other necessary effects, ensures that the
    * secure memory mapping in the PML4 that we updated above is in effect).
    */
-  load_cr3(new_pml4);
+  write_cr3(new_pml4);
 
   /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
@@ -1893,7 +1893,7 @@ sva_load_cr0 (unsigned long val) {
 
 
     val |= CR0_WP;
-    _load_cr0(val);
+    write_cr0(val);
 
 
     record_tsc(sva_load_cr0_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
@@ -2265,7 +2265,7 @@ makePTReadOnly (void) {
  */
 void usersva_to_kernel_pcid(void) {
 #ifdef SVA_ASID_PG
-  unsigned long old_cr3 = _rcr3();
+  unsigned long old_cr3 = read_cr3();
 
   /*
    * If the PCID is not already 1 (kernel), set PCID to 1 and switch to the
@@ -2290,7 +2290,7 @@ void usersva_to_kernel_pcid(void) {
       | 0x1 /* set PCID field to 1 */
       | ((unsigned long)1 << 63) /* ensure XD (bit 63) is set */;
 
-    load_cr3(new_cr3);
+    write_cr3(new_cr3);
 
     if (tsc_read_enable_sva)
       as_num++;
@@ -2313,7 +2313,7 @@ void usersva_to_kernel_pcid(void) {
  */
 void kernel_to_usersva_pcid(void) {
 #ifdef SVA_ASID_PG
-  unsigned long old_cr3 = _rcr3();
+  unsigned long old_cr3 = read_cr3();
 
   /*
    * If the PCID is not already 0 (user/SVA), set PCID to 0 and switch to the
@@ -2336,7 +2336,7 @@ void kernel_to_usersva_pcid(void) {
       (altpml4 & ~0xfff) /* clear PCID field (bits 0-11) */
       | ((unsigned long)1 << 63) /* ensure XD (bit 63) is set */;
 
-    load_cr3(new_cr3);
+    write_cr3(new_cr3);
 
     if (tsc_read_enable_sva)
       as_num++;
@@ -2677,7 +2677,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
   unsigned long initial_cr3 = *kpml4Mapping & PG_FRAME;
 #ifdef SVA_ASID_PG
   /* Enable processor support for PCIDs. */
-  load_cr4(_rcr4() | CR4_PCIDE);
+  write_cr4(read_cr4() | CR4_PCIDE);
 
   /*
    * Set the PCID field (bits 0-11) in the initial CR3 value to 1 so that we
@@ -2706,7 +2706,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
   pml4Desc->count++;
 
   /* Now load the initial value of CR3 to complete kernel init. */
-  load_cr3(initial_cr3);
+  write_cr3(initial_cr3);
 
   /*
    * Make existing page table pages read-only.
@@ -3713,7 +3713,7 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
    * consistent with the user/SVA one (whose refcount was incremented when it
    * was loaded).
    */
-  if (orig_phys == (_rcr3() & PG_FRAME)) {
+  if (orig_phys == (read_cr3() & PG_FRAME)) {
     SVA_ASSERT(pgRefCount(kernel_ptDesc) < ((1u << 13) - 1),
         "SVA: MMU: integer overflow in page refcount");
 

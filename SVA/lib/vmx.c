@@ -253,7 +253,7 @@ cpu_permit_vmx(void) {
  */
 static inline unsigned char
 check_cr0_fixed_bits(void) {
-  uint64_t cr0_value = _rcr0();
+  uint64_t cr0_value = read_cr0();
   DBGPRNT(("Current value of CR0: 0x%lx\n", cr0_value));
 
   uint64_t fixed0_msr = rdmsr(MSR_VMX_CR0_FIXED0);
@@ -321,7 +321,7 @@ check_cr0_fixed_bits(void) {
  */
 static inline unsigned char
 check_cr4_fixed_bits(void) {
-  uint64_t cr4_value = _rcr4();
+  uint64_t cr4_value = read_cr4();
   DBGPRNT(("Current value of CR4: 0x%lx\n", cr4_value));
 
   uint64_t fixed0_msr = rdmsr(MSR_VMX_CR4_FIXED0);
@@ -446,7 +446,7 @@ sva_initvmx(void) {
   SVA_ASSERT(SVA_COS == 2,
       "SVA: VMX init error: hardcoded constant SVA_COS inconsistent\n");
 
-  uint64_t orig_cr4_value = _rcr4();
+  uint64_t orig_cr4_value = read_cr4();
   DBGPRNT(("Original value of CR4: 0x%lx\n", orig_cr4_value));
 
   /*
@@ -468,8 +468,8 @@ sva_initvmx(void) {
    */
   uint64_t new_cr4_value = orig_cr4_value | CR4_ENABLE_VMX_BIT;
   DBGPRNT(("Setting new value of CR4 to enable VMX: 0x%lx\n", new_cr4_value));
-  load_cr4(new_cr4_value);
-  DBGPRNT(("Confirming new CR4 value: 0x%lx\n", _rcr4()));
+  write_cr4(new_cr4_value);
+  DBGPRNT(("Confirming new CR4 value: 0x%lx\n", read_cr4()));
 
   /* Confirm that the values of CR0 and CR4 are allowed for entry into VMX
    * operation (i.e., they comport with MSRs which specify bits that must be
@@ -485,8 +485,8 @@ sva_initvmx(void) {
 
     /* Restore CR4 to its original value. */
     DBGPRNT(("Restoring CR4 to its original value: 0x%lx\n", orig_cr4_value));
-    load_cr4(orig_cr4_value);
-    DBGPRNT(("Confirming CR4 restoration: 0x%lx\n", _rcr4()));
+    write_cr4(orig_cr4_value);
+    DBGPRNT(("Confirming CR4 restoration: 0x%lx\n", read_cr4()));
 
     return 0;
   }
@@ -554,8 +554,8 @@ sva_initvmx(void) {
 
     /* Restore CR4 to its original value. */
     DBGPRNT(("Restoring CR4 to its original value: 0x%lx\n", orig_cr4_value));
-    load_cr4(orig_cr4_value);
-    DBGPRNT(("Confirming CR4 restoration: 0x%lx\n", _rcr4()));
+    write_cr4(orig_cr4_value);
+    DBGPRNT(("Confirming CR4 restoration: 0x%lx\n", read_cr4()));
 
     /* Free the frame of SVA secure memory we allocated for the VMXON region.
      */
@@ -1597,11 +1597,11 @@ run_vm(unsigned char use_vmresume) {
   DBGPRNT(("run_vm: Saving host state...\n"));
 #endif
   /* Control registers */
-  uint64_t host_cr0 = _rcr0();
+  uint64_t host_cr0 = read_cr0();
   writevmcs_unchecked(VMCS_HOST_CR0, host_cr0);
-  uint64_t host_cr3 = _rcr3();
+  uint64_t host_cr3 = read_cr3();
   writevmcs_unchecked(VMCS_HOST_CR3, host_cr3);
-  uint64_t host_cr4 = _rcr4();
+  uint64_t host_cr4 = read_cr4();
   writevmcs_unchecked(VMCS_HOST_CR4, host_cr4);
 #if 0
   DBGPRNT(("run_vm: Saved host control registers.\n"));
@@ -1852,7 +1852,7 @@ run_vm(unsigned char use_vmresume) {
 #endif
   uint64_t vmexit_rflags, hostrestored_rflags;
 
-  uint64_t cr0_value = _rcr0();
+  uint64_t cr0_value = read_cr0();
   
   /* Save a copy of the TS flag status */
   unsigned char orig_ts = 1 ? cr0_value & CR0_TS_OFFSET : 0;
@@ -2301,9 +2301,9 @@ run_vm(unsigned char use_vmresume) {
   /* Restore TS flag */
   if ( orig_ts ) {
     /* Refetch CR0 in case it's changed */
-    cr0_value = _rcr0() | orig_ts;
+    cr0_value = read_cr0() | orig_ts;
 
-    _load_cr0(cr0_value);
+    write_cr0(cr0_value);
   }
 
 

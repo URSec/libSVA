@@ -548,7 +548,7 @@ get_pagetable (void) {
  */ 
 static inline void
 invltlb(void) {
-  load_cr3(_rcr3());
+  write_cr3(read_cr3());
 }
 
 
@@ -559,7 +559,7 @@ invltlb(void) {
  */
 static inline void
 invltlb_kernel(void) {
-  load_cr3(_rcr3() | 0x1);
+  write_cr3(read_cr3() | 0x1);
 }
 
 /*
@@ -570,9 +570,9 @@ invltlb_kernel(void) {
 static inline void
 invltlb_all(void) {
   unsigned long cr4;
-  cr4 = _rcr4();
-  load_cr4(cr4 & ~CR4_PGE);
-  load_cr4(cr4);
+  cr4 = read_cr4();
+  write_cr4(cr4 & ~CR4_PGE);
+  write_cr4(cr4);
 }
 
 /*
@@ -726,10 +726,10 @@ invvpid_allcontexts(void) {
 static inline void
 print_regs(void) {
   printf("Printing Active Reg Values:\n");
-  printf("\tEFER: %p\n", _efer());
-  printf("\t CR0: %p\n", _rcr0());
-  printf("\t CR3: %p\n", _rcr3());
-  printf("\t CR4: %p\n", _rcr4());
+  printf("\tEFER: %p\n", read_efer());
+  printf("\t CR0: %p\n", read_cr0());
+  printf("\t CR3: %p\n", read_cr3());
+  printf("\t CR4: %p\n", read_cr4());
 }
 
 /*

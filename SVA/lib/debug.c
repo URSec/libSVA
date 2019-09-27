@@ -445,8 +445,8 @@ sva_print_vmx_msrs(void) {
   printf("VMX_VMFUNC: 0x%lx\n", rdmsr(MSR_VMX_VMCS_ENUM));
 
   printf("\n");
-  printf("CR0: 0x%lx\n", _rcr0());
-  printf("CR4: 0x%lx\n", _rcr4());
+  printf("CR0: 0x%lx\n", read_cr0());
+  printf("CR4: 0x%lx\n", read_cr4());
   printf("IA32_EFER: 0x%lx\n", rdmsr(MSR_EFER));
   printf("IA32_DEBUGCTL: 0x%lx\n", rdmsr(MSR_DEBUGCTL));
   printf("IA32_SYSENTER_CS: 0x%lx\n", rdmsr(MSR_SYSENTER_CS));
