@@ -393,12 +393,9 @@ flushSecureMemory (struct SVAThread * threadp) {
    * switch, we just flushed all the TLBs anyway by changing CR3.  Therefore,
    * we lose speed by not flushing everything again.
    */
-  __asm__ __volatile__ ("movq %cr4, %rax\n"
-                        "movq %cr4, %rcx\n"
-                        "orq $0x20000, %rax\n"
-                        "andq $0xfffffffffffdffff, %rcx\n"
-                        "movq %rax, %cr4\n"
-                        "movq %rcx, %cr4\n");
+  uint64_t cr4 = read_cr4();
+  write_cr4(cr4 | CR4_PCIDE);
+  write_cr4(cr4 & ~CR4_PCIDE);
   return;
 }
 

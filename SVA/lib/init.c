@@ -487,11 +487,7 @@ init_mpx (void) {
     /*
      * Enable the OSXSAVE feature in CR4.  This is needed to enable MPX.
      */
-    __asm__ __volatile__ ("movq %%cr4, %0\n"
-                          "orq %1, %0\n"
-                          "movq %0, %%cr4\n"
-                          : "=r" (cr4)
-                          : "i" (CR4_OSXSAVE));
+    write_cr4(read_cr4() | CR4_OSXSAVE);
 
     /*
      * Enable the XCR0.BNDREG and XCR0.BNDCSR bits in XCR0.  We must also
