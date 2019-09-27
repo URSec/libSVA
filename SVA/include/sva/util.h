@@ -19,6 +19,9 @@
 #include <stdint.h>
 
 /* CR0 Flags */
+#define     CR0_MP      0x00000002      /* FPU Monitor */
+#define     CR0_EM      0x00000004      /* FPU emulation */
+#define     CR0_TS      0x00000008      /* Task switched */
 #define     CR0_WP      0x00010000      /* Write protect enable */
 
 /* CR4 Flags */
@@ -130,6 +133,26 @@ static inline void wrmsr(uint32_t msr, uint64_t val) {
  */
 static inline uint64_t read_efer(void) {
   return rdmsr(MSR_REG_EFER);
+}
+
+/**
+ * Disable use of the FPU.
+ */
+static inline void fpu_disable(void) {
+  /*
+   * Unset the FPU emulation bit and set the task-switched and monitor bits.
+   */
+  write_cr0((read_cr0() & ~CR0_EM) | CR0_TS | CR0_MP);
+}
+
+/**
+ * Enable use of the FPU.
+ */
+static inline void fpu_enable(void) {
+  /*
+   * Clear the task-switched bit.
+   */
+  asm volatile ("clts");
 }
 
 static inline void
