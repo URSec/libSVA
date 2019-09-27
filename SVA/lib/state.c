@@ -566,17 +566,7 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
    * close to the other pipeline flushing code to reduce the amount of code
    * executed between flushes. 
    */
-  const unsigned long mp = 0x00000002u;
-  const unsigned long em = 0x00000004u;
-  const unsigned long ts = 0x00000008u;
-  unsigned long cr0;
-  __asm__ __volatile__ ("mov %%cr0, %0\n"
-                        "and  %1, %0\n"
-                        "or   %2, %0\n"
-                        "mov %0, %%cr0\n"
-                        : "=&r" (cr0)
-                        : "r" (~(em)),
-                          "r" (mp | ts));
+  fpu_disable();
 
   /*
    * Mark the saved integer state as valid.
@@ -802,17 +792,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
    * close to the other pipeline flushing code to reduce the amount of code
    * executed between flushes. 
    */
-  const unsigned long mp = 0x00000002u;
-  const unsigned long em = 0x00000004u;
-  const unsigned long ts = 0x00000008u;
-  unsigned long cr0;
-  __asm__ __volatile__ ("mov %%cr0, %0\n"
-                        "and  %1, %0\n"
-                        "or   %2, %0\n"
-                        "mov %0, %%cr0\n"
-                        : "=&r" (cr0)
-                        : "r" (~(em)),
-                          "r" (mp | ts));
+  fpu_disable();
 
   /*
    * Mark the saved integer state as valid.

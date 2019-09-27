@@ -260,7 +260,7 @@ fptrap (void) {
   struct SVAThread * runningThread    = getCPUState()->currentThread;
   struct SVAThread * previousFPThread = getCPUState()->prevFPThread;
   if ((!previousFPThread) || (previousFPThread == runningThread)) {
-    __asm__ __volatile__ ("clts");
+    fpu_enable();
     return;
   }
 
@@ -290,7 +290,7 @@ fptrap (void) {
    * Turn off the TS bit in CR0; this allows the FPU to proceed with floating
    * point operations.
    */
-  __asm__ __volatile__ ("clts");
+  fpu_enable();
   return;
 }
 
@@ -443,22 +443,11 @@ init_mmu (void)
  */
 static void
 init_fpu (void) {
-  const uintptr_t mp = 0x00000002u;
-  const uintptr_t em = 0x00000004u;
-  const uintptr_t ts = 0x00000008u;
-  uintptr_t cr0;
-
   /*
    * Configure the processor so that the first use of the FPU generates an
    * exception.
    */
-  __asm__ __volatile__ ("mov %%cr0, %0\n"
-                        "and  %1, %0\n"
-                        "or   %2, %0\n"
-                        "mov %0, %%cr0\n"
-                        : "=&r" (cr0)
-                        : "r" (~(em)),
-                          "r" (mp | ts));
+  fpu_disable();
 
   /*
    * Register the co-processor trap so that we know when an FP operation has

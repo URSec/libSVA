@@ -1858,7 +1858,7 @@ run_vm(unsigned char use_vmresume) {
   unsigned char orig_ts = 1 ? cr0_value & CR0_TS_OFFSET : 0;
 
   /* Clear the TS flag to avoid a fptrap */
-  __asm__ __volatile__ ("clts");
+  fpu_enable();
 
   /* Save the host FP state */
   save_fp( &(host_state.fp) );
@@ -2290,7 +2290,7 @@ run_vm(unsigned char use_vmresume) {
 #endif
 
   /* Clear the TS flag to avoid a fptrap */
-  __asm__ __volatile__ ("clts");
+  fpu_enable();
 
   /* Save Guest FPU state */
   save_fp( &(host_state.active_vm->state.fp) );
