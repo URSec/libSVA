@@ -18,6 +18,8 @@
 
 #include "offsets.h"
 
+.bundle_align_mode 5
+
 .data
 
 .text

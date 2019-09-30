@@ -19,6 +19,8 @@
 #include "sva/cfi.h"
 #include "sva/asmconfig.h"
 
+.bundle_align_mode 5
+
 .global sva_invoke
 .type sva_invoke, @function
 
