@@ -168,8 +168,7 @@ L2:
    *
    * TODO: Add a CFI check here.
    */
-  callq *%r8
-  RETTARGET
+  CALLQ(*%r8)
 
 #ifdef SVA_LLC_PART
   pushq %rax

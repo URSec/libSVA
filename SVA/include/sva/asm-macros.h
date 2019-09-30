@@ -15,13 +15,16 @@
 #ifndef _SVA_ASM_MACROS_H
 #define _SVA_ASM_MACROS_H
 
+#include "sva/cfi.h"
+
 #define GLOBL(x)	\
 	.globl x;	\
 x:
 
 #define ENTRY(x)		\
 	.type x, @function;	\
-	GLOBL(x)
+	GLOBL(x);               \
+	STARTFUNC
 
 #define END(x)		\
 	.size x, . - x

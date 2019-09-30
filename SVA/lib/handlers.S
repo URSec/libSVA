@@ -247,8 +247,7 @@ Trap:
 
 #if 0 
   /* Verify the Interrupt Context */
-  callq assertGoodIC
-  RETTARGET
+  CALLQ(assertGoodIC)
 #endif
 
   /*
@@ -308,8 +307,7 @@ Trap:
   jb .Lcall_handler
   cmp $0xfffffd80, %eax
   jae .Lcall_handler
-  callq trap_pfault_ghost
-  RETTARGET
+  CALLQ(trap_pfault_ghost)
   jmp .Lout
 
 .Lcall_handler:
@@ -317,7 +315,7 @@ Trap:
    * Call the trap handler registered by the OS for this trap.
    */
   movq $interrupt_table, %rax
-  callq *(%rax,%rdi,8)
+  CALLQ(*(%rax,%rdi,8))
   RETTARGET
 
 .Lout:
@@ -644,7 +642,7 @@ SVAsyscall:
   /*
    * Call the system software system call handler.
    */
-  callq sva_syscall
+  CALLQ(sva_syscall)
 sc_ret:
   RETTARGET
 

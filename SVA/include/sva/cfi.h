@@ -16,32 +16,21 @@
 #ifndef SVA_CFI_H
 #define SVA_CFI_H
 
-/* Labels for call targets and return targets, respectively */
-#define CALLLABEL 0xbeefbeef
-#define RETLABEL  0xbeefbeef
-
-/* Labels used in comparisons: This includes the prefetchnta portion */
-#define CHECKLABEL 0x48c98948
+/* CFI label: endbr64 */
+#define CHECKLABEL 0xfa1e0ff3
 
 #ifdef __ASSEMBLER__
 
 /* Macro for call */
-#define CALLQ(x) callq x ; \
-                 movq %rcx,%rcx ; \
-                 movq %rdx,%rdx ; \
-                 nop ; \
-                 nop ;
+#define CALLQ(x) .bundle_lock align_to_end; \
+                 callq x; \
+                 .bundle_unlock; \
+                 RETTARGET
 
 /* Macro for start of function */
-#define STARTFUNC movq %rcx,%rcx ; \
-                  movq %rdx,%rdx ; \
-                  nop ; \
-                  nop ;
+#define STARTFUNC endbr64
 
-#define RETTARGET movq %rcx,%rcx ; \
-                  movq %rdx,%rdx ; \
-                  nop ; \
-                  nop ;
+#define RETTARGET endbr64
 
 /* Macro for return */
 #define RETQ  movq  (%rsp), %rcx ; \
