@@ -1295,12 +1295,12 @@ sva_reinit_icontext (void * handle, unsigned char priv, uintptr_t stackp, uintpt
   if (priv) {
     panic ("SVA: sva_reinit_context: No support for creating kernel state.\n");
   } else {
-    ep->cs = 0x43;
-    ep->ss = 0x3b;
-    ep->ds = 0x3b;
-    ep->es = 0x3b;
-    ep->fs = 0x13;
-    ep->gs = 0x1b;
+    ep->cs = SVA_USER_CS;
+    ep->ss = SVA_USER_SS;
+    ep->ds = SVA_USER_DS;
+    ep->es = SVA_USER_ES;
+    ep->fs = SVA_USER_FS;
+    ep->gs = SVA_USER_GS;
     ep->rflags = (rflags & 0xfffu);
   }
 
@@ -1545,8 +1545,8 @@ sva_init_stack (unsigned char * start_stackp,
   integerp->rsi = arg2;
   integerp->rdx = arg3;
   integerp->rsp = (uintptr_t *) stackp;
-  integerp->cs  = 0x43;
-  integerp->ss  = 0x3b;
+  integerp->cs  = SVA_USER_CS;
+  integerp->ss  = SVA_USER_SS;
   integerp->valid = 1;
   integerp->rflags = 0x202;
 #if 0

@@ -24,9 +24,6 @@
 #include <sva/asmconfig.h>
 #include <sva/asm-macros.h>
 
-/* FreeBSD segment selector for kernel code segment */
-#define USERCS 0x43
-
 .macro _TRAP trapnum:req needsPushErrorCode:req
 ENTRY(trap\trapnum)
   /* Adjust the stack pointer so that we can push items using %ds */
@@ -491,7 +488,7 @@ SVAsyscall:
   pushq %r11
 
   /* Push the user-space code segment */
-  pushq $USERCS
+  pushq $SVA_USER_CS
 
   /* Push the user-space program counter (%rip) */
   pushq %rcx

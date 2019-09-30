@@ -19,6 +19,7 @@
 #include "sva/state.h"
 #include "sva/keys.h"
 #include "sva/util.h"
+#include "sva/x86.h"
 #include "thread_stack.h"
 
 /* Debug flags for printing data */
@@ -142,7 +143,7 @@ sva_getCPUState (tss_t * tssp) {
      */
     cpup->newCurrentIC = cpup->currentThread->interruptContexts + (maxIC - 1);
     cpup->newCurrentIC->rip     = 0xfead;
-    cpup->newCurrentIC->cs      = 0x43;
+    cpup->newCurrentIC->cs      = SVA_USER_CS;
     cpup->newCurrentIC->fpstate = 0;
     cpup->gip                   = 0;
 

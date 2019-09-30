@@ -16,6 +16,7 @@
 #define _SVA_ASM_MACROS_H
 
 #include "sva/cfi.h"
+#include "sva/x86.h"
 
 #define GLOBL(x)	\
 	.globl x;	\

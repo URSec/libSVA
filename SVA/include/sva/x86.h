@@ -12,11 +12,20 @@
  *===----------------------------------------------------------------------===
  */
 
-#include <stdint.h>
-#include <sys/types.h>
-
 #ifndef _SVA_X86_H
 #define _SVA_X86_H
+
+#define SVA_USER_CS 0x43
+#define SVA_USER_SS 0x3b
+#define SVA_USER_DS 0x3b
+#define SVA_USER_ES 0x3b
+#define SVA_USER_FS 0x13
+#define SVA_USER_GS 0x1b
+
+#ifndef __ASSEMBLER__
+
+#include <stdint.h>
+#include <sys/types.h>
 
 /*
  * Struction: tss_t
@@ -63,4 +72,6 @@ static const unsigned PTE_PRESENT  = 0x0001u;
 static const unsigned PTE_CANWRITE = 0x0002u;
 static const unsigned PTE_CANUSER  = 0x0004u;
 static const unsigned PTE_PS       = 0x0080u;
-#endif
+
+#endif /* __ASSEMBLER__ */
+#endif /* _SVA_X66_H */
