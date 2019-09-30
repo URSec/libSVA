@@ -313,7 +313,6 @@ Trap:
    */
   movq $interrupt_table, %rax
   CALLQ(*(%rax,%rdi,8))
-  RETTARGET
 
 .Lout:
   /*
