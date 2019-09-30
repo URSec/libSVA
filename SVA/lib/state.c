@@ -696,7 +696,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
   /* Get a pointer to the saved state (the ID is the pointer) */
   struct SVAThread * newThread = validateThreadPointer(newint);
   if (! newThread) {
-	 panic("sva_swap_integer: Invalid new-thread pointer");
+	 panic("sva_swap_user_integer: Invalid new-thread pointer");
 	 return (uintptr_t)NULL;
   }
   sva_integer_state_t * new =  newThread ? &(newThread->integerState) : 0;
@@ -711,7 +711,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
    */
 #if SVA_CHECK_INTEGER
   if ((pchk_check_int (new)) == 0) {
-    poolcheckfail ("sva_swap_integer: Bad integer state",
+    poolcheckfail ("sva_swap_user_integer: Bad integer state",
                    (unsigned)old,
                    (void*)__builtin_return_address(0));
     /*
