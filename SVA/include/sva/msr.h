@@ -18,6 +18,8 @@
 #ifndef _SVA_MSR_H
 #define _SVA_MSR_H
 
+#include <sva/offsets.h>
+
 #ifdef __ASSEMBLER__
 
 /**
@@ -37,9 +39,9 @@
   pushq %rdx
 .else
 .ifeqs "\loc", "tls"
-  movq %rax, %gs:0x288
-  movq %rcx, %gs:0x290
-  movq %rdx, %gs:0x298
+  movq %rax, %gs:TLS_MSR_RAX
+  movq %rcx, %gs:TLS_MSR_RCX
+  movq %rdx, %gs:TLS_MSR_RDX
 .else
   .err Invalid register save location for wrmsr
 .endif
@@ -62,9 +64,9 @@
   popq %rax
 .else
 .ifeqs "\loc", "tls"
-  movq %gs:0x298, %rdx
-  movq %gs:0x290, %rcx
-  movq %gs:0x288, %rax
+  movq %gs:TLS_MSR_RDX, %rdx
+  movq %gs:TLS_MSR_RCX, %rcx
+  movq %gs:TLS_MSR_RAX, %rax
 .else
   .err Invalid register save location for wrmsr
 .endif

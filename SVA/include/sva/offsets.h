@@ -13,6 +13,9 @@
  *===----------------------------------------------------------------------===
  */
 
+#ifndef _OFFSETS_H
+#define _OFFSETS_H
+
 /* Offsets for various fields in the SVA Interrupt Context */
 #define IC_INVOKEP 0x00
 #define IC_FS      0x08
@@ -62,6 +65,16 @@
 
 #define IS_HACKRIP 0xd8
 
+/* Offsets for fields in the TLS block (accessed off of %gs) */
+#define TLS_BASE 0x260 /* TODO: find out what lives below this offset */
+#define TLS_CPUSTATE  (TLS_BASE + 0x0)
+#define TLS_SC_RSP    (TLS_BASE + 0x8)
+#define TLS_SC_RBP    (TLS_BASE + 0x10)
+#define TLS_SC_GSBASE (TLS_BASE + 0x18)
+#define TLS_MSR_RAX   (TLS_BASE + 0x28)
+#define TLS_MSR_RCX   (TLS_BASE + 0x30)
+#define TLS_MSR_RDX   (TLS_BASE + 0x38)
+
 /* Offsets for various fields in the CPU State Structure */
 #define CPU_THREAD 0x00
 #define CPU_TSSP   0x08
@@ -85,3 +98,4 @@
  */
 #define IDT_PF      14  /* #PF: Page Fault */
 
+#endif /* _OFFSETS_H */

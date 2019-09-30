@@ -15,8 +15,7 @@
  */
 
 #include <sva/cfi.h>
-
-#include "offsets.h"
+#include <sva/offsets.h>
 
 .bundle_align_mode 5
 

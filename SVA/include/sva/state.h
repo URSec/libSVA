@@ -21,7 +21,7 @@
 #include "sva/x86.h"
 #include "sva/mmu_types.h"
 #include "sva/keys.h"
-
+#include "sva/offsets.h"
 
 extern void usersva_to_kernel_pcid(void);
 extern void kernel_to_usersva_pcid(void);
@@ -333,7 +333,9 @@ getCPUState(void) {
    * this processor.
    */
   struct CPUState * cpustate;
-  __asm__ __volatile__ ("movq %%gs:0x260, %0\n" : "=r" (cpustate));
+  __asm__ __volatile__ ("movq %%gs:%c1, %0\n"
+                        : "=r" (cpustate)
+                        : "i"(TLS_CPUSTATE));
   return cpustate;
 }
 

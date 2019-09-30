@@ -21,6 +21,7 @@
 
 #include <sva/asmconfig.h>
 #include <sva/msr.h>
+#include <sva/offsets.h>
 
 /* Intel CAT MSR */
 #define COS_MSR 0xc8f
@@ -83,7 +84,7 @@
    * and we should use the OS's LLC partition instead of a separate one for
    * the the application.
    */
-  movq %gs:0x260, %rax
+  movq %gs:TLS_CPUSTATE, %rax
   movq CPU_THREAD(%rax), %rax
   movq 0x7d58(%rax), %rax
   testq %rax, %rax    /* sets zero flag if we should use OS partition */

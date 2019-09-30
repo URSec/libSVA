@@ -19,7 +19,7 @@
  ****************************************************************************/
 
 #include "icat.h"
-#include "offsets.h"
+#include <sva/offsets.h>
 #include <sva/cfi.h>
 #include <sva/asmconfig.h>
 #include <sva/asm-macros.h>
@@ -214,7 +214,7 @@ Trap:
    *
    * Record that no floating point state is saved (it is saved lazily).
    */
-  movq %gs:0x260, %rbp
+  movq %gs:TLS_CPUSTATE, %rbp
   testq $1, CPU_FPUSED(%rbp)
   jne 1f
   movq %cr0, %rsi
@@ -325,7 +325,7 @@ Trap:
   /*
    * Switch the stack pointer back to the interrupt context.
    */
-  movq %gs:0x260, %rbp
+  movq %gs:TLS_CPUSTATE, %rbp
   movq CPU_NEWIC(%rbp), %rsp
 
   /*
@@ -452,8 +452,8 @@ SVAsyscall:
   /*
    * Save the stack pointer (%rsp) and frame pointer (%rbp) of the application.
    */
-  movq %rsp, %gs:0x268
-  movq %rbp, %gs:0x270
+  movq %rsp, %gs:TLS_SC_RSP
+  movq %rbp, %gs:TLS_SC_RBP
 
   /*
    * Save the application's %gs.base.
@@ -461,13 +461,13 @@ SVAsyscall:
   swapgs
   rdgsbase %rbp
   swapgs
-  movq %rbp, %gs:0x278
+  movq %rbp, %gs:TLS_SC_GSBASE
 
   /*
    * Get the location of the Interrupt Context within the current thread and
    * make the stack pointer point to it.
    */
-  movq %gs:0x260, %rbp
+  movq %gs:TLS_CPUSTATE, %rbp
   movq CPU_TSSP(%rbp), %rbp
   movq TSS_IST3(%rbp), %rsp
   addq $0x10, %rsp
@@ -482,7 +482,7 @@ SVAsyscall:
   pushq $0
 
   /* Push the user-space stack pointer (%rsp) */
-  pushq %gs:0x268
+  pushq %gs:TLS_SC_RSP
 
   /* Push the user-space status flags */
   pushq %r11
@@ -502,7 +502,7 @@ SVAsyscall:
   /*
    * Save a copy of the interrupt context into SVA memory.
    */
-  pushq %gs:0x270
+  pushq %gs:TLS_SC_RBP
   pushq %r15
   pushq %r14
   pushq %r13
@@ -520,7 +520,7 @@ SVAsyscall:
   pushq %rsi
   pushq %rdi
 
-  pushq %gs:0x278
+  pushq %gs:TLS_SC_GSBASE
   rdfsbase %rax
   pushq %rax
 
@@ -572,7 +572,7 @@ SVAsyscall:
    *
    * Record that no floating point state is saved (it is saved lazily).
    */
-  movq %gs:0x260, %rbp
+  movq %gs:TLS_CPUSTATE, %rbp
   testq $1, CPU_FPUSED(%rbp)
   jne 1f
   movq %cr0, %rsi
@@ -652,7 +652,7 @@ sc_ret:
   /*
    * Switch the stack pointer back to the interrupt context.
    */
-  movq %gs:0x260, %rbp
+  movq %gs:TLS_CPUSTATE, %rbp
   movq CPU_NEWIC(%rbp), %rsp
 
   /*

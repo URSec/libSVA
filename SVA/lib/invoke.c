@@ -29,8 +29,7 @@
 #include <sva/state.h>
 #include <sva/util.h>
 #include <sva/callbacks.h>
-
-#include "offsets.h"
+#include <sva/offsets.h>
 
 /*
  * Intrinsic: sva_unwind ()

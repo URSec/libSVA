@@ -15,7 +15,7 @@
  */
 
 #include "icat.h"
-#include "offsets.h"
+#include "sva/offsets.h"
 #include "sva/cfi.h"
 #include "sva/asmconfig.h"
 
@@ -69,7 +69,7 @@ sva_invoke:
    * are saved and restored by callee functions.  This is because callees may
    * not be able to restore these registers in the case of an unwind.
    */
-  movq %gs:0x260, %rax
+  movq %gs:TLS_CPUSTATE, %rax
   pushq $INVOKE_NORMAL
   pushq CPU_GIP(%rax)
   pushq %r15
@@ -261,7 +261,7 @@ L4:
   popq %r15
 
   /* Remove the saved gip pointer */
-  movq %gs:0x260, %rax
+  movq %gs:TLS_CPUSTATE, %rax
   popq CPU_GIP(%rax)
 
 #ifdef SVA_LLC_PART
@@ -294,7 +294,7 @@ sva_invoke_except:
   /*
    * Move the stack pointer back to the most recently created invoke frame.
    */
-  movq %gs:0x260, %rax
+  movq %gs:TLS_CPUSTATE, %rax
   movq CPU_GIP(%rax), %rsp
 
   /*
@@ -310,7 +310,7 @@ sva_invoke_except:
   /*
    * Pop the top-most invoke frame off of the invoke frame linked list.
    */
-  movq %gs:0x260, %rax
+  movq %gs:TLS_CPUSTATE, %rax
   popq CPU_GIP(%rax)
 
   /*
