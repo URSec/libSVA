@@ -1901,7 +1901,7 @@ run_vm(unsigned char use_vmresume) {
 
       /*** Use VMWRITE to set RIP and RSP to be loaded on VM exit ***/
       "vmwrite %%rsp, %%rbx\n" // Write RSP to VMCS_HOST_RSP
-      "movq $vmexit_landing_pad, %%rbp\n"
+      "leaq vmexit_landing_pad(%%rip), %%rbp\n"
       "vmwrite %%rbp, %%rcx\n" // Write vmexit_landing_pad to VMCS_HOST_RIP
 
       /*** Determine whether we will be using VMLAUNCH or VMRESUME for VM

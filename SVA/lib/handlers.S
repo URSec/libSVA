@@ -315,7 +315,7 @@ Trap:
   /*
    * Call the trap handler registered by the OS for this trap.
    */
-  movq $interrupt_table, %rax
+  leaq interrupt_table(%rip), %rax
   CALLQ(*(%rax,%rdi,8))
 
 .Lout:
