@@ -534,11 +534,11 @@ sva_initvmx(void) {
   DBGPRNT(("Entering VMX operation...\n"));
   uint64_t rflags;
   asm __volatile__ (
-      "vmxon (%1)\n"
+      "vmxon %1\n"
       "pushfq\n"
       "popq %0\n"
       : "=r" (rflags)
-      : "r" (&VMXON_paddr)
+      : "m" (VMXON_paddr)
       : "cc"
       );
   /* Confirm that the operation succeeded. */
@@ -730,11 +730,11 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
         vm_descs[vmid].vmcs_paddr));
   uint64_t rflags_vmclear;
   asm __volatile__ (
-      "vmclear (%1)\n"
+      "vmclear %1\n"
       "pushfq\n"
       "popq %0\n"
       : "=r" (rflags_vmclear)
-      : "r" (&vm_descs[vmid].vmcs_paddr)
+      : "m" (vm_descs[vmid].vmcs_paddr)
       : "cc"
       );
   /* Confirm that the operation succeeded. */
@@ -936,11 +936,11 @@ sva_loadvm(size_t vmid) {
         host_state.active_vm->vmcs_paddr));
   uint64_t rflags_vmptrld;
   asm __volatile__ (
-      "vmptrld (%1)\n"
+      "vmptrld %1\n"
       "pushfq\n"
       "popq %0\n"
       : "=r" (rflags_vmptrld)
-      : "r" (&(host_state.active_vm->vmcs_paddr))
+      : "m" (host_state.active_vm->vmcs_paddr)
       : "cc"
       );
   /* Confirm that the operation succeeded. */
@@ -1110,11 +1110,11 @@ sva_unloadvm(void) {
         "processor...\n", host_state.active_vm->vmcs_paddr));
   uint64_t rflags_vmclear;
   asm __volatile__ (
-      "vmclear (%1)\n"
+      "vmclear %1\n"
       "pushfq\n"
       "popq %0\n"
       : "=r" (rflags_vmclear)
-      : "r" (&(host_state.active_vm->vmcs_paddr))
+      : "m" (host_state.active_vm->vmcs_paddr)
       : "cc"
       );
   /* Confirm that the operation succeeded. */
@@ -1696,9 +1696,9 @@ run_vm(unsigned char use_vmresume) {
    * the base-address field.
    */
   asm __volatile__ (
-      "sgdt (%0)\n"
-      "sidt (%1)\n"
-      : : "r" (gdtr), "r" (idtr)
+      "sgdt %0\n"
+      "sidt %1\n"
+      : : "m" (gdtr), "m" (idtr)
       );
   uint64_t gdt_base = *(uint64_t*)(gdtr + 2);
   uint64_t idt_base = *(uint64_t*)(idtr + 2);
