@@ -24,7 +24,12 @@ extern uintptr_t provideSVAMemory (uintptr_t size);
 extern void releaseSVAMemory (uintptr_t, uintptr_t size);
 
 /* These callbacks are used for debugging and assertions */
-extern int printf(const char *, ...);
-extern int panic(const char *, ...);
+extern void panic(const char *, ...) __attribute__((__noreturn__, format(printf, 1, 2)));
+#ifdef FreeBSD
+extern int printf(const char *, ...) __attribute__((format(printf, 1, 2)));
+#else
+extern void printk(const char *, ...) __attribute__((format(printf, 1, 2)));
+#define printf printk
+#endif
 
 #endif
