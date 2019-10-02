@@ -32,9 +32,9 @@ void sva_icontext_setretval (unsigned long, unsigned long, unsigned char error);
 void sva_icontext_restart (unsigned long, unsigned long);
 
 /* Types for handlers */
-typedef void (*genfault_handler_t)(void);
-typedef void (*memfault_handler_t)(sva_icontext_t * icontext, void * mp);
-typedef void (*interrupt_handler_t)(unsigned int num, sva_icontext_t * icontext);
+typedef void (*genfault_handler_t)(unsigned int vector);
+typedef void (*memfault_handler_t)(unsigned int vector, void * mp);
+typedef void (*interrupt_handler_t)(unsigned int vector);
 typedef void * syscall_t;
 
 /* Prototypes for Execution Engine Functions */
