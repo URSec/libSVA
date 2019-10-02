@@ -7,7 +7,7 @@
 #
 include ../../make.conf
 
-CPPFLAGS += -I../include
+CPPFLAGS += -I../include -include sva/compiler.h
 CFLAGS += -O2 -fno-strict-aliasing -fno-omit-frame-pointer -mno-aes -mno-avx -mcmodel=kernel -mno-red-zone -mno-mmx -msoft-float  -fno-asynchronous-unwind-tables -ffreestanding -sva -fno-sva-sfi -no-integrated-as
 
 OFILES = init.o secmem.o handlers.o mmu.o interrupt.o state.o debug.o \
