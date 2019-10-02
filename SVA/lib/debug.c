@@ -28,6 +28,10 @@
 #include <machine/frame.h>
 #endif
 
+#ifdef XEN
+#include <xen/arch-x86/xen.h>
+#endif
+
 /*****************************************************************************
  * Assertion Code
  ****************************************************************************/
@@ -75,6 +79,116 @@ assertGoodIC (void) {
 /*****************************************************************************
  * Cheater's Code
  ****************************************************************************/
+
+#ifdef XEN
+
+/*
+ * Function: sva_cpu_user_regs()
+ *
+ * Description:
+ *  Convert the state as represented by the Execution Engine back into Xen's
+ *  cpu_user_regs structure.
+ *
+ *  The reason for doing this is that it allows me to progressively move the
+ *  kernel to using SVA for interrupts without completely breaking it.
+ */
+void sva_cpu_user_regs(struct cpu_user_regs* regs) {
+  /*
+   * Fetch the currently available interrupt context.
+   */
+  uint64_t tsc_tmp = 0;
+  if(tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
+
+  kernel_to_usersva_pcid();
+
+  sva_icontext_t* p = getCPUState()->newCurrentIC;
+
+  regs->error_code = p->code;
+  regs->entry_vector = p->trapno;
+  regs->rip = p->rip;
+  regs->cs = p->cs;
+
+  regs->rax = p->rax;
+  regs->rbx = p->rbx;
+  regs->rcx = p->rcx;
+  regs->rdx = p->rdx;
+  regs->rsp = (uintptr_t)p->rsp;
+  regs->rbp = p->rbp;
+  regs->rsi = p->rsi;
+  regs->rdi = p->rdi;
+  regs->r8 = p->r8;
+  regs->r9 = p->r9;
+  regs->r10 = p->r10;
+  regs->r11 = p->r11;
+  regs->r12 = p->r12;
+  regs->r13 = p->r13;
+  regs->r14 = p->r14;
+  regs->r15 = p->r15;
+
+  regs->rflags = p->rflags;
+
+  regs->ss = p->ss;
+
+  usersva_to_kernel_pcid();
+  record_tsc(sva_trapframe_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  return;
+}
+
+/*
+ * Function: sva_icontext()
+ *
+ * Description:
+ *  Convert the state as represented by Xen's cpu_user_regs structure back
+ *  into the interrupt context.
+ *
+ *  The reason for doing this is that it allows me to progressively move the
+ *  kernel to using SVA for interrupts without completely breaking it.
+ */
+void sva_icontext(struct cpu_user_regs* regs) {
+  /*
+   * Fetch the currently available interrupt context.
+   */
+  uint64_t tsc_tmp = 0;
+  if(tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
+
+  kernel_to_usersva_pcid();
+
+  sva_icontext_t* p = getCPUState()->newCurrentIC;
+
+  p->code = regs->error_code;
+  p->trapno = regs->entry_vector;
+  p->rip = regs->rip;
+  p->cs = regs->cs;
+
+  p->rax = regs->rax;
+  p->rbx = regs->rbx;
+  p->rcx = regs->rcx;
+  p->rdx = regs->rdx;
+  p->rsp = (unsigned long*)regs->rsp;
+  p->rbp = regs->rbp;
+  p->rsi = regs->rsi;
+  p->rdi = regs->rdi;
+  p->r8 = regs->r8;
+  p->r9 = regs->r9;
+  p->r10 = regs->r10;
+  p->r11 = regs->r11;
+  p->r12 = regs->r12;
+  p->r13 = regs->r13;
+  p->r14 = regs->r14;
+  p->r15 = regs->r15;
+
+  p->rflags = regs->rflags;
+
+  p->ss = regs->ss;
+
+  usersva_to_kernel_pcid();
+  record_tsc(sva_trapframe_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  return;
+}
+
+#endif /* XEN */
 
 #ifdef __FreeBSD__
 
