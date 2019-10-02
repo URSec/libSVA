@@ -432,14 +432,14 @@ sva_icontext (struct trapframe * tf) {
 
 static void
 print_icontext (char * s, sva_icontext_t * p) {
-  printf ("rip: 0x%lx   rsp: 0x%lx   rbp: 0x%lx \n", p->rip, p->rsp, p->rbp);
+  printf ("rip: 0x%lx   rsp: %p   rbp: 0x%lx \n", p->rip, p->rsp, p->rbp);
   printf ("rax: 0x%lx   rbx: 0x%lx   rcx: 0x%lx \n", p->rax, p->rbx, p->rcx);
   printf ("rdx: 0x%lx   rsi: 0x%lx   rdi: 0x%lx \n", p->rdx, p->rsi, p->rdi);
   printf ("SVA: icontext  cs: 0x%lx\n", p->cs);
   printf ("SVA: icontext  rflags  : 0x%lx\n", p->rflags);
   printf ("SVA: icontext  code    : 0x%lx\n", p->code);
   printf ("SVA: icontext  trapno  : 0x%lx\n", p->trapno);
-  printf ("SVA: icontext  invokep : 0x%lx\n", p->invokep);
+  printf ("SVA: icontext  invokep : %p\n", p->invokep);
   printf ("es: 0x%x   fs: 0x%x    ds: 0x%x   gs: 0x%x \n", p->es, p->fs, p->ds, p->gs);
   printf ("----------------------------------------------------------------\n");
   return;
@@ -481,7 +481,7 @@ sva_print_integer (uintptr_t integer) {
 void
 sva_print_ist3 (unsigned long id) {
   struct CPUState * cpup = getCPUState();
-  printf ("SVA: %d: ist3 = %p: %lx\n", id, &(cpup->tssp->ist3), cpup->tssp->ist3);
+  printf ("SVA: %ld: ist3 = %p: %lx\n", id, &(cpup->tssp->ist3), cpup->tssp->ist3);
   if (cpup->tssp->ist3 == 0) {
     __asm__ __volatile__ ("xchg %%bx, %%bx\n" :: "a" (id));
   }
@@ -494,7 +494,7 @@ sva_print_inttable (void) {
   extern void (*interrupt_table[256])();
   for (unsigned index = 0; index < 256; ++index) {
     if (interrupt_table[index] != default_interrupt)
-      printf ("SVA: %d: %lx\n", index, interrupt_table[index]);
+      printf ("SVA: %d: %p\n", index, interrupt_table[index]);
   }
   return;
 }

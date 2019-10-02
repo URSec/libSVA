@@ -723,10 +723,10 @@ invvpid_allcontexts(void) {
 static inline void
 print_regs(void) {
   printf("Printing Active Reg Values:\n");
-  printf("\tEFER: %p\n", read_efer());
-  printf("\t CR0: %p\n", read_cr0());
-  printf("\t CR3: %p\n", read_cr3());
-  printf("\t CR4: %p\n", read_cr4());
+  printf("\tEFER: 0x%lx\n", read_efer());
+  printf("\t CR0: 0x%lx\n", read_cr0());
+  printf("\t CR3: 0x%lx\n", read_cr3());
+  printf("\t CR4: 0x%lx\n", read_cr4());
 }
 
 /*

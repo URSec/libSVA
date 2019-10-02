@@ -42,7 +42,7 @@ extern void (*interrupt_table[256])();
 void
 default_interrupt (unsigned int number, uintptr_t address) {
 #if 1
-  printf ("SVA: default interrupt handler: %d %d\n", number, address);
+  printf ("SVA: default interrupt handler: %u 0x%lx\n", number, address);
 #else
   __asm__ __volatile__ ("hlt");
 #endif

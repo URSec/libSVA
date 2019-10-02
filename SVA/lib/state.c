@@ -154,7 +154,7 @@ sva_ipush_function5 (void (*newf)(),
     }
 
     if (!found) {
-      panic ("SVA: Pushing bad value %lx\n", newf);
+      panic ("SVA: Pushing bad value %p\n", newf);
       sva_exit_critical (rflags);
       usersva_to_kernel_pcid();
       record_tsc(sva_ipush_function5_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp)); 
@@ -1453,7 +1453,7 @@ sva_init_stack (unsigned char * start_stackp,
    * Verify that the stack is big enough.
    */
   if (stacklen < sizeof (struct frame)) {
-    panic ("sva_init_stack: Invalid stacklen: %d!\n", stacklen);
+    panic ("sva_init_stack: Invalid stacklen: %lu!\n", stacklen);
   }
 
   /*

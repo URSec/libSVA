@@ -1721,8 +1721,8 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
 
         if (pgDesc->type != PG_GHOST)
           panic("SVA: ghostmemCOW: page is not a ghost memory page! "
-              "vaddr = 0x%lx, src_pte = 0x%lx, *src_pte = 0x%lx, "
-              "src_pde = 0x%lx, *src_pde = 0x%lx\n",
+              "vaddr = 0x%lx, src_pte = %p, *src_pte = 0x%lx, "
+              "src_pde = %p, *src_pde = 0x%lx\n",
               vaddr_pte, src_pte, *src_pte, src_pde, *src_pde);
 
         *src_pte &= ~PTE_CANWRITE;
@@ -2473,7 +2473,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
 
     for (unsigned index = 0; index < 100; ++index) {
       if ((*(q + index)) != ('a' + index))
-        panic ("SVA: No match: %x: %lx != %lx\n", index, p + index, q + index);
+        panic ("SVA: No match: %x: %p != %p\n", index, p + index, q + index);
     }
 
     /* Move to the next virtual address */
@@ -2785,8 +2785,8 @@ sva_declare_l1_page (uintptr_t frameAddr) {
       break;
 
     default:
-      printf ("SVA: %lx %lx\n", page_desc, page_desc + numPageDescEntries);
-      panic ("SVA: Declaring L1 for wrong page: frameAddr = %lx, pgDesc=%lx, type=%x\n", frameAddr, pgDesc, pgDesc->type);
+      printf ("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
+      panic ("SVA: Declaring L1 for wrong page: frameAddr = %lx, pgDesc=%p, type=%x\n", frameAddr, pgDesc, pgDesc->type);
       break;
   }
 
@@ -2865,8 +2865,8 @@ sva_declare_l2_page (uintptr_t frameAddr) {
       break;
 
     default:
-      printf ("SVA: %lx %lx\n", page_desc, page_desc + numPageDescEntries);
-      panic ("SVA: Declaring L2 for wrong page: frameAddr = %lx, pgDesc=%lx, type=%x count=%x\n", frameAddr, pgDesc, pgDesc->type, pgDesc->count);
+      printf ("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
+      panic ("SVA: Declaring L2 for wrong page: frameAddr = %lx, pgDesc=%p, type=%x count=%x\n", frameAddr, pgDesc, pgDesc->type, pgDesc->count);
       break;
   }
 
@@ -2940,8 +2940,8 @@ sva_declare_l3_page (uintptr_t frameAddr) {
       break;
 
     default:
-      printf ("SVA: %lx %lx\n", page_desc, page_desc + numPageDescEntries);
-      panic ("SVA: Declaring L3 for wrong page: frameAddr = %lx, pgDesc=%lx, type=%x count=%x\n", frameAddr, pgDesc, pgDesc->type, pgDesc->count);
+      printf ("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
+      panic ("SVA: Declaring L3 for wrong page: frameAddr = %lx, pgDesc=%p, type=%x count=%x\n", frameAddr, pgDesc, pgDesc->type, pgDesc->count);
       break;
   }
 
@@ -3024,8 +3024,8 @@ sva_declare_l4_page (uintptr_t frameAddr) {
       break;
 
     default:
-      printf ("SVA: %lx %lx\n", page_desc, page_desc + numPageDescEntries);
-      panic ("SVA: Declaring L4 for wrong page: frameAddr = %lx, pgDesc=%lx, type=%x\n", frameAddr, pgDesc, pgDesc->type);
+      printf ("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
+      panic ("SVA: Declaring L4 for wrong page: frameAddr = %lx, pgDesc=%p, type=%x\n", frameAddr, pgDesc, pgDesc->type);
       break;
   }
 
@@ -3181,7 +3181,7 @@ sva_remove_page (uintptr_t paddr) {
       break;
 
     default:
-      panic("SVA: undeclare bad page type: %lx %lx\n", paddr, pgDesc->type);
+      panic("SVA: undeclare bad page type: %lx %x\n", paddr, pgDesc->type);
       /* Restore interrupts and return to kernel page tables */
       sva_exit_critical(rflags);
       usersva_to_kernel_pcid();
@@ -3421,7 +3421,7 @@ sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned lon
    */
   page_desc_t * ptDesc = getPageDescPtr (getPhysicalAddr(pteptr));
   if ((ptDesc->type != PG_L1) && (!disableMMUChecks)) {
-    panic ("SVA: MMU: update_l1 not an L1: %lx %lx: %lx\n", pteptr, val, ptDesc->type);
+    panic ("SVA: MMU: update_l1 not an L1: %p %lx: %x\n", pteptr, val, ptDesc->type);
   }
 
   /*
@@ -3471,7 +3471,7 @@ sva_update_l1_mapping(pte_t * pteptr, page_entry_t val) {
    */
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pteptr));
   if ((ptDesc->type != PG_L1) && (!disableMMUChecks)) {
-    panic("SVA: MMU: update_l1 not an L1: %lx %lx: %lx\n", pteptr, val, ptDesc->type);
+    panic("SVA: MMU: update_l1 not an L1: %p %lx: %x\n", pteptr, val, ptDesc->type);
   }
 
   /*
@@ -3513,7 +3513,7 @@ sva_update_l2_mapping(pde_t * pdePtr, page_entry_t val) {
    */
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pdePtr));
   if ((ptDesc->type != PG_L2) && (!disableMMUChecks)) {
-    panic("SVA: MMU: update_l2 not an L2: %lx %lx: type=%lx count=%lx\n", pdePtr, val, ptDesc->type, ptDesc->count);
+    panic("SVA: MMU: update_l2 not an L2: %p %lx: type=%x count=%x\n", pdePtr, val, ptDesc->type, ptDesc->count);
   }
 
   /*
@@ -3548,7 +3548,7 @@ void sva_update_l3_mapping(pdpte_t * pdptePtr, page_entry_t val) {
    */
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pdptePtr));
   if ((ptDesc->type != PG_L3) && (!disableMMUChecks)) {
-    panic("SVA: MMU: update_l3 not an L3: %lx %lx: %lx\n", pdptePtr, val, ptDesc->type);
+    panic("SVA: MMU: update_l3 not an L3: %p %lx: %x\n", pdptePtr, val, ptDesc->type);
   }
 
   __update_mapping(pdptePtr, val);
@@ -3581,7 +3581,7 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
    */
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pml4ePtr));
   if ((ptDesc->type != PG_L4) && (!disableMMUChecks)) {
-    panic("SVA: MMU: update_l4 not an L4: %lx %lx: %lx\n", pml4ePtr, val, ptDesc->type);
+    panic("SVA: MMU: update_l4 not an L4: %p %lx: %x\n", pml4ePtr, val, ptDesc->type);
   }
 
 
@@ -3595,7 +3595,7 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
     pml4e_t * kernel_pml4ePtr = (pml4e_t *)((uintptr_t) getVirtual(other_cr3) | index); 
     page_desc_t * kernel_ptDesc = getPageDescPtr(other_cr3);
     if((kernel_ptDesc->type != PG_L4) && (!disableMMUChecks)){
-           panic("SVA: MMU: update_l4 kernel or sva version pte not an L4: %lx %lx: %lx\n", kernel_pml4ePtr, val, kernel_ptDesc->type);
+           panic("SVA: MMU: update_l4 kernel or sva version pte not an L4: %lx %lx: %x\n", kernel_pml4ePtr, val, kernel_ptDesc->type);
     }
 
     if(((index >> 3) == PML4PML4I) && ((val & PG_FRAME) == (getPhysicalAddr(pml4ePtr) & PG_FRAME)))

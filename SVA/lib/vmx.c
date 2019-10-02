@@ -527,7 +527,7 @@ sva_initvmx(void) {
   DBGPRNT(("VMCS revision identifier written to VMXON region.\n"));
 
   DBGPRNT(("Physical address of VMXON: 0x%lx\n", VMXON_paddr));
-  DBGPRNT(("Virtual address of VMXON pointer: 0x%lx\n", &VMXON_paddr));
+  DBGPRNT(("Virtual address of VMXON pointer: %p\n", &VMXON_paddr));
   /* Enter VMX operation. This is done by executing the VMXON instruction,
    * passing the physical address of the VMXON region as a memory operand.
    */
@@ -2738,7 +2738,7 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
       return readvmcs_unchecked(field, data);
 
     default:
-      printf("SVA: Attempted read from VMCS field: 0x%lx (", field);
+      printf("SVA: Attempted read from VMCS field: 0x%x (", field);
       print_vmcs_field_name(field);
       printf(")\n");
       panic("SVA: Disallowed read to VMCS field not on read whitelist.\n");
@@ -3227,7 +3227,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
       return writevmcs_unchecked(field, data);
 
     default:
-      printf("SVA: Attempted write to VMCS field: 0x%lx (", field);
+      printf("SVA: Attempted write to VMCS field: 0x%x (", field);
       print_vmcs_field_name(field);
       printf("); value = 0x%lx\n", data);
       panic("SVA: Disallowed write to VMCS field not on write whitelist.\n");

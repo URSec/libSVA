@@ -61,9 +61,9 @@ sva_declare_l1_eptpage(uintptr_t frameAddr) {
       break;
 
     default:
-      printf("SVA: %lx %lx\n", page_desc, page_desc + numPageDescEntries);
+      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
       panic("SVA: Declaring EPT L1 for wrong page: "
-          "frameAddr = %lx, pgDesc=%lx, type=%x\n",
+          "frameAddr = %lx, pgDesc=%p, type=%x\n",
           frameAddr, pgDesc, pgDesc->type);
       break;
   }
@@ -141,9 +141,9 @@ sva_declare_l2_eptpage(uintptr_t frameAddr) {
       break;
 
     default:
-      printf("SVA: %lx %lx\n", page_desc, page_desc + numPageDescEntries);
+      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
       panic("SVA: Declaring EPT L2 for wrong page: "
-          "frameAddr = %lx, pgDesc=%lx, type=%x\n",
+          "frameAddr = %lx, pgDesc=%p, type=%x\n",
           frameAddr, pgDesc, pgDesc->type);
       break;
   }
@@ -221,9 +221,9 @@ sva_declare_l3_eptpage(uintptr_t frameAddr) {
       break;
 
     default:
-      printf("SVA: %lx %lx\n", page_desc, page_desc + numPageDescEntries);
+      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
       panic("SVA: Declaring EPT L3 for wrong page: "
-          "frameAddr = %lx, pgDesc=%lx, type=%x\n",
+          "frameAddr = %lx, pgDesc=%p, type=%x\n",
           frameAddr, pgDesc, pgDesc->type);
       break;
   }
@@ -301,9 +301,9 @@ sva_declare_l4_eptpage(uintptr_t frameAddr) {
       break;
 
     default:
-      printf("SVA: %lx %lx\n", page_desc, page_desc + numPageDescEntries);
+      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
       panic("SVA: Declaring EPT L4 for wrong page: "
-          "frameAddr = %lx, pgDesc=%lx, type=%x\n",
+          "frameAddr = %lx, pgDesc=%p, type=%x\n",
           frameAddr, pgDesc, pgDesc->type);
       break;
   }
@@ -397,8 +397,8 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
 
       default:
         panic("SVA: MMU: attempted to update an EPTE in a page that isn't "
-            "an EPTP! Location: 0x%lx; new value: 0x%lx; "
-            "actual frame type: 0x%lx\n", eptePtr, val, ptDesc->type);
+            "an EPTP! Location: %p; new value: 0x%lx; "
+            "actual frame type: 0x%x\n", eptePtr, val, ptDesc->type);
         break;
     }
   }
@@ -514,7 +514,7 @@ load_eptable_internal(
   if ((ptpDesc->type != PG_EPTL4) && !disableMMUChecks && usevmx) {
     panic("SVA: MMU: Attempted to load an extended page table that wasn't "
         "registered with SVA as an EPML4 frame! "
-        "vaddr: 0x%lx; paddr: 0x%lx; SVA frame type: %d\n",
+        "vaddr: %p; paddr: 0x%lx; SVA frame type: %x\n",
         epml4t, epml4t_paddr, ptpDesc->type);
   }
 
