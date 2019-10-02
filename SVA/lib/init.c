@@ -96,7 +96,7 @@
 
 void register_x86_interrupt (int number, void (*interrupt)(void), unsigned char priv);
 void register_x86_trap (int number, void (*trap)(void));
-static void fptrap (void);
+static void fptrap (unsigned int vector);
 #if 0
 static void init_debug (void);
 #endif
@@ -242,7 +242,7 @@ register_x86_trap (int number, void (*trap)(void)) {
  *  This function captures FP traps and flags use of the FP unit accordingly.
  */
 static void
-fptrap (void) {
+fptrap (unsigned int vector) {
   /*
    * Currently, we only support user-space applications using the floating
    * point unit.  If the kernel uses the floating point unit, panic the
