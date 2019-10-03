@@ -13,6 +13,7 @@
 
 /* Initialization functions */
 extern void sva_init_primary ();
+extern void sva_init_primary_xen (void* tss);
 extern void sva_init_secondary ();
 #endif
 

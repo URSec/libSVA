@@ -165,6 +165,23 @@ sva_debug (void) {
   return;
 }
 
+/**
+ * Initialize SVA's TLS and set up %gs.base
+ */
+static void init_TLS(tss_t *tss) {
+  /* For now, just use a static allocation */
+  static char TLSBlock[64];
+
+  *(struct CPUState**)&TLSBlock[0] = sva_getCPUState(tss);
+
+  /*
+   * The rest of the TLS block is scratch space for saving registers in trap
+   * handlers.
+   */
+
+  wrgsbase((uintptr_t)TLSBlock);
+}
+
 /*
  * Function: register_x86_interrupt()
  *
@@ -581,6 +598,50 @@ sva_init_primary () {
   init_mpx ();
   init_fpu ();
 #if 0
+  llva_reset_counters();
+  llva_reset_local_counters();
+#endif
+
+  record_tsc(sva_init_primary_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+}
+
+/*
+ * Intrinsic: sva_init_primary_xen()
+ *
+ * Description:
+ *  This routine initializes all of the information needed by the SVA
+ *  Execution Engine.  We do things here like setting up the interrupt
+ *  descriptor table.  Note that this should be called by the primary processor
+ *  (the first one that starts execution on system boot).
+ */
+void
+sva_init_primary_xen(void *tss) {
+#if 0
+  init_segs();
+  init_debug();
+#endif
+  uint64_t tsc_tmp = 0;
+  if(tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
+
+  init_TLS((tss_t*)tss);
+
+#if 0
+  /* Initialize the processor ID */
+  init_procID();
+
+  init_threads();
+#endif
+
+  /* Initialize the IDT of the primary processor */
+  init_interrupt_table(0);
+  init_dispatcher();
+  init_idt(0);
+
+#if 0
+  init_mmu();
+  init_mpx();
+  init_fpu();
   llva_reset_counters();
   llva_reset_local_counters();
 #endif

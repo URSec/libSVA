@@ -73,5 +73,6 @@ static const unsigned PTE_CANWRITE = 0x0002u;
 static const unsigned PTE_CANUSER  = 0x0004u;
 static const unsigned PTE_PS       = 0x0080u;
 
-#endif /* __ASSEMBLER__ */
-#endif /* _SVA_X66_H */
+#endif /* !__ASSEMBLER__ */
+
+#endif /* _SVA_X86_H */
