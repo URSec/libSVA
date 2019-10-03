@@ -155,6 +155,28 @@ static inline void fpu_enable(void) {
   asm volatile ("clts");
 }
 
+/**
+ * Read the %gs.base value
+ *
+ * @return  The %gs.base value
+ */
+static inline uintptr_t rdgsbase(void) {
+  uintptr_t base;
+
+  asm volatile ("rdgsbase %0" : "=r"(base));
+
+  return base;
+}
+
+/**
+ * Write the %gs.base value
+ *
+ * @param base  The new base value
+ */
+static inline void wrgsbase(uintptr_t base) {
+  asm volatile ("wrgsbase %0" :: "r"(base));
+}
+
 static inline void
 sva_check_memory_read (void * memory, unsigned int size) {
   volatile unsigned char value;
