@@ -111,7 +111,7 @@ SVAPTPages[1024][X86_PAGE_SIZE] __attribute__ ((section ("svamem")));
  * There is an "extern" declaration for this object in mmu.h so that the EPT
  * intrinsics can see it.
  */
-page_desc_t page_desc[numPageDescEntries];
+page_desc_t page_desc[numPageDescEntries] __attribute__((section("svamem")));
 
 /*
  * Description:
