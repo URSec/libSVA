@@ -24,8 +24,8 @@
 #include <sva/asmconfig.h>
 #include <sva/asm-macros.h>
 
-.macro _TRAP trapnum:req needsPushErrorCode:req
-ENTRY(trap\trapnum)
+.macro _TRAP name:req trapnum:req needsPushErrorCode:req
+ENTRY(\name)
   /* Adjust the stack pointer so that we can push items using %ds */
   subq $(8 + 8 * \needsPushErrorCode), %rsp
 
@@ -39,7 +39,7 @@ ENTRY(trap\trapnum)
 
   /* Call the common trap code. */
   jmp Trap
-END(trap\trapnum)
+END(\name)
 .endm
 
 /*
@@ -50,7 +50,7 @@ END(trap\trapnum)
  *  This version is for traps that do not generate their own error code.
  */
 .macro TRAP trapnum:req
-  _TRAP \trapnum needsPushErrorCode=1
+  _TRAP trap\trapnum \trapnum needsPushErrorCode=1
 .endm
 
 /*
@@ -61,7 +61,7 @@ END(trap\trapnum)
  *  This version is for traps that generate their own error code.
  */
 .macro ECTRAP trapnum:req
-  _TRAP \trapnum needsPushErrorCode=0
+  _TRAP trap\trapnum \trapnum needsPushErrorCode=0
 .endm
 
 /*
@@ -74,7 +74,7 @@ END(trap\trapnum)
  *  an interrupt and a trap.
  */
 .macro INTERRUPT interruptnum:req
-  _TRAP \interruptnum needsPushErrorCode=1
+  _TRAP interrupt\interruptnum \interruptnum needsPushErrorCode=1
 .endm
 
 .bundle_align_mode 5
