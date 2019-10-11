@@ -48,7 +48,7 @@ struct FT_stack{
 
 /* Initialization of the stack */
 static struct FT_stack fthreads __attribute__ ((aligned (16))) __attribute__ ((section ("svamem"))) = {
-  .top = -1,
+  .top = 0,
   .lock = 0,
   .initialized = 0,
 };
@@ -80,10 +80,10 @@ static inline struct SVAThread *ftstack_pop(void) {
 
     for (unsigned index = 0; index < THREAD_STACK_SIZE; ++index) {
       Threads[index].used = 0;
-      fthreads.top++;
-      fthreads.threads[fthreads.top] = &Threads[index];
+      fthreads.threads[index] = &Threads[index];
     }
 
+    fthreads.top = THREAD_STACK_SIZE - 1;
     fthreads.initialized = 1;
   }
 
