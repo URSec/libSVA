@@ -66,7 +66,12 @@
 #define IS_HACKRIP 0xd8
 
 /* Offsets for fields in the TLS block (accessed off of %gs) */
+#ifdef FreeBSD
+/* SVA borrows FreeBSD's TLS */
 #define TLS_BASE 0x260 /* TODO: find out what lives below this offset */
+#else
+#define TLS_BASE 0x0
+#endif
 #define TLS_CPUSTATE  (TLS_BASE + 0x0)
 #define TLS_SC_RSP    (TLS_BASE + 0x8)
 #define TLS_SC_RBP    (TLS_BASE + 0x10)
