@@ -337,6 +337,8 @@ sva_register_memory_exception (unsigned char number, memfault_handler_t handler)
   }
 #endif
 
+  interrupt_table[number] = handler;
+
   return 0;
 }
 
