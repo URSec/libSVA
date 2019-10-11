@@ -23,6 +23,7 @@
 #include <sva/cfi.h>
 #include <sva/asmconfig.h>
 #include <sva/asm-macros.h>
+#include <sva/cr.h>
 
 .macro _TRAP name:req trapnum:req needsPushErrorCode:req
 ENTRY(\name)
@@ -175,6 +176,11 @@ Trap:
 
   movq %rsi, IC_RSI(%rsp)
   movq %rdi, IC_RDI(%rsp)
+
+  /* FSGSBASE might be disabled in CR4; enable it */
+  movq %cr4, %rax
+  orq  $CR4_FSGSBASE, %rax
+  movq %rax, %cr4
 
   /* Save the segment bases */
   rdgsbase %rax
