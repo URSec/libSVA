@@ -14,6 +14,8 @@
  *===----------------------------------------------------------------------===
  */
 
+#include <stddef.h>
+
 #include <sva/callbacks.h>
 #include <sva/config.h>
 #include <sva/state.h>
@@ -92,7 +94,7 @@ assertGoodIC (void) {
  *  The reason for doing this is that it allows me to progressively move the
  *  kernel to using SVA for interrupts without completely breaking it.
  */
-void sva_cpu_user_regs(struct cpu_user_regs* regs) {
+void sva_cpu_user_regs(struct cpu_user_regs* regs, uintptr_t* fsbase, uintptr_t* gsbase) {
   /*
    * Fetch the currently available interrupt context.
    */
@@ -130,6 +132,13 @@ void sva_cpu_user_regs(struct cpu_user_regs* regs) {
 
   regs->ss = p->ss;
 
+  if (fsbase != NULL) {
+    *fsbase = p->fsbase;
+  }
+  if (gsbase != NULL) {
+    *gsbase = p->gsbase;
+  }
+
   usersva_to_kernel_pcid();
   record_tsc(sva_trapframe_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
   return;
@@ -145,7 +154,7 @@ void sva_cpu_user_regs(struct cpu_user_regs* regs) {
  *  The reason for doing this is that it allows me to progressively move the
  *  kernel to using SVA for interrupts without completely breaking it.
  */
-void sva_icontext(struct cpu_user_regs* regs) {
+void sva_icontext(struct cpu_user_regs* regs, uintptr_t* fsbase, uintptr_t* gsbase) {
   /*
    * Fetch the currently available interrupt context.
    */
@@ -182,6 +191,13 @@ void sva_icontext(struct cpu_user_regs* regs) {
   p->rflags = regs->rflags;
 
   p->ss = regs->ss;
+
+  if (fsbase != NULL) {
+    p->fsbase = *fsbase;
+  }
+  if (gsbase != NULL) {
+    p->gsbase = *gsbase;
+  }
 
   usersva_to_kernel_pcid();
   record_tsc(sva_trapframe_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
