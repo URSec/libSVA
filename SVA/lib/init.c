@@ -141,7 +141,11 @@ struct  gate_descriptor {
 
 /* Taken from FreeBSD: amd64/segments.h */
 #define GSEL(s,r) (((s)<<3) | r)      /* a global selector */
+#ifdef XEN
+#define GCODE_SEL 0x1c01 /* Xen Code Descriptor */
+#else
 #define GCODE_SEL 4 /* Kernel Code Descriptor */
+#endif
 
 /*
  * Structure: sva_idt
