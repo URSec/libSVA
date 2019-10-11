@@ -130,10 +130,10 @@ sva_getCPUState (tss_t * tssp) {
     /*
      * Flag that the floating point unit has not been used.
      */
-    getCPUState()->fp_used = 0;
+    cpup->fp_used = 0;
 
     /* No one has used the floating point unit yet */
-    getCPUState()->prevFPThread = 0;
+    cpup->prevFPThread = 0;
 
     /*
      * Initialize a dummy interrupt context so that it looks like we
