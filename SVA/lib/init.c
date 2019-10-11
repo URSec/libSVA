@@ -174,7 +174,7 @@ sva_debug (void) {
  */
 static void init_TLS(tss_t *tss) {
   /* For now, just use a static allocation */
-  static char TLSBlock[64];
+  static char TLSBlock[64] __attribute__((section("svamem")));
 
   *(struct CPUState**)&TLSBlock[0] = sva_getCPUState(tss);
 
