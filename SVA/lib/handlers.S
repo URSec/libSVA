@@ -141,6 +141,7 @@ SVAbadtrap:
 Trap:
   cache_part_switch sva stack
 
+#ifndef XEN /* Xen doesn't use a kernel stack segment */
   /*
    * Switch to the stack segment.
    */
@@ -148,6 +149,7 @@ Trap:
   movw $0x28, %ax
   movw %ax, %ss
   popq %rax
+#endif
 
   /*
    * Allocate space for the SVA Interrupt Context.  Note that the hardware
