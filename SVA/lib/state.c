@@ -381,10 +381,13 @@ checkIntegerForLoad (sva_integer_state_t * p) {
  * Currently, this only checks if the pointer is non-null and if it is in a
  * valid pool (if SVA_CHECK_INTEGER is enabled).
  *
- * @param newThread The thread to check
- * @return          True if the new thread is valid, otherwise false
+ * @param newThread         The thread to check
+ * @param expectStackSwitch Whether or not the caller expects to switch kernel
+ *                          stacks
+ * @return                  True if the new thread is valid, otherwise false
  */
-static bool checkThreadForLoad(struct SVAThread* newThread) {
+static bool checkThreadForLoad(struct SVAThread* newThread,
+                               bool expectStackSwitch) {
   /*
    * If there is no place for new state, flag an error.
    */
@@ -403,6 +406,33 @@ static bool checkThreadForLoad(struct SVAThread* newThread) {
     return false;
   }
 #endif
+
+  /*
+   * We will switch kernel stacks if the kernel stack pointer in the saved state
+   * is non-zero. Make sure it matches up with the caller's expectation.
+   */
+  bool stackSwitch = newThread->integerState.kstackp != 0;
+  if (stackSwitch != expectStackSwitch) {
+    printf("SVA: Given context with%s a kernel stack when a stack switch was "
+           "%sexpected!\n",
+           stackSwitch ? "" : "out",
+           expectStackSwitch ? "" : "un");
+    return false;
+  }
+
+  if (!expectStackSwitch) {
+    if (getCPUState()->gip != NULL) {
+      printf("SVA: Attempt to swap user integer state with an active invoke"
+             "frame!\n");
+      return false;
+    }
+
+    if (sva_was_privileged()) {
+      printf("SVA: Attempt to swap user integer state when kernel was"
+             "interrupted!\n");
+      return false;
+    }
+  }
 
   return true;
 }
@@ -499,7 +529,7 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
 
   /* Get a pointer to the saved state (the ID is the pointer) */
   struct SVAThread * newThread = validateThreadPointer(newint);
-  if (!checkThreadForLoad(newThread)) {
+  if (!checkThreadForLoad(newThread, /* expectStackSwitch */ true)) {
     /*
      * Re-enable interrupts.
      */
@@ -706,7 +736,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
 
   /* Get a pointer to the saved state (the ID is the pointer) */
   struct SVAThread * newThread = validateThreadPointer(newint);
-  if (!checkThreadForLoad(newThread)) {
+  if (!checkThreadForLoad(newThread, /* expectStackSwitch */ false)) {
     /*
      * Re-enable interrupts.
      */
@@ -717,14 +747,6 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
   }
 
   sva_integer_state_t* new =  &newThread->integerState;
-
-  if (cpup->gip != NULL) {
-    panic("SVA: Attempt to swap user integer state with an active invoke frame!");
-  }
-
-  if (sva_was_privileged()) {
-    panic("SVA: Attempt to swap user integer state when kernel was interrupted!");
-  }
 
   /*
    * Save the value of the current kernel stack pointer, IST3, currentIC, and
