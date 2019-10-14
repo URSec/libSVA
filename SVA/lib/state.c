@@ -381,7 +381,26 @@ checkIntegerForLoad (sva_integer_state_t * p) {
  *  This function flushes TLB entries and caches for a thread's secure memory.
  */
 static inline void
-flushSecureMemory (struct SVAThread * threadp) {
+flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
+  if (vg && oldThread->secmemSize > 0) {
+    /*
+     * Save the CR3 register.  We'll need it later for sva_release_stack().
+     */
+    oldThread->integerState.cr3 = read_cr3();
+
+    /*
+     * Get a pointer into the page tables for the secure memory region.
+     */
+    pml4e_t* secmemp = (pml4e_t*)getVirtual((uintptr_t)(get_pagetable() + secmemOffset));
+
+    /*
+     * Mark the secure memory is unmapped in the page tables.
+     */
+    unprotect_paging();
+    *secmemp = 0;
+    protect_paging();
+  }
+
   /*
    * Invalidate all TLBs (including those with the global flag).  We do this
    * by first turning on and then turning off the PCID extension.  According
@@ -396,7 +415,13 @@ flushSecureMemory (struct SVAThread * threadp) {
   uint64_t cr4 = read_cr4();
   write_cr4(cr4 | CR4_PCIDE);
   write_cr4(cr4 & ~CR4_PCIDE);
-  return;
+
+#ifdef SVA_LLC_PART
+  if (vg && newThread != NULL &&
+      oldThread->secmemSize > 0 && newThread->secmemSize > 0 &&
+      oldThread->secmemPML4e != newThread->secmemPML4e)
+    wbinvd();
+#endif
 }
 
 /*
@@ -522,34 +547,7 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
    * If the current state is using secure memory, we need to flush out the TLBs
    * and caches that might contain it.
    */
-  if (vg && (oldThread->secmemSize)) {
-    /*
-     * Save the CR3 register.  We'll need it later for sva_release_stack().
-     */
-    old->cr3 = read_cr3();
-
-    /*
-     * Get a pointer into the page tables for the secure memory region.
-     */
-    pml4e_t * secmemp = (pml4e_t *) getVirtual((uintptr_t)(get_pagetable() + secmemOffset));
-
-    /*
-     * Mark the secure memory is unmapped in the page tables.
-     */
-    unprotect_paging ();
-    *secmemp &= ~(PTE_PRESENT);
-    protect_paging ();
-
-    /*
-     * Flush the secure memory page mappings.
-     */
-    flushSecureMemory (oldThread);
-  }
-
-#ifdef SVA_LLC_PART
-   if (vg && (oldThread->secmemSize) && (newThread->secmemSize) && (oldThread->secmemPML4e != newThread->secmemPML4e)) 
-	    wbinvd();
-#endif
+  flushSecureMemory(oldThread, newThread);
 
   /*
    * Turn off access to the Floating Point Unit (FPU).  We will leave this
@@ -745,35 +743,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
    * If the current state is using secure memory, we need to flush out the TLBs
    * and caches that might contain it.
    */
-  if (vg && (oldThread->secmemSize)) {
-    /*
-     * Save the CR3 register.  We'll need it later for sva_release_stack().
-     */
-    old->cr3 = read_cr3();
-
-    /*
-     * Get a pointer into the page tables for the secure memory region.
-     */
-    pml4e_t * secmemp = (pml4e_t *) getVirtual((uintptr_t)(get_pagetable() + secmemOffset));
-
-    /*
-     * Mark the secure memory is unmapped in the page tables.
-     */
-    unprotect_paging ();
-    *secmemp &= ~(PTE_PRESENT);
-    protect_paging ();
-
-    /*
-     * Flush the secure memory page mappings.
-     */
-    flushSecureMemory (oldThread);
-  }
-
-#ifdef SVA_LLC_PART
-  if (vg && (oldThread->secmemSize) && (newThread->secmemSize) &&
-      (oldThread->secmemPML4e != newThread->secmemPML4e)) 
-    wbinvd();
-#endif
+  flushSecureMemory(oldThread, newThread);
 
   /*
    * Turn off access to the Floating Point Unit (FPU).  We will leave this
@@ -1241,18 +1211,6 @@ sva_reinit_icontext (void * handle, unsigned char priv, uintptr_t stackp, uintpt
     ghostFree (threadp, secmemStart, threadp->secmemSize);
 
     /*
-     * Get a pointer into the page tables for the secure memory region.
-     */
-    pml4e_t * secmemp = (pml4e_t *) getVirtual ((uintptr_t)(get_pagetable() + secmemOffset));
-
-    /*
-     * Mark the secure memory is unmapped in the page tables.
-     */
-    unprotect_paging ();
-    *secmemp = 0;
-    protect_paging ();
-
-    /*
      * Delete the secure memory mappings from the SVA thread structure.
      */
     threadp->secmemSize = 0;
@@ -1261,7 +1219,7 @@ sva_reinit_icontext (void * handle, unsigned char priv, uintptr_t stackp, uintpt
     /*
      * Flush the secure memory page mappings.
      */
-    flushSecureMemory (threadp);
+    flushSecureMemory(threadp, NULL);
   }
 
   /*
