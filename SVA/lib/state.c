@@ -12,6 +12,7 @@
  *===----------------------------------------------------------------------===
  */
 
+#include <stdbool.h>
 #include <string.h>
 
 #if 1
@@ -374,6 +375,38 @@ checkIntegerForLoad (sva_integer_state_t * p) {
   return;
 }
 
+/**
+ * Performs a validity check on a thread pointer.
+ *
+ * Currently, this only checks if the pointer is non-null and if it is in a
+ * valid pool (if SVA_CHECK_INTEGER is enabled).
+ *
+ * @param newThread The thread to check
+ * @return          True if the new thread is valid, otherwise false
+ */
+static bool checkThreadForLoad(struct SVAThread* newThread) {
+  /*
+   * If there is no place for new state, flag an error.
+   */
+  if (!newThread) {
+    panic("sva_swap_integer: Invalid new-thread pointer");
+  }
+
+#if SVA_CHECK_INTEGER
+  /*
+   * Determine whether the integer state is valid.
+   */
+  if ((pchk_check_int(new)) == 0) {
+    poolcheckfail("sva_swap_integer: Bad integer state",
+                  (unsigned)old,
+                  (void*)__builtin_return_address(0));
+    return false;
+  }
+#endif
+
+  return true;
+}
+
 /*
  * Function: flushSecureMemory()
  *
@@ -466,37 +499,17 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
 
   /* Get a pointer to the saved state (the ID is the pointer) */
   struct SVAThread * newThread = validateThreadPointer(newint);
-  if (! newThread) {
-	 panic("sva_swap_integer: Invalid new-thread pointer");
-	 return (uintptr_t)NULL;
-  }
-  sva_integer_state_t * new =  newThread ? &(newThread->integerState) : 0;
-
-#if 0
-  /* Variables for registers for debugging */
-  uintptr_t rsp, rbp;
-#endif
-
-  /*
-   * If there is no place for new state, flag an error.
-   */
-  if (!newThread) panic ("SVA: No New Thread!\n");
-
-  /*
-   * Determine whether the integer state is valid.
-   */
-#if SVA_CHECK_INTEGER
-  if ((pchk_check_int (new)) == 0) {
-    poolcheckfail ("sva_swap_integer: Bad integer state", (unsigned)old, (void*)__builtin_return_address(0));
+  if (!checkThreadForLoad(newThread)) {
     /*
      * Re-enable interrupts.
      */
-    sva_exit_critical (rflags);
+    sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
-    record_tsc(sva_swap_integer_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    record_tsc(sva_swap_integer_1_api, ((uint64_t)sva_read_tsc() - tsc_tmp));
     return 0;
   }
-#endif
+
+  sva_integer_state_t* new =  &newThread->integerState;
 
   /*
    * Save the value of the current kernel stack pointer, IST3, currentIC, and
@@ -693,34 +706,17 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
 
   /* Get a pointer to the saved state (the ID is the pointer) */
   struct SVAThread * newThread = validateThreadPointer(newint);
-  if (! newThread) {
-	 panic("sva_swap_user_integer: Invalid new-thread pointer");
-	 return (uintptr_t)NULL;
-  }
-  sva_integer_state_t * new =  newThread ? &(newThread->integerState) : 0;
-
-  /*
-   * If there is no place for new state, flag an error.
-   */
-  if (!newThread) panic ("SVA: No New Thread!\n");
-
-  /*
-   * Determine whether the integer state is valid.
-   */
-#if SVA_CHECK_INTEGER
-  if ((pchk_check_int (new)) == 0) {
-    poolcheckfail ("sva_swap_user_integer: Bad integer state",
-                   (unsigned)old,
-                   (void*)__builtin_return_address(0));
+  if (!checkThreadForLoad(newThread)) {
     /*
      * Re-enable interrupts.
      */
-    sva_exit_critical (rflags);
+    sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
-    record_tsc(sva_swap_user_integer_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    record_tsc(sva_swap_integer_1_api, ((uint64_t)sva_read_tsc() - tsc_tmp));
     return 0;
   }
-#endif
+
+  sva_integer_state_t* new =  &newThread->integerState;
 
   if (cpup->gip != NULL) {
     panic("SVA: Attempt to swap user integer state with an active invoke frame!");
