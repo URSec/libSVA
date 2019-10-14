@@ -803,7 +803,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
      */
     sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
-    record_tsc(sva_swap_integer_1_api, ((uint64_t)sva_read_tsc() - tsc_tmp));
+    record_tsc(sva_swap_user_integer_1_api, ((uint64_t)sva_read_tsc() - tsc_tmp));
     return 0;
   }
 
