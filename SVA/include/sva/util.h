@@ -183,15 +183,9 @@ sva_exit_critical (unsigned long rflags) {
  *  false - The pointer is within the secure memory region.
  */
 static inline unsigned char
-isNotWithinSecureMemory (void * p) {
-  const uintptr_t secmemstart = 0xffffff0000000000u;
-//#ifdef SVA_DMAP
-//  const uintptr_t secmemend   = 0xffffff6000000000u;
-//#else
-  const uintptr_t secmemend   = 0xffffff8000000000u;
-//#endif
-  uintptr_t i = (uintptr_t) p;
-  if ((secmemstart <= i) && (i <= secmemend))
+isNotWithinSecureMemory(void* p) {
+  uintptr_t i = (uintptr_t)p;
+  if (SECMEMSTART <= i && i < SVADMAPEND)
     return 0;
   else
     return 1;

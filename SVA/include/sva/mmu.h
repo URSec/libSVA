@@ -60,6 +60,7 @@
 #include "mmu_types.h"
 
 #include "sva/callbacks.h"
+#include "sva/secmem.h"
 #include "sva/state.h"
 #include "sva/util.h"
 #include "sva/vmx.h"
@@ -71,21 +72,9 @@ static const uintptr_t X86_PAGE_SIZE = 4096u;
 static const unsigned PAGESHIFT = 12;
 
 /* Size of the physical memory and page size in bytes */
-static const unsigned long memSize = 0x0000000800000000u;
+static const unsigned long memSize = 0x0000000800000000u; /* 32GB */
 static const unsigned long pageSize = 4096;
 static const unsigned long numPageDescEntries = memSize / pageSize;
-
-/* Start and end addresses of the secure memory */
-#define SECMEMSTART 0xfffffd0000000000u
-#define SECMEMEND   0xfffffd8000000000u
-
-/* Start and end addresses of the SVA direct mapping */
-#define SVADMAPSTART 0xfffffd8000000000
-#define SVADMAPEND   0xfffffe0000000000
-
-/* Start and end addresses of user memory */
-static const uintptr_t USERSTART = 0x0000000000000000u;
-static const uintptr_t USEREND = 0x00007fffffffffffu;
 
 /* Mask to get the proper number of bits from the virtual address */
 static const uintptr_t vmask = 0x0000000000000ff8u;
