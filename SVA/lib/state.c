@@ -487,6 +487,106 @@ flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
 #endif
 }
 
+/**
+ * Loads a thread onto the CPU.
+ *
+ * @param newThread The thread to load
+ * @return          If the load failed, false; If the load succeeded, true if
+ *                  it didn't switch kernel stacks (if it does switch kernel
+ *                  stacks, it won't return)
+ */
+static bool loadThread(struct SVAThread* newThread) {
+  extern void __attribute__((noreturn)) load_integer(sva_integer_state_t* p);
+
+  struct CPUState* cpup = getCPUState();
+  sva_integer_state_t* new = &newThread->integerState;
+
+  /*
+   * Switch the CPU over to using the new set of interrupt contexts.  However,
+   * don't change the stack pointer.
+   */
+  cpup->currentThread = newThread;
+
+  /*
+   * Now, reload the integer state pointed to by new.
+   */
+  if (new->valid) {
+    /*
+     * Verify that we can load the new integer state.
+     */
+    checkIntegerForLoad(new);
+
+    /*
+     * Invalidate the state that we're about to load.
+     */
+    new->valid = 0;
+
+    /*
+     * Switch the CPU over to using the new set of interrupt contexts.
+     */
+    cpup->currentThread = newThread;
+    cpup->tssp->ist3    = new->ist3;
+    cpup->newCurrentIC  = new->currentIC;
+
+    /*
+     * A NULL kernel stack indicates that this integer state was switched from
+     * without a kernel stack switch, so we can't switch kernel stacks when
+     * switching back to it.
+     */
+    if (new->kstackp != 0) {
+      cpup->tssp->rsp0 = new->kstackp;
+      cpup->gip = new->ifp;
+    }
+
+    /*
+     * If the new state uses secure memory, we need to map it into the page
+     * table.  Note that we refetch the state information from the CPUState
+     * to ensure that we're not accessing stale local variables.
+     */
+    if (vg && newThread->secmemSize > 0) {
+      /*
+       * Get a pointer into the page tables for the secure memory region.
+       */
+      pml4e_t* secmemp = (pml4e_t*)getVirtual((uintptr_t)(get_pagetable() + secmemOffset));
+
+      /*
+       * Restore the PML4E entry for the secure memory region.
+       */
+      uintptr_t mask = PTE_PRESENT | PTE_CANWRITE | PTE_CANUSER;
+      if ((newThread->secmemPML4e & mask) != mask) {
+        panic ("SVA: Not Present: %lx %lx\n", newThread->secmemPML4e, mask);
+      }
+      unprotect_paging();
+      *secmemp = newThread->secmemPML4e;
+      protect_paging();
+    }
+
+    /* No need to do this after the floating point optimization. */
+#if 0
+    /*
+     * Load the floating point state.
+     */
+    load_fp(&new->fpstate);
+#endif
+
+    /* We only save the GPRs during a context switch if we are switching kernel
+     * stacks, so only load them if we have a stack to switch to. */
+    if (new->kstackp != 0) {
+      /*
+       * Load the rest of the integer state.
+       */
+      load_integer(new);
+    } else {
+      /*
+       * We successfully loaded the new thread.
+       */
+      return true;
+    }
+  } else {
+    return false;
+  }
+}
+
 /*
  * Intrinsic: sva_swap_integer()
  *
@@ -512,7 +612,6 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
 
   /* Function for saving state */
   extern unsigned int save_integer (sva_integer_state_t * buffer);
-  extern void load_integer (sva_integer_state_t * p);
 
   /* Old interrupt flags */
   uintptr_t rflags = sva_enter_critical();
@@ -538,8 +637,6 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
     record_tsc(sva_swap_integer_1_api, ((uint64_t)sva_read_tsc() - tsc_tmp));
     return 0;
   }
-
-  sva_integer_state_t* new =  &newThread->integerState;
 
   /*
    * Save the value of the current kernel stack pointer, IST3, currentIC, and
@@ -615,79 +712,11 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
   *statep = (uintptr_t) oldThread;
 
   /*
-   * Switch the CPU over to using the new set of interrupt contexts.  However,
-   * don't change the stack pointer.
+   * Now, load the new thread onto the CPU. Note that this will not return to
+   * point unless it fails: if it succeeds, it will cause `save_integer` to
+   * appear to return a second time.
    */
-  cpup->currentThread = newThread;
-
-  /*
-   * Now, reload the integer state pointed to by new.
-   */
-  if (new->valid) {
-    /*
-     * Verify that we can load the new integer state.
-     */
-    checkIntegerForLoad (new);
-
-    /*
-     * A NULL kernel stack indicates that this integer state was switched from
-     * without a kernel stack switch, so we can't switch kernel stacks when
-     * switching back to it.
-     */
-    if (new->kstackp == 0) {
-        panic("SVA: Attempted to switch kernel stack to user-only integer state!");
-    }
-
-    /*
-     * Switch the CPU over to using the new set of interrupt contexts.
-     */
-    cpup->currentThread = newThread;
-    cpup->tssp->rsp0    = new->kstackp;
-    cpup->tssp->ist3    = new->ist3;
-    cpup->newCurrentIC  = new->currentIC;
-    cpup->gip           = new->ifp;
-
-    /*
-     * If the new state uses secure memory, we need to map it into the page
-     * table.  Note that we refetch the state information from the CPUState
-     * to ensure that we're not accessing stale local variables.
-     */
-    if (vg && (newThread->secmemSize)) {
-      /*
-       * Get a pointer into the page tables for the secure memory region.
-       */
-      pml4e_t * secmemp = (pml4e_t *) getVirtual ((uintptr_t)(get_pagetable() + secmemOffset));
-
-      /*
-       * Restore the PML4E entry for the secure memory region.
-       */
-      uintptr_t mask = PTE_PRESENT | PTE_CANWRITE | PTE_CANUSER;
-      if ((newThread->secmemPML4e & mask) != mask)
-        panic ("SVA: Not Present: %lx %lx\n", newThread->secmemPML4e, mask);
-      unprotect_paging ();
-      *secmemp = newThread->secmemPML4e;
-      protect_paging ();
-    }
-
-
-    /*
-     * Invalidate the state that we're about to load.
-     */
-    new->valid = 0;
-
-    /*
-     * Load the floating point state.
-     */
-#if 0
-    /* No need to do this after the floating point optimization. */
-    load_fp (&(new->fpstate));
-#endif
-
-    /*
-     * Load the rest of the integer state.
-     */
-    load_integer (new);
-  }
+  loadThread(newThread);
 
   /*
    * The context switch failed.
@@ -746,8 +775,6 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
     return 0;
   }
 
-  sva_integer_state_t* new =  &newThread->integerState;
-
   /*
    * Save the value of the current kernel stack pointer, IST3, currentIC, and
    * the pointer to the global invoke frame pointer.
@@ -786,77 +813,22 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
   *statep = (uintptr_t) oldThread;
 
   /*
-   * Switch the CPU over to using the new set of interrupt contexts.  However,
-   * don't change the stack pointer.
+   * Now, load the new thread onto the CPU.
    */
-  cpup->currentThread = newThread;
-
-  /*
-   * Now, reload the integer state pointed to by new.
-   */
-  if (new->valid) {
-    /*
-     * Verify that we can load the new integer state.
-     */
-    checkIntegerForLoad (new);
-
-    /*
-     * Since we aren't switching kernel stacks, we must make sure that the new
-     * state didn't save its kernel stack when it was switched from. States that
-     * don't carry a kernel stack have a NULL kernel stack pointer.
-     */
-    if (new->kstackp != 0) {
-        panic("SVA: Attempted to switch kernel stack during user-only integer state switch!");
-    }
-
-    /*
-     * Switch the CPU over to using the new set of interrupt contexts.
-     */
-    cpup->currentThread = newThread;
-    cpup->tssp->ist3    = new->ist3;
-    cpup->newCurrentIC  = new->currentIC;
-
-    /*
-     * If the new state uses secure memory, we need to map it into the page
-     * table.  Note that we refetch the state information from the CPUState
-     * to ensure that we're not accessing stale local variables.
-     */
-    if (vg && (newThread->secmemSize)) {
-      /*
-       * Get a pointer into the page tables for the secure memory region.
-       */
-      pml4e_t * secmemp = (pml4e_t *) getVirtual ((uintptr_t)(get_pagetable() + secmemOffset));
-
-      /*
-       * Restore the PML4E entry for the secure memory region.
-       */
-      uintptr_t mask = PTE_PRESENT | PTE_CANWRITE | PTE_CANUSER;
-      if ((newThread->secmemPML4e & mask) != mask)
-        panic ("SVA: Not Present: %lx %lx\n", newThread->secmemPML4e, mask);
-      unprotect_paging ();
-      *secmemp = newThread->secmemPML4e;
-      protect_paging ();
-    }
-
-
-    /*
-     * Invalidate the state that we loaded.
-     */
-    new->valid = 0;
-
-    sva_exit_critical (rflags);
+  if (loadThread(newThread)) {
+    sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
-    record_tsc(sva_swap_user_integer_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    record_tsc(sva_swap_user_integer_2_api, ((uint64_t)sva_read_tsc() - tsc_tmp));
     return 1;
+  } else {
+    /*
+     * The context switch failed.
+     */
+    sva_exit_critical(rflags);
+    usersva_to_kernel_pcid();
+    record_tsc(sva_swap_user_integer_3_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    return 0;
   }
-
-  /*
-   * The context switch failed.
-   */
-  sva_exit_critical (rflags);
-  usersva_to_kernel_pcid();
-  record_tsc(sva_swap_user_integer_3_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return 0;
 }
 
 /*
