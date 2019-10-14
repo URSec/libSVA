@@ -488,6 +488,91 @@ flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
 }
 
 /**
+ * Saves the current CPU state onto a thread.
+ *
+ * Note: If we are switching kernel stacks, this function returns twice: once
+ * normally and once when we wake up again.
+ *
+ * @param oldThread   The thread to which to save the current state
+ * @param switchStack Whether or not to perform a kernel stack switch
+ * @return            False if we returned normally, True if we just woke up
+ *                    from a contetx switch
+ */
+static bool __attribute__((returns_twice))
+saveThread(struct SVAThread* oldThread, bool switchStack) {
+  /* Function for saving state */
+  extern unsigned int __attribute__((returns_twice))
+  save_integer(sva_integer_state_t* buffer);
+
+  struct CPUState* cpup = getCPUState();
+  sva_integer_state_t* old = &oldThread->integerState;
+
+  /*
+   * Save the value of the current kernel stack pointer, IST3, currentIC, and
+   * the pointer to the global invoke frame pointer.
+   */
+  old->ist3      = cpup->tssp->ist3;
+  old->currentIC = cpup->newCurrentIC;
+
+  if (switchStack) {
+    old->kstackp   = cpup->tssp->rsp0;
+    old->ifp       = cpup->gip;
+
+    /*
+     * Save the current integer state.  Note that returning from save_integer()
+     * with a non-zero value means that we've just woken up from a context
+     * switch.
+     */
+    if (save_integer(old)) {
+      /*
+       * We've awakened.
+       */
+#if SVA_CHECK_INTEGER
+      /*
+       * Mark the integer state invalid and return to the caller.
+       */
+      pchk_drop_int (old);
+
+      /*
+       * Determine what stack we're running on now.
+       */
+      pchk_update_stack ();
+#endif
+
+      return true;
+    }
+  } else {
+    old->kstackp = 0;
+    old->ifp = NULL;
+  }
+
+  /*
+   * Save this functions return address because it can be overwritten by
+   * calling interim FreeBSD code that does a native FreeBSD context switch.
+   */
+  old->hackRIP = (uintptr_t)__builtin_return_address(0);
+
+  /*
+   * Turn off access to the Floating Point Unit (FPU).  We will leave this
+   * state on the CPU but force a trap if another process attempts to use it.
+   *
+   * We place this code here since, when Virtual Ghost is enabled, the call to
+   * unprotect_paging() and protect_paging() will flush the pipeline with a
+   * write to CR0.  This code may also cause a pipeline flush, so we place it
+   * close to the other pipeline flushing code to reduce the amount of code
+   * executed between flushes.
+   */
+  fpu_disable();
+
+  /*
+   * Mark the saved integer state as valid.
+   */
+  old->valid = 1;
+
+  return false;
+}
+
+/**
  * Loads a thread onto the CPU.
  *
  * @param newThread The thread to load
@@ -610,9 +695,6 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
 
   kernel_to_usersva_pcid();
 
-  /* Function for saving state */
-  extern unsigned int save_integer (sva_integer_state_t * buffer);
-
   /* Old interrupt flags */
   uintptr_t rflags = sva_enter_critical();
 
@@ -624,7 +706,6 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
    * stored.  There is one such buffer for every SVA thread.
    */
   struct SVAThread * oldThread = cpup->currentThread;
-  sva_integer_state_t * old = &(oldThread->integerState);
 
   /* Get a pointer to the saved state (the ID is the pointer) */
   struct SVAThread * newThread = validateThreadPointer(newint);
@@ -638,35 +719,10 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
     return 0;
   }
 
-  /*
-   * Save the value of the current kernel stack pointer, IST3, currentIC, and
-   * the pointer to the global invoke frame pointer.
-   */
-  old->kstackp   = cpup->tssp->rsp0;
-  old->ist3      = cpup->tssp->ist3;
-  old->currentIC = cpup->newCurrentIC;
-  old->ifp       = cpup->gip;
-
-  /*
-   * Save the current integer state.  Note that returning from sva_integer()
-   * with a non-zero value means that we've just woken up from a context
-   * switch.
-   */
-  if (save_integer (old)) {
+  if (saveThread(oldThread, /* switchStack */ true)) {
     /*
      * We've awakened.
      */
-#if SVA_CHECK_INTEGER
-    /*
-     * Mark the integer state invalid and return to the caller.
-     */
-    pchk_drop_int (old);
-
-    /*
-     * Determine what stack we're running on now.
-     */
-    pchk_update_stack ();
-#endif
 
     /*
      * Re-enable interrupts.
@@ -678,33 +734,10 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
   }
 
   /*
-   * Save this functions return address because it can be overwritten by
-   * calling interim FreeBSD code that does a native FreeBSD context switch.
-   */
-  old->hackRIP = (uintptr_t) __builtin_return_address(0);
-
-  /*
    * If the current state is using secure memory, we need to flush out the TLBs
    * and caches that might contain it.
    */
   flushSecureMemory(oldThread, newThread);
-
-  /*
-   * Turn off access to the Floating Point Unit (FPU).  We will leave this
-   * state on the CPU but force a trap if another process attempts to use it.
-   *
-   * We place this code here since, when Virtual Ghost is enabled, the call to
-   * unprotect_paging() and protect_paging() will flush the pipeline with a
-   * write to CR0.  This code may also cause a pipeline flush, so we place it
-   * close to the other pipeline flushing code to reduce the amount of code
-   * executed between flushes. 
-   */
-  fpu_disable();
-
-  /*
-   * Mark the saved integer state as valid.
-   */
-  old->valid = 1;
 
   /*
    * Inform the caller of the location of the last state saved.
@@ -761,7 +794,6 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
    * stored.  There is one such buffer for every SVA thread.
    */
   struct SVAThread * oldThread = cpup->currentThread;
-  sva_integer_state_t * old = &(oldThread->integerState);
 
   /* Get a pointer to the saved state (the ID is the pointer) */
   struct SVAThread * newThread = validateThreadPointer(newint);
@@ -775,37 +807,13 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
     return 0;
   }
 
-  /*
-   * Save the value of the current kernel stack pointer, IST3, currentIC, and
-   * the pointer to the global invoke frame pointer.
-   */
-  old->kstackp   = 0;
-  old->ist3      = cpup->tssp->ist3;
-  old->currentIC = cpup->newCurrentIC;
-  old->ifp       = NULL;
+  saveThread(oldThread, /* switchStack */ false);
 
   /*
    * If the current state is using secure memory, we need to flush out the TLBs
    * and caches that might contain it.
    */
   flushSecureMemory(oldThread, newThread);
-
-  /*
-   * Turn off access to the Floating Point Unit (FPU).  We will leave this
-   * state on the CPU but force a trap if another process attempts to use it.
-   *
-   * We place this code here since, when Virtual Ghost is enabled, the call to
-   * unprotect_paging() and protect_paging() will flush the pipeline with a
-   * write to CR0.  This code may also cause a pipeline flush, so we place it
-   * close to the other pipeline flushing code to reduce the amount of code
-   * executed between flushes. 
-   */
-  fpu_disable();
-
-  /*
-   * Mark the saved integer state as valid.
-   */
-  old->valid = 1;
 
   /*
    * Inform the caller of the location of the last state saved.
