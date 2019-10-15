@@ -19,6 +19,7 @@
 #include <stdint.h>
 
 #include <sva/cr.h>
+#include <sva/secmem.h>
 
 #define MSR_REG_EFER    0xC0000080      /* MSR for EFER register */
 
