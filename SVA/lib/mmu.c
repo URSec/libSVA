@@ -99,11 +99,10 @@ struct PTInfo {
  *  This table records information on pages fetched from the operating system
  *  that the SVA VM will use for its own purposes.
  */
-struct PTInfo PTPages[1024] __attribute__ ((section ("svamem")));
+struct PTInfo __svadata PTPages[1024];
 
 /* Cache of page table pages */
-extern unsigned char
-SVAPTPages[1024][X86_PAGE_SIZE] __attribute__ ((section ("svamem")));
+extern unsigned char __svadata SVAPTPages[1024][X86_PAGE_SIZE];
 
 /* Array describing the physical pages. Used by SVA's MMU and EPT intrinsics.
  * The index is the physical page number.
@@ -111,7 +110,7 @@ SVAPTPages[1024][X86_PAGE_SIZE] __attribute__ ((section ("svamem")));
  * There is an "extern" declaration for this object in mmu.h so that the EPT
  * intrinsics can see it.
  */
-page_desc_t page_desc[numPageDescEntries] __attribute__((section("svamem")));
+page_desc_t __svadata page_desc[numPageDescEntries];
 
 /*
  * Description:

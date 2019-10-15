@@ -33,8 +33,7 @@ static inline struct SVAThread *ftstack_pop(void);
 #define NULL  0
 
 /* Pre-allocate a large number of SVA Threads */
-static struct SVAThread Threads[THREAD_STACK_SIZE] __attribute__ ((aligned (16)))
-__attribute__ ((section ("svamem")));
+static struct SVAThread __svadata Threads[THREAD_STACK_SIZE] __attribute__ ((aligned (16)));
 
 typedef volatile int lock_t;
 
@@ -47,7 +46,7 @@ struct FT_stack{
 };
 
 /* Initialization of the stack */
-static struct FT_stack fthreads __attribute__ ((aligned (16))) __attribute__ ((section ("svamem"))) = {
+static struct FT_stack __svadata fthreads __attribute__ ((aligned (16))) = {
   .top = 0,
   .lock = 0,
   .initialized = 0,

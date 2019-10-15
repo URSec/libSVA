@@ -37,7 +37,7 @@
 /* Indicates whether sva_initvmx() has yet been called by the OS. No SVA-VMX
  * intrinsics may be called until this has been done.
  */
-unsigned char __attribute__((section("svamem"))) sva_vmx_initialized = 0;
+unsigned char __svadata sva_vmx_initialized = 0;
 
 /* Physical address of the VMXON region. This is a special region of memory
  * that the active logical processor uses to "support VMX operation" (see
@@ -56,7 +56,7 @@ unsigned char __attribute__((section("svamem"))) sva_vmx_initialized = 0;
  * have any of the memory type (cacheability properties) restrictions that a
  * VMCS has.
  */
-static uintptr_t __attribute__((section("svamem"))) VMXON_paddr = 0;
+static uintptr_t __svadata VMXON_paddr = 0;
 
 /*
  * Array of vm_desc_t structures for each VM allocated on the system.
@@ -76,7 +76,7 @@ static uintptr_t __attribute__((section("svamem"))) VMXON_paddr = 0;
  * all entries as unused (and the corresponding VM IDs as free to be
  * assigned).
  */
-struct vm_desc_t __attribute__((section("svamem"))) vm_descs[MAX_VMS];
+struct vm_desc_t __svadata vm_descs[MAX_VMS];
 
 /*
  * A structure describing host state for each CPU.
@@ -93,7 +93,7 @@ struct vm_desc_t __attribute__((section("svamem"))) vm_descs[MAX_VMS];
  * at a specific time).
  *
  */
-static vmx_host_state_t __attribute__((section("svamem"))) host_state = {
+static vmx_host_state_t __svadata host_state = {
   /* We use an explicit initializer here to ensure that the active_vm field
    * is initialized to a null pointer before any code can run. It's important
    * this be done before any SVA intrinsics can be called, because their

@@ -79,8 +79,7 @@ invalidIC (unsigned int v) {
  *  system.  We gather this here so that it's easy to find them from the %GS
  *  register.
  */
-static struct CPUState realCPUState[numProcessors] __attribute__((aligned(16)))
-__attribute__ ((section ("svamem")));
+static struct CPUState __svadata realCPUState[numProcessors] __attribute__((aligned(16)));
 struct CPUState * CPUState = realCPUState;
 
 
@@ -108,7 +107,7 @@ sva_getCPUState (tss_t * tssp) {
 
 
   /* Index of next available CPU state */
-  static unsigned int nextIndex __attribute__ ((section ("svamem"))) = 0;
+  static unsigned int __svadata nextIndex = 0;
   struct SVAThread * st;
   int index;
 

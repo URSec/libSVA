@@ -18,4 +18,6 @@
 
 #pragma GCC visibility push(hidden)
 
+#define __svadata __attribute__((__section__("svamem")))
+
 #endif /* _SVA_COMPILER_H */

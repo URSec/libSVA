@@ -156,8 +156,7 @@ struct  gate_descriptor {
  *
  *  Note that we need one of these per processor.
  */
-static struct gate_descriptor sva_idt[256]
-__attribute__ ((section ("svamem")));
+static struct gate_descriptor __svadata sva_idt[256];
 
 /* Taken from segments.h in FreeBSD */
 static const unsigned int SDT_SYSIGT=14;  /* system 64 bit interrupt gate */
@@ -174,7 +173,7 @@ sva_debug (void) {
  */
 static void init_TLS(tss_t *tss) {
   /* For now, just use a static allocation */
-  static char TLSBlock[64] __attribute__((section("svamem")));
+  static char __svadata TLSBlock[64];
 
   *(struct CPUState**)&TLSBlock[0] = sva_getCPUState(tss);
 
