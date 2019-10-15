@@ -18,16 +18,23 @@
 #ifndef _SVA_SECMEM_H
 #define _SVA_SECMEM_H
 
+#ifdef __ASSEMBLER__
+#define _AC(X, Y) X
+#else
+#define __AC(X, Y) X ## Y
+#define _AC(X, Y) __AC(X, Y)
+#endif
+
 /* Start and end addresses of the secure memory (512GB) */
-#define SECMEMSTART 0xfffffd0000000000UL
-#define SECMEMEND   0xfffffd8000000000UL
+#define SECMEMSTART _AC(0xfffffd0000000000, UL)
+#define SECMEMEND   _AC(0xfffffd8000000000, UL)
 
 /* Start and end addresses of the SVA direct mapping (512GB) */
-#define SVADMAPSTART 0xfffffd8000000000UL
-#define SVADMAPEND   0xfffffe0000000000UL
+#define SVADMAPSTART _AC(0xfffffd8000000000, UL)
+#define SVADMAPEND   _AC(0xfffffe0000000000, UL)
 
 /* Start and end addresses of user memory (128TB) */
-#define USERSTART 0x0000000000000000UL
-#define USEREND   0x0000800000000000UL
+#define USERSTART _AC(0x0000000000000000, UL)
+#define USEREND   _AC(0x0000800000000000, UL)
 
 #endif /* _SVA_SECMEM_H */
