@@ -25,6 +25,8 @@
 #define _AC(X, Y) __AC(X, Y)
 #endif
 
+#if !(defined(XEN) || defined(__XEN__))
+
 /* Start and end addresses of the secure memory (512GB) */
 #define SECMEMSTART _AC(0xfffffd0000000000, UL)
 #define SECMEMEND   _AC(0xfffffd8000000000, UL)
@@ -32,6 +34,22 @@
 /* Start and end addresses of the SVA direct mapping (512GB) */
 #define SVADMAPSTART _AC(0xfffffd8000000000, UL)
 #define SVADMAPEND   _AC(0xfffffe0000000000, UL)
+
+#else /* !XEN */
+
+/* Start and end addresses of the secure memory (1TB) */
+#define SECMEMSTART _AC(0xffff860000000000, UL)
+#define SECMEMEND   _AC(0xffff870000000000, UL)
+
+/* Start and end addresses of the SVA direct mapping (1TB) */
+#define SVADMAPSTART _AC(0xffff870000000000, UL)
+#define SVADMAPEND   _AC(0xffff880000000000, UL)
+
+/* Start address of PV guest memory (120TB) */
+#define GUESTSTART _AC(0xffff880000000000, UL)
+/* Guest memory ends at the end of the address space */
+
+#endif /* !XEN */
 
 /* Start and end addresses of user memory (128TB) */
 #define USERSTART _AC(0x0000000000000000, UL)
