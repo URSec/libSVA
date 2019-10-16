@@ -432,6 +432,7 @@ extern uintptr_t sva_init_stack (unsigned char * sp,
                                  uintptr_t arg1,
                                  uintptr_t arg2,
                                  uintptr_t arg3);
+extern void sva_reinit_stack(void (*func)(void));
 extern void sva_reinit_icontext (void *, unsigned char, uintptr_t, uintptr_t);
 
 extern void sva_release_stack (uintptr_t id);

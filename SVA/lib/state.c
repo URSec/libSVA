@@ -1585,7 +1585,7 @@ sva_init_stack (unsigned char * start_stackp,
 }
 
 /*
- * Intrinsic: sva_reset_stack_to()
+ * Intrinsic: sva_reinit_stack()
  *
  * Description:
  *  Reset the kernel stack to the most recent interrupt context and jump to the
@@ -1597,29 +1597,41 @@ sva_init_stack (unsigned char * start_stackp,
  * Return value:
  *  This intrinsic does not return.
  */
-void sva_reset_stack_to(void (*f)(void)) {
-    kernel_to_usersva_pcid();
+void sva_reinit_stack(void (*func)(void)) {
+  extern void sva_iret(void); // Interrupt return
 
-    uint32_t target_insn = *(uint32_t*)f;
+  kernel_to_usersva_pcid();
 
-    // TODO: alignment check, address space region check, and page-fault safety.
-    if (target_insn != CHECKLABEL) {
-        panic("Attempt to jump to invalid target");
-    }
+  uint32_t target_insn = *(uint32_t*)func;
 
-    uintptr_t rsp;
-    if (sva_was_privileged()) {
-        rsp = (uintptr_t)getCPUState()->newCurrentIC->rsp;
-    } else {
-        rsp = getCPUState()->tssp->rsp0;
-    }
+  // TODO: alignment check, address space region check, and page-fault safety.
+  if (target_insn != CHECKLABEL) {
+      panic("Attempt to jump to invalid target");
+  }
 
-    usersva_to_kernel_pcid();
+  /*
+   * Get a pointer to the bottom of the stack.
+   */
+  uintptr_t rsp;
+  if (sva_was_privileged()) {
+      rsp = (uintptr_t)getCPUState()->newCurrentIC->rsp;
+  } else {
+      rsp = getCPUState()->tssp->rsp0;
+  }
 
-    asm volatile ("movq %[sp], %%rsp\n\t"
-                  "jmp *%[target]"
-                  : : [sp]"r"(rsp), [target]"rm"(f)
-                  : "memory");
+  /*
+   * Push a return address.
+   */
+  void (**ret)(void) = (void (**)(void))rsp - 1;
+  *ret = sva_iret;
+  rsp = (uintptr_t)ret;
 
-    __builtin_unreachable();
+  usersva_to_kernel_pcid();
+
+  asm volatile ("movq %[sp], %%rsp\n\t"
+                "jmp *%[target]"
+                : : [sp]"r"(rsp), [target]"rm"(func)
+                : "memory");
+
+  __builtin_unreachable();
 }
