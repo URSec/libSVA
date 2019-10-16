@@ -331,6 +331,11 @@ Trap:
    */
   cli
   cache_part_switch sva
+
+  /* FSGSBASE might be disabled in CR4; enable it */
+  movq %cr4, %rax
+  orq  $CR4_FSGSBASE, %rax
+  movq %rax, %cr4
  
   movq %gs:TLS_CPUSTATE, %rbp
   movq CPU_NEWIC(%rbp), %rbx
