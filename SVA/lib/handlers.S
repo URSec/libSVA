@@ -365,11 +365,9 @@ Trap:
   /*
    * Copy the registers from the interrupt context back on to the processor.
    */
-  movw IC_GS(%rsp), %ax
   movw IC_FS(%rsp), %bx
   movw IC_ES(%rsp), %cx
   movw IC_DS(%rsp), %dx
-  movw %ax, %gs
   movw %bx, %fs
   movw %cx, %es
   movw %dx, %ds
@@ -417,6 +415,8 @@ Trap:
   /*
    * Restore %gs.base
    */
+  movw IC_GS(%rsp), %ax
+  movw %ax, %gs
   movq IC_GSBASE(%rsp), %rax
   wrgsbase %rax
 
@@ -692,11 +692,9 @@ SVAsyscall:
   /*
    * Copy the registers from the interrupt context back on to the processor.
    */
-  movw IC_GS(%rsp), %ax
   movw IC_FS(%rsp), %bx
   movw IC_ES(%rsp), %cx
   movw IC_DS(%rsp), %dx
-  movw %ax, %gs
   movw %bx, %fs
   movw %cx, %es
   movw %dx, %ds
@@ -732,6 +730,8 @@ SVAsyscall:
    * User space's %gs.base may have been modified, so make sure to load it from
    * the interrupt context.
    */
+  movw IC_GS(%rsp), %ax
+  movw %ax, %gs
   movq IC_GSBASE(%rsp), %rax
   wrgsbase %rax
 
