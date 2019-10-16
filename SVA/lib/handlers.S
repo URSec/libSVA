@@ -332,19 +332,21 @@ Trap:
   cli
   cache_part_switch sva
  
-  /*
-   * Switch the stack pointer back to the interrupt context.
-   */
   movq %gs:TLS_CPUSTATE, %rbp
-  movq CPU_NEWIC(%rbp), %rsp
+  movq CPU_NEWIC(%rbp), %rbx
 
   /*
    * Verify that the interrupt context is valid (e.g., no sva_ialloca has been
    * performed without a subsequent sva_ipush_function).
    */
   movq $1, %rdi
-  testq $1, IC_VALID(%rsp)
+  testq $1, IC_VALID(%rbx)
   je invalidIC
+
+  /*
+   * Switch the stack pointer back to the interrupt context.
+   */
+  movq %rbx, %rsp
 
   /*
    * Pop off the most recent interrupt context.  This requires modifying
@@ -657,19 +659,21 @@ SVAsyscall:
   cli
   cache_part_switch sva
 
-  /*
-   * Switch the stack pointer back to the interrupt context.
-   */
   movq %gs:TLS_CPUSTATE, %rbp
-  movq CPU_NEWIC(%rbp), %rsp
+  movq CPU_NEWIC(%rbp), %rbx
 
   /*
    * Verify that the interrupt context is valid (e.g., no sva_ialloca has been
    * performed without a subsequent sva_ipush_function).
    */
   movq $0, %rdi
-  testq $1, IC_VALID(%rsp)
+  testq $1, IC_VALID(%rbx)
   je invalidIC
+
+  /*
+   * Switch the stack pointer back to the interrupt context.
+   */
+  movq %rbx, %rsp
 
   /*
    * Pop off the most recent interrupt context.  This requires modifying
