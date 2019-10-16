@@ -650,9 +650,7 @@ SVAsyscall:
   /*
    * Call the system software system call handler.
    */
-  CALLQ(sva_syscall)
-sc_ret:
-  RETTARGET
+  CALLQ_L(sva_syscall, sc_ret)
 
   /*
    * Disable interrupts.
