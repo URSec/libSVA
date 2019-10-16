@@ -14,6 +14,7 @@
  *===----------------------------------------------------------------------===
  */
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #include <sva/callbacks.h>
@@ -198,6 +199,8 @@ void sva_icontext(struct cpu_user_regs* regs, uintptr_t* fsbase, uintptr_t* gsba
   if (gsbase != NULL) {
     p->gsbase = *gsbase;
   }
+
+  p->valid = true;
 
   usersva_to_kernel_pcid();
   record_tsc(sva_trapframe_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
