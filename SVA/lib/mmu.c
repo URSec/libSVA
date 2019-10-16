@@ -890,7 +890,7 @@ get_pgeVaddr (uintptr_t vaddr) {
 
 static inline uintptr_t
 getPhysicalAddrKDMAP (void * v) {
- return  ((uintptr_t) v & ~0xfffffe0000000000u);
+ return  ((uintptr_t) v & ~KERNDMAPSTART);
 }
 
 
@@ -1021,7 +1021,7 @@ getPhysicalAddr (void * v) {
    * bit-masking operation to convert the virtual address to a physical
    * address.
    */
-  if (((uintptr_t) v >= 0xfffffe0000000000u) && ((uintptr_t) v < 0xffffff0000000000u))
+  if (((uintptr_t) v >= KERNDMAPSTART) && ((uintptr_t) v < KERNDMAPEND))
        return getPhysicalAddrKDMAP(v);
 
   /*
@@ -2131,7 +2131,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
      * Do not process any entries that implement the direct map.  This prevents
      * us from marking physical pages in the direct map as kernel data pages.
      */
-    if ((pageLevel == PG_L4) && (i == (0xfffffe0000000000 / 0x1000))) {
+    if ((pageLevel == PG_L4) && (i == (KERNDMAPSTART / 0x1000))) {
       continue;
     }
 #endif

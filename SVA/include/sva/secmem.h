@@ -40,6 +40,10 @@
 #define SVADMAPSTART _ASM_CONST(0xfffffd8000000000, UL)
 #define SVADMAPEND   _ASM_CONST(0xfffffe0000000000, UL)
 
+/* Start and end addresses of the kernel's direct map (1TB) */
+#define KERNDMAPSTART _ASM_CONST(0xfffffe0000000000, UL)
+#define KERNDMAPEND   _ASM_CONST(0xffffff0000000000, UL)
+
 #else /* !XEN */
 
 /* Start and end addresses of the secure memory (1TB) */
@@ -49,6 +53,10 @@
 /* Start and end addresses of the SVA direct mapping (1TB) */
 #define SVADMAPSTART _ASM_CONST(0xffff870000000000, UL)
 #define SVADMAPEND   _ASM_CONST(0xffff880000000000, UL)
+
+/* Start and end addresses of Xen's direct map (3TB) */
+#define KERNDMAPSTART _ASM_CONST(0xffff830000000000, UL)
+#define KERNDMAPEND   _ASM_CONST(0xffff860000000000, UL)
 
 /* Start address of PV guest memory (120TB) */
 #define GUESTSTART _ASM_CONST(0xffff880000000000, UL)

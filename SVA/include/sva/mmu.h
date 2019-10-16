@@ -362,7 +362,11 @@ void init_leaf_page_from_mapping(page_entry_t mapping);
  */
 static inline unsigned char *
 getVirtual (uintptr_t physical) {
-  return (unsigned char *)(physical | 0xfffffe0000000000u);
+#ifdef SVA_DMAP
+  return getVirtualSVADMAP(physical);
+#else
+  return (unsigned char *)(physical | KERNDMAPSTART);
+#endif
 }
 
 /*
@@ -820,7 +824,7 @@ static inline int pgIsActive (page_desc_t *page)
 
 static inline unsigned char isDirectMap (void * p) {
   uintptr_t address = (uintptr_t)p;
-  return ((0xfffffe0000000000u <= address) && (address <= 0xffffff0000000000u));
+  return ((KERNDMAPSTART <= address) && (address < KERNDMAPEND));
 }
 
 /* The number of active references to the page */
