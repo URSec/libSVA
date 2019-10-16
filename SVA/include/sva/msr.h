@@ -20,6 +20,18 @@
 
 #include <sva/offsets.h>
 
+#define MSR_IA32_SYSENTER_CS  0x00000174
+#define MSR_IA32_SYSENTER_ESP 0x00000175
+#define MSR_IA32_SYSENTER_EIP 0x00000176
+
+#define MSR_STAR  0xc0000081
+#define MSR_LSTAR 0xc0000082
+#define MSR_CSTAR 0xc0000083
+#define MSR_FMASK 0xc0000083
+
+#define SYSCALL_CS_SHIFT 32
+#define SYSRET_CS_SHIFT  48
+
 #ifdef __ASSEMBLER__
 
 /**
