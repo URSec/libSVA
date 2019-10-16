@@ -87,6 +87,7 @@
 #include "sva/mmu.h"
 #include "sva/interrupt.h"
 #include "sva/mpx.h"
+#include "sva/msr.h"
 #include "thread_stack.h"
 
 #include <string.h>
@@ -717,6 +718,7 @@ init_dispatcher ()
   extern void trap126(void);
   extern void trap127(void);
   extern void SVAbadtrap(void);
+  extern void SVAsyscall(void);
   extern unsigned char * allocSecureMemory (uintptr_t size);
   extern void freeSecureMemory (unsigned char * p, uintptr_t size);
   extern void installNewPushTarget (void * f);
@@ -1006,6 +1008,25 @@ init_dispatcher ()
   register_hypercall     (0x7e, freeSecureMemory);
   register_hypercall     (0x7f, (void(*)())allocSecureMemory);
 
-  return;
-}
+  /*
+   * Set up the syscall handler.
+   */
+  wrmsr(MSR_FMASK, EFLAGS_IF | EFLAGS_IOPL(3) | EFLAGS_AC | EFLAGS_DF |
+                   EFLAGS_NT | EFLAGS_VM | EFLAGS_TF | EFLAGS_RF);
+  wrmsr(MSR_STAR, ((uint64_t)GSEL(GCODE_SEL, 0) << SYSCALL_CS_SHIFT) |
+                  ((uint64_t)SVA_USER_CS_32 << SYSRET_CS_SHIFT));
+  wrmsr(MSR_LSTAR, (uintptr_t)&SVAsyscall);
+#if 0
+  wrmsr(MSR_CSTAR, (uintptr_t)&SVAsyscall);
+#else
+  /* For now, we don't handle syscalls from 32-bit code */
+  wrmsr(MSR_CSTAR, (uintptr_t)NULL);
+#endif
 
+  /*
+   * We don't handle sysenter.
+   */
+  wrmsr(MSR_IA32_SYSENTER_CS, 0);
+  wrmsr(MSR_IA32_SYSENTER_EIP, 0);
+  wrmsr(MSR_IA32_SYSENTER_ESP, 0);
+}
