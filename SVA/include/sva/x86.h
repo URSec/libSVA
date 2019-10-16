@@ -68,6 +68,30 @@
 
 #endif
 
+/* Flags for x86 processor status register (EFLAGS and RFLAGS) */
+#define EFLAGS_CF       (1U << 0)   /* carry flag */
+/* Bit 1 is reserved (always 1) */
+#define EFLAGS_PF       (1U << 2)   /* parity flag */
+/* Bit 3 is reserved (always 0) */
+#define EFLAGS_AF       (1U << 4)   /* auxilary carry flag */
+/* Bit 5 is reserved (always 0) */
+#define EFLAGS_ZF       (1U << 6)   /* zero flag */
+#define EFLAGS_SF       (1U << 7)   /* sign flag */
+#define EFLAGS_TF       (1U << 8)   /* trap (single step) flag */
+#define EFLAGS_IF       (1U << 9)   /* external interrupt (IRQ) enable flag */
+#define EFLAGS_DF       (1U << 10)  /* direction flag */
+#define EFLAGS_OF       (1U << 11)  /* overflow flag */
+#define EFLAGS_IOPL(pl) (pl << 12)  /* I/O privilege level (0 - 3) */
+#define EFLAGS_NT       (1U << 14)  /* nested task */
+/* Bit 15 is reserved (always 0 since 80286) */
+#define EFLAGS_RF       (1U << 16)  /* resume flag (supress debug exceptions) */
+#define EFLAGS_VM       (1U << 17)  /* virtual 8086 mode flag */
+#define EFLAGS_AC       (1U << 18)  /* alignment check/SMAP supress flag */
+#define EFLAGS_VIF      (1U << 19)  /* virtual interrupt flag */
+#define EFLAGS_VIP      (1U << 20)  /* virtual interrupt pending */
+#define EFLAGS_ID       (1U << 21)  /* cpuid-capable flag */
+/* Bits 63 - 22 are reserved */
+
 #ifndef __ASSEMBLER__
 
 #include <stdint.h>
@@ -109,9 +133,6 @@ typedef struct {
   /* I/O Permission Map */
   unsigned int iomap __attribute__((packed));
 } tss_t;
-
-/* Flags for x86 processor status register (EFLAGS and RFLAGS) */
-static const unsigned EFLAGS_IF = (1u << 9);
 
 /* Flags bits in x86_64 PTE entries */
 static const unsigned PTE_PRESENT  = 0x0001u;
