@@ -15,12 +15,58 @@
 #ifndef _SVA_X86_H
 #define _SVA_X86_H
 
-#define SVA_USER_CS 0x43
-#define SVA_USER_SS 0x3b
-#define SVA_USER_DS 0x3b
-#define SVA_USER_ES 0x3b
-#define SVA_USER_FS 0x13
-#define SVA_USER_GS 0x1b
+/*
+ * NB: `SVA_USER_CS_32` is used to set the code and stack segments during
+ * return-from-syscall. `sysret` also uses this selector +8 and +16 to set the
+ * stack and 64-bit user code segments, respectively. Therefore, these segments
+ * must be arranged as follows in the GDT:
+ *
+ * +--------------------------+
+ * | 32-bit user code segment |
+ * +--------------------------+
+ * | user stack/data segment  |
+ * +--------------------------+
+ * | 64-bit user code segment |
+ * +--------------------------+
+ *
+ * where `GCODE_USER_32_SEL` is the index for the 32-bit user code segment.
+ *
+ * In other words, we should have
+ * SVA_USER_CS_32 + 16 == SVA_USER_SS_32 + 8 ==
+ * SVA_USER_SS_64 + 8 == SVA_USER_CS_64
+ */
+
+#ifdef XEN
+
+#define SVA_USER_CS_32 0xe023
+#define SVA_USER_CS_64 0xe033
+#define SVA_USER_SS_32 0xe02b
+#define SVA_USER_SS_64 SVA_USER_SS_32
+#define SVA_USER_DS_32 SVA_USER_SS_32
+#define SVA_USER_DS_64 0x0
+#define SVA_USER_ES_32 SVA_USER_SS_32
+#define SVA_USER_ES_64 0x0
+#define SVA_USER_FS_32 SVA_USER_SS_32
+#define SVA_USER_FS_64 0x0
+#define SVA_USER_GS_32 SVA_USER_SS_32
+#define SVA_USER_GS_64 0x0
+
+#else
+
+#define SVA_USER_CS_32 0x33
+#define SVA_USER_CS_64 0x43
+#define SVA_USER_SS_32 0x3b
+#define SVA_USER_SS_64 SVA_USER_SS_32
+#define SVA_USER_DS_32 SVA_USER_SS_32
+#define SVA_USER_DS_64 SVA_USER_SS_64
+#define SVA_USER_ES_32 SVA_USER_SS_32
+#define SVA_USER_ES_64 SVA_USER_SS_64
+#define SVA_USER_FS_32 0x13
+#define SVA_USER_FS_64 SVA_USER_FS_32
+#define SVA_USER_GS_32 0x1b
+#define SVA_USER_GS_64 SVA_USER_GS_32
+
+#endif
 
 #ifndef __ASSEMBLER__
 

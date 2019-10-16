@@ -142,7 +142,7 @@ sva_getCPUState (tss_t * tssp) {
      */
     cpup->newCurrentIC = cpup->currentThread->interruptContexts + (maxIC - 1);
     cpup->newCurrentIC->rip     = 0xfead;
-    cpup->newCurrentIC->cs      = SVA_USER_CS;
+    cpup->newCurrentIC->cs      = SVA_USER_CS_64;
     cpup->newCurrentIC->fpstate = 0;
     cpup->gip                   = 0;
 

@@ -505,7 +505,7 @@ SVAsyscall:
   pushq %r11
 
   /* Push the user-space code segment */
-  pushq $SVA_USER_CS
+  pushq $SVA_USER_CS_64
 
   /* Push the user-space program counter (%rip) */
   pushq %rcx
