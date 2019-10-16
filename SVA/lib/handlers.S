@@ -317,16 +317,15 @@ Trap:
   cmp $0xfffffd80, %eax
   jae .Lcall_handler
   CALLQ(trap_pfault_ghost)
-  jmp .Lout
+  jmp sva_iret
 
 .Lcall_handler:
   /*
    * Call the trap handler registered by the OS for this trap.
    */
   leaq interrupt_table(%rip), %rax
-  CALLQ(*(%rax,%rdi,8))
+  CALLQ_L(*(%rax,%rdi,8), sva_iret)
 
-.Lout:
   /*
    * Disable interrupts.
    */
