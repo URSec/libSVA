@@ -495,8 +495,8 @@ SVAsyscall:
   /* Mark the Interrupt Context as valid */
   pushq $1
 
-  /* Set the stack segment register to zero */
-  pushq $0
+  /* Push the user-space stack segment */
+  pushq $SVA_USER_SS_64
 
   /* Push the user-space stack pointer (%rsp) */
   pushq %gs:TLS_SC_RSP
