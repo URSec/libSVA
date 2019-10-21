@@ -596,12 +596,14 @@ ENTRY(sva_iret)
   /*
    * Copy the registers from the interrupt context back on to the processor.
    */
+#if 0
   movw IC_FS(%rsp), %bx
   movw IC_ES(%rsp), %cx
   movw IC_DS(%rsp), %dx
   movw %bx, %fs
   movw %cx, %es
   movw %dx, %ds
+#endif
 
   /*
    * We need access to the TLS to determine if the application is ghosting, so
@@ -646,8 +648,10 @@ ENTRY(sva_iret)
   /*
    * Restore %gs.base
    */
+#if 0
   movw IC_GS(%rsp), %ax
   movw %ax, %gs
+#endif
   movq IC_GSBASE(%rsp), %rax
   wrgsbase %rax
 
