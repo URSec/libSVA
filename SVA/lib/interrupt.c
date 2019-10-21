@@ -50,7 +50,7 @@ default_interrupt (unsigned int number, uintptr_t address) {
 }
 
 void
-invalidIC (unsigned int v) {
+invalidIC (unsigned int vector) {
   extern void assertGoodIC (void);
 
   /*
@@ -61,10 +61,10 @@ invalidIC (unsigned int v) {
 
   /* Print out the interrupt context */
   extern int sva_print_icontext (char * s);
-  if (v)
-    sva_print_icontext ("invalidIC:trap");
-  else
+  if (vector == 256)
     sva_print_icontext ("invalidIC:sys");
+  else
+    sva_print_icontext ("invalidIC:trap");
 
   panic ("SVA: Invalid Interrupt Context\n");
   __asm__ __volatile__ ("hlt\n");

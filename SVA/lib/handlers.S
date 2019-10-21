@@ -513,8 +513,8 @@ SVAsyscall:
   /* Push a zero code */
   pushq $0
 
-  /* Push a dummy trap number */
-  pushq $0
+  /* Push the syscall trap number */
+  pushq $256
 
   /*
    * Save a copy of the interrupt context into SVA memory.
@@ -676,7 +676,7 @@ SVAsyscall:
    * Verify that the interrupt context is valid (e.g., no sva_ialloca has been
    * performed without a subsequent sva_ipush_function).
    */
-  movq $0, %rdi
+  movq IC_TRAPNO(%rbx), %rdi
   testq $1, IC_VALID(%rbx)
   je invalidIC
 
