@@ -100,9 +100,6 @@ GLOBL(interrupt_table)
 .global SVAsyscall
 .type SVAsyscall, @function
 
-.global sc_ret
-.type   sc_ret, @function
-
 .global secmemtrap
 .type secmemtrap, @function
 
@@ -324,115 +321,10 @@ Trap:
    * Call the trap handler registered by the OS for this trap.
    */
   leaq interrupt_table(%rip), %rax
-  CALLQ_L(*(%rax,%rdi,8), sva_iret)
+  CALLQ(*(%rax,%rdi,8))
 
-  /*
-   * Disable interrupts.
-   */
-  cli
-  cache_part_switch sva
-
-  /* FSGSBASE might be disabled in CR4; enable it */
-  movq %cr4, %rax
-  orq  $CR4_FSGSBASE, %rax
-  movq %rax, %cr4
- 
-  movq %gs:TLS_CPUSTATE, %rbp
-  movq CPU_NEWIC(%rbp), %rbx
-
-  /*
-   * Verify that the interrupt context is valid (e.g., no sva_ialloca has been
-   * performed without a subsequent sva_ipush_function).
-   */
-  movq $1, %rdi
-  testq $1, IC_VALID(%rbx)
-  je invalidIC
-
-  /*
-   * Switch the stack pointer back to the interrupt context.
-   */
-  movq %rbx, %rsp
-
-  /*
-   * Pop off the most recent interrupt context.  This requires modifying
-   * the newCurrentIC field of the CPUState as well as modifying the IST
-   * in the TSS.
-   */
-  addq $IC_SIZE, CPU_NEWIC(%rbp)
-  movq CPU_TSSP(%rbp), %rbx
-  addq $IC_SIZE, TSS_IST3(%rbx)
-
-  /*
-   * Copy the registers from the interrupt context back on to the processor.
-   */
-  movw IC_FS(%rsp), %bx
-  movw IC_ES(%rsp), %cx
-  movw IC_DS(%rsp), %dx
-  movw %bx, %fs
-  movw %cx, %es
-  movw %dx, %ds
-
-  /*
-   * We need access to the TLS to determine if the application is ghosting, so
-   * we delay restoring %gs.base until after the cache partition switch.
-   */
-  movq IC_FSBASE(%rsp), %rax
-  wrfsbase %rax
-
-  movq IC_RDI(%rsp), %rdi
-  movq IC_RSI(%rsp), %rsi
-
-  movq IC_RBX(%rsp), %rbx
-
-  movq  IC_R8(%rsp), %r8
-  movq  IC_R9(%rsp), %r9
-  movq IC_R10(%rsp), %r10
-  movq IC_R11(%rsp), %r11
-  movq IC_R12(%rsp), %r12
-  movq IC_R13(%rsp), %r13
-  movq IC_R14(%rsp), %r14
-  movq IC_R15(%rsp), %r15
-  movq IC_RBP(%rsp), %rbp
-
-  /* Determine whether we interrupted user or supervisor mode execution. */
-  testq $0x3, IC_CS(%rsp)
-  jz .Lsupervisor_return
-
-  cache_part_switch app
-
-  /* Switch back to the user %gs.base. */
-  swapgs
-  jmp .Liret
-
-.Lsupervisor_return:
-  cache_part_switch os
-
-  /*
-   * Return to the calling code.  On x86_64, this will restore the stack
-   * pointer regardless of whether we came from user mode or kernel mode.
-   */
-.Liret:
-  /*
-   * Restore %gs.base
-   */
-  movw IC_GS(%rsp), %ax
-  movw %ax, %gs
-  movq IC_GSBASE(%rsp), %rax
-  wrgsbase %rax
-
-  /*
-   * Restore WRMSR-clobbered registers
-   */
-  movq IC_RAX(%rsp), %rax
-  movq IC_RCX(%rsp), %rcx
-  movq IC_RDX(%rsp), %rdx
-
-  /*
-   * Remove the current interrupt context.
-   */
-  addq $(IC_TRSIZE + 0x10 /* trap number and error code */), %rsp
-
-  iretq
+  jmp sva_iret
+END(Trap)
 
 /*
  * Trap: SVAsyscall
@@ -656,8 +548,15 @@ SVAsyscall:
   /*
    * Call the system software system call handler.
    */
-  CALLQ_L(sva_syscall, sc_ret)
+  CALLQ(sva_syscall)
 
+  /* Fall through */
+END(SVAsyscall)
+
+/**
+ * Return from an interrupt/exception/syscall.
+ */
+ENTRY(sva_iret)
   /*
    * Disable interrupts.
    */
@@ -719,21 +618,33 @@ SVAsyscall:
   movq  IC_R8(%rsp), %r8
   movq  IC_R9(%rsp), %r9
   movq IC_R10(%rsp), %r10
-  movq IC_RFLAGS(%rsp), %r11 /* Put the rflags back into %r11 for sysret */
+  movq IC_R11(%rsp), %r11
   movq IC_R12(%rsp), %r12
   movq IC_R13(%rsp), %r13
   movq IC_R14(%rsp), %r14
   movq IC_R15(%rsp), %r15
   movq IC_RBP(%rsp), %rbp
 
+  /* Determine whether we interrupted user or supervisor mode execution. */
+  testq $0x3, IC_CS(%rsp)
+  jz .Lsupervisor_return
+
   cache_part_switch app
 
   /* Switch back to the user %gs.base. */
   swapgs
+  jmp .Liret
+
+.Lsupervisor_return:
+  cache_part_switch os
 
   /*
-   * User space's %gs.base may have been modified, so make sure to load it from
-   * the interrupt context.
+   * Return to the calling code.  On x86_64, this will restore the stack
+   * pointer regardless of whether we came from user mode or kernel mode.
+   */
+.Liret:
+  /*
+   * Restore %gs.base
    */
   movw IC_GS(%rsp), %ax
   movw %ax, %gs
@@ -744,18 +655,39 @@ SVAsyscall:
    * Restore WRMSR-clobbered registers
    */
   movq IC_RAX(%rsp), %rax
-  movq IC_RIP(%rsp), %rcx   /* Put the %rip in %rcx for sysret instruction */
+  movq IC_RCX(%rsp), %rcx
   movq IC_RDX(%rsp), %rdx
+
+  /*
+   * If we entered via syscall, use the syscall return path
+   */
+  cmpq $256, IC_TRAPNO(%rsp)
+  je .Lsysret
+
+  /*
+   * Remove the current interrupt context.
+   */
+  addq $(IC_TRSIZE + 0x10 /* trap number and error code */), %rsp
+
+  iretq
+
+.Lsysret:
+  /*
+   * `sysret` restores `%rip` from `%rcx` and `%rflags` from `%r11`.
+   */
+  movq IC_RIP(%rsp), %rcx
+  movq IC_RFLAGS(%rsp), %r11
 
   /*
    * Restore the user-space stack pointer.
    */
   movq IC_RSP(%rsp), %rsp
- 
+
   /*
    * Return to the calling code.
    */
   sysretq
+END(sva_iret)
 
 /* Define the trap handlers */
 TRAP 0

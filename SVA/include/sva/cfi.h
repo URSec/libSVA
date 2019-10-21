@@ -29,14 +29,6 @@
                  .bundle_unlock; \
                  RETTARGET
 
-/* Macro for call with a label at the return site */
-#define CALLQ_L(x, l)   .bundle_lock align_to_end;  \
-                        callq x;                    \
-                    GLOBL(l);                       \
-                    .type l, @function;             \
-                        .bundle_unlock;             \
-                        RETTARGET
-
 /* Macro for start of function */
 #define STARTFUNC endbr64
 

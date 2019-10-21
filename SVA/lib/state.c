@@ -1375,7 +1375,7 @@ sva_init_stack (unsigned char * start_stackp,
   sva_integer_state_t * integerp;
 
   /* Function to use to return from system call */
-  extern void sc_ret(void);
+  extern void sva_iret(void);
 
   /* Arguments allocated on the new stack */
   struct frame {
@@ -1490,7 +1490,7 @@ sva_init_stack (unsigned char * start_stackp,
    * Initialize the arguments to the system call.  Also setup the interrupt
    * context and return function pointer.
    */
-  args->return_rip = (void*)sc_ret;
+  args->return_rip = (void*)sva_iret;
 
   /*
    * Initialze the integer state of the new thread of control.
