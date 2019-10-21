@@ -18,11 +18,14 @@
 #include "sva/cfi.h"
 #include "sva/x86.h"
 
+#define ALIGN .p2align 5
+
 #define GLOBL(x)	\
 	.globl x;	\
 x:
 
 #define ENTRY(x)		\
+	ALIGN;                  \
 	.type x, @function;	\
 	GLOBL(x);               \
 	STARTFUNC
