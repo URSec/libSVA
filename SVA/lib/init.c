@@ -704,6 +704,10 @@ sva_init_secondary () {
   extern void trap##number(void); \
   register_x86_interrupt ((number),trap##number, 0);
 
+#define REGISTER_SWEXCEPTION(number)                  \
+  extern void trap##number(void);                     \
+  register_x86_interrupt((number), trap##number, 3);
+
 #define REGISTER_INTERRUPT(number) \
   extern void interrupt##number(void); \
   register_x86_interrupt ((number),interrupt##number, 0);
@@ -736,8 +740,8 @@ init_dispatcher ()
   REGISTER_EXCEPTION(0);
   REGISTER_EXCEPTION(1);
   REGISTER_EXCEPTION(2);
-  REGISTER_EXCEPTION(3);
-  REGISTER_EXCEPTION(4);
+  REGISTER_SWEXCEPTION(3);
+  REGISTER_SWEXCEPTION(4);
   REGISTER_EXCEPTION(5);
   REGISTER_EXCEPTION(6);
   REGISTER_EXCEPTION(7);
