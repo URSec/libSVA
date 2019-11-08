@@ -347,6 +347,19 @@ void init_leaf_page_from_mapping(page_entry_t mapping);
  */
 
 /*
+ * Function: getVirtualSVADMAP()
+ *
+ * Description:
+ *  This function takes a physical address and converts it into a virtual
+ *  address that the SVA VM can access based on SVA direct mapping.
+ *
+ */
+static inline unsigned char *
+getVirtualSVADMAP (uintptr_t physical) {
+  return (unsigned char *)(physical | SVADMAPSTART);
+}
+
+/*
  * Function: getVirtual()
  *
  * Description:
@@ -366,19 +379,6 @@ getVirtual (uintptr_t physical) {
 #else
   return (unsigned char *)(physical | KERNDMAPSTART);
 #endif
-}
-
-/*
- * Function: getVirtualSVADMAP()
- *
- * Description:
- *  This function takes a physical address and converts it into a virtual
- *  address that the SVA VM can access based on SVA direct mapping.
- *
- */
-static inline unsigned char *
-getVirtualSVADMAP (uintptr_t physical) {
-  return (unsigned char *)(physical | SVADMAPSTART);
 }
 
 /* 
