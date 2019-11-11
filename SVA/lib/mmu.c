@@ -1823,6 +1823,7 @@ sva_mm_load_pgtable (void * pg_ptr) {
   }
   oldpml4Desc->count--;
 
+#ifdef SVA_ASID_PG
   /*
    * Also do this for the respective kernel versions of the PML4s (if they
    * exist).
@@ -1849,7 +1850,6 @@ sva_mm_load_pgtable (void * pg_ptr) {
     kernel_oldpml4Desc->count--;
   }
 
-#ifdef SVA_ASID_PG
   /*
    * Invalidate the TLB's entries for this process in the kernel's address
    * space (PCID = 1).
@@ -3315,6 +3315,7 @@ sva_remove_page (uintptr_t paddr) {
   record_tsc(sva_remove_page_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
 
+#if SVA_ASID_PG
 /*
  * Function: sva_get_kernel_pml4pg
  * 
@@ -3330,7 +3331,7 @@ uintptr_t sva_get_kernel_pml4pg(uintptr_t paddr)
 	uintptr_t other_paddr = pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
 	return other_paddr;		
 }
-
+#endif /* SVA_ASID_PG */
 
 /* 
  * Function: sva_remove_mapping()
@@ -3689,6 +3690,7 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
         "type = %d; Kernel PML4 paddr = 0x%lx\n",
         orig_phys, usersva_ptDesc->type, kernel_phys);
 
+#ifdef SVA_ASID_PG
   /*
    * If the kernel already set up a kernel PML4 for this user/SVA PML4, don't
    * let it do so again.
@@ -3713,6 +3715,7 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
    */
   kernel_ptDesc->other_pgPaddr = orig_phys;
   usersva_ptDesc->other_pgPaddr = kernel_phys | PML4_SWITCH_DISABLE;
+#endif /* SVA_ASID_PG */
 
   /*
    * If (and only if) the PML4 being bifurcated is the one currently loaded
@@ -3738,6 +3741,7 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
   usersva_to_kernel_pcid();
 }
 
+#ifdef SVA_ASID_PG
 /*
  * Intrinsic: sva_set_kernel_pml4pg_ready()
  *
@@ -3774,3 +3778,4 @@ void sva_set_kernel_pml4pg_ready(uintptr_t orig_phys) {
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
 }
+#endif /* SVA_ASID_PG */

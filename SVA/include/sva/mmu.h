@@ -186,6 +186,11 @@ typedef struct page_desc_t {
     uintptr_t pgVaddr;
 #endif
 
+#ifdef SVA_ASID_PG
+    /* the physical adddress of the other (kernel or user/SVA) version pml4 page table page*/
+    uintptr_t other_pgPaddr;
+#endif
+
     /* Flag to denote whether the page is a Ghost page table page */
     unsigned ghostPTP : 1;
 
@@ -206,9 +211,6 @@ typedef struct page_desc_t {
 
     /* Is this page for SVA direct mapping? */
     unsigned dmap : 1;   
-
-    /* the physical adddress of the other (kernel or user/SVA) version pml4 page table page*/
-    uintptr_t other_pgPaddr; 
 } page_desc_t;
 
 /* Array describing the physical pages. Used by SVA's MMU and EPT intrinsics.

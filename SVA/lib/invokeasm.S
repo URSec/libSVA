@@ -87,7 +87,7 @@ sva_invoke:
   movq $0xffffffffff, %r14
   andq %r14, %r13
   shlq $5, %r13
-  addq $24, %r13
+  addq $4, %r13
   movq page_desc(%r13), %r14
   cmovneq %r14, %r15
   shrq $12,  %r15  
@@ -127,7 +127,7 @@ L1:
   movq $0xffffffffff, %r14
   andq %r14, %r13
   shlq $5, %r13
-  addq $24, %r13
+  addq $4, %r13
   movq page_desc(%r13), %r14
   cmovneq %r14, %r15 
   shrq $12,  %r15
@@ -193,7 +193,7 @@ L2:
   movq $0xffffffffff, %r14
   andq %r14, %r13
   shlq $5, %r13
-  addq $24, %r13
+  addq $4, %r13
   movq page_desc(%r13), %r14
   cmovneq %r14, %r15 
   shrq $12, %r15
@@ -228,7 +228,7 @@ L3:
   movq $0xffffffffff, %r14
   andq %r14, %r13
   shlq $5, %r13
-  addq $24, %r13
+  addq $4, %r13
   movq page_desc(%r13), %r14
   cmovneq %r14, %rbp 
   shrq $12, %rbp
