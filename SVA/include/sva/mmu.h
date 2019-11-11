@@ -175,9 +175,6 @@ static const uintptr_t addrmask = 0x000ffffffffff000u;
  *  data stored within it) that SVA needs to perform its MMU safety checks.
  */
 typedef struct page_desc_t {
-    /* Type of frame */
-    enum page_type_t type;
-
 #if 0 // The value stored in this field is never actually used
     /*
      * If the page is a page table page, mark the virtual address to which it is
@@ -191,20 +188,23 @@ typedef struct page_desc_t {
     uintptr_t other_pgPaddr;
 #endif
 
+    /* Type of frame */
+    enum page_type_t type : 6;
+
     /* Flag to denote whether the page is a Ghost page table page */
     unsigned ghostPTP : 1;
 
     /* Flag denoting whether or not this frame is a stack frame */
     unsigned stack : 1;
+
+    /* Number of times a page is mapped */
+    unsigned count : 12;
     
     /* Flag denoting whether or not this frame is a code frame */
     unsigned code : 1;
     
     /* State of page: value of != 0 is active and 0 is inactive */
     unsigned active : 1;
-
-    /* Number of times a page is mapped */
-    unsigned count : 12;
 
     /* Is this page a user page? */
     unsigned user : 1;
