@@ -2806,10 +2806,12 @@ sva_declare_l1_page (uintptr_t frameAddr) {
      */
     pgDesc->type = PG_L1;
 
+#if 0
     /*
      * Reset the virtual address which can point to this page table page.
      */
     pgDesc->pgVaddr = 0;
+#endif
 
     /* 
      * Initialize the page data and page entry. Note that we pass a general
@@ -2884,10 +2886,12 @@ sva_declare_l2_page (uintptr_t frameAddr) {
     /* Setup metadata tracking for this new page */
     pgDesc->type = PG_L2;
 
+#if 0
     /*
      * Reset the virtual address which can point to this page table page.
      */
     pgDesc->pgVaddr = 0;
+#endif
 
     /* 
      * Initialize the page data and page entry. Note that we pass a general
@@ -2959,10 +2963,12 @@ sva_declare_l3_page (uintptr_t frameAddr) {
     /* Mark this page frame as an L3 page frame */
     pgDesc->type = PG_L3;
 
+#if 0
     /*
      * Reset the virtual address which can point to this page table page.
      */
     pgDesc->pgVaddr = 0;
+#endif
 
     /* 
      * Initialize the page data and page entry. Note that we pass a general
@@ -3042,10 +3048,12 @@ sva_declare_l4_page (uintptr_t frameAddr) {
     /* Mark this page frame as an L4 page frame */
     pgDesc->type = PG_L4;
 
+#if 0
     /*
      * Reset the virtual address which can point to this page table page.
      */
     pgDesc->pgVaddr = 0;
+#endif
 
     /* 
      * Initialize the page data and page entry. Note that we pass a general

@@ -87,10 +87,12 @@ sva_declare_l1_eptpage(uintptr_t frameAddr) {
      */
     pgDesc->type = PG_EPTL1;
 
+#if 0
     /*
      * Reset the virtual address which can point to this page table page.
      */
     pgDesc->pgVaddr = 0;
+#endif
 
     /* 
      * Initialize the page data and page entry. Note that we pass a general
@@ -167,10 +169,12 @@ sva_declare_l2_eptpage(uintptr_t frameAddr) {
      */
     pgDesc->type = PG_EPTL2;
 
+#if 0
     /*
      * Reset the virtual address which can point to this page table page.
      */
     pgDesc->pgVaddr = 0;
+#endif
 
     /* 
      * Initialize the page data and page entry. Note that we pass a general
@@ -247,10 +251,12 @@ sva_declare_l3_eptpage(uintptr_t frameAddr) {
      */
     pgDesc->type = PG_EPTL3;
 
+#if 0
     /*
      * Reset the virtual address which can point to this page table page.
      */
     pgDesc->pgVaddr = 0;
+#endif
 
     /* 
      * Initialize the page data and page entry. Note that we pass a general
@@ -327,10 +333,12 @@ sva_declare_l4_eptpage(uintptr_t frameAddr) {
      */
     pgDesc->type = PG_EPTL4;
 
+#if 0
     /*
      * Reset the virtual address which can point to this page table page.
      */
     pgDesc->pgVaddr = 0;
+#endif
 
     /* 
      * Initialize the page data and page entry. Note that we pass a general

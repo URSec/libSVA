@@ -178,11 +178,13 @@ typedef struct page_desc_t {
     /* Type of frame */
     enum page_type_t type;
 
+#if 0 // The value stored in this field is never actually used
     /*
      * If the page is a page table page, mark the virtual address to which it is
      * mapped.
      */
     uintptr_t pgVaddr;
+#endif
 
     /* Flag to denote whether the page is a Ghost page table page */
     unsigned ghostPTP : 1;
