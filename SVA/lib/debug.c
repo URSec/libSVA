@@ -1622,3 +1622,62 @@ sva_print_mpx_regs(void) {
   printf("XCR0: 0x%lx\n", xcr0);
 #endif
 }
+
+/*
+ * Debug intrinsic: sva_verify_gsbase()
+ *
+ * Description:
+ *  Check that the value of GSBASE is correctly set to point to SVA's
+ *  per-CPU data structure.
+ *
+ *  If it's been clobbered by some other value, print an error message
+ *  accordingly and return false. Otherwise, return true.
+ *
+ *  This is meant to be called from various places in Xen where we suspect it
+ *  might be clobbering GSBASE. It is also safe to call from within SVA.
+ *
+ * Arguments:
+ *  * context_msg: A string which will be included within brackets at the end
+ *    of the error message that is printed. Useful for indicating some
+ *    context about where the check was performed.
+ *
+ * Return value:
+ *  True if GSBASE correctly points to SVA's TLS; false otherwise.
+ *
+ * SIDE EFFECTS:
+ *  * Will restore GSBASE to point to SVA's per-CPU data structure if it didn't
+ *    point to it when the intrinsic was called.
+ *
+ *  * CR4.FSGSBASE will be enabled if it wasn't when the intrinsic was
+ *    called.
+ */
+int
+sva_verify_gsbase(const char *const context_msg) {
+  /* First enable FSGSBASE in CR4 if it isn't already. */
+  write_cr4(read_cr4() | CR4_FSGSBASE);
+
+  uintptr_t gsbase;
+  asm volatile (
+      "rdgsbase %0\n"
+      : "=r" (gsbase));
+
+  extern char TLSBlock[];
+  if (gsbase != (uintptr_t)TLSBlock) {
+    /* Fix up GSBASE so we can call printk() without crashing (since printk
+     * causes interrupts to come in). */
+    asm volatile (
+        "wrgsbase %0\n"
+        : : "r" (TLSBlock));
+
+    /* Print an error message, then dump the CPU state to console. */
+    printk("Xen stole our GSBASE and set it to: 0x%lx; "
+        "it really should be: 0x%p. [%s]\n",
+        gsbase, TLSBlock, context_msg);
+
+    /* Return false to indicate that GSBASE was clobbered. */
+    return 0;
+  }
+
+  /* Return true to indicate GSBASE correctly pointed to SVA's TLS. */
+  return 1;
+}
