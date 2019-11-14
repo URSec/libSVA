@@ -24,10 +24,6 @@
 #include <sva/vmx_intrinsics.h>
 #include <sva/state.h>
 
-#include <stdint.h>
-
-#include <sys/types.h>
-
 /* Set this to 1/0 respectively to turn verbose printf's on or off. */
 #define SVAVMX_DEBUG 1
 

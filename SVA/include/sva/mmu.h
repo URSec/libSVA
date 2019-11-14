@@ -56,7 +56,6 @@
 #ifndef SVA_MMU_H
 #define SVA_MMU_H
 
-#include <sys/types.h>
 #include "mmu_types.h"
 
 #include "sva/callbacks.h"

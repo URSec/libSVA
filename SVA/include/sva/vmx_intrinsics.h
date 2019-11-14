@@ -22,10 +22,6 @@
 #include <sva/mmu_types.h>
 #include <sva/state.h>
 
-#include <stdint.h>
-
-#include <sys/types.h>
-
 /*
  * Enumeration: sva_vmcs_field
  *

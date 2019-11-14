@@ -16,8 +16,6 @@
 #ifndef _SVA_STATE_H
 #define _SVA_STATE_H
 
-#include <sys/types.h>
-
 #include "sva/x86.h"
 #include "sva/mmu_types.h"
 #include "sva/keys.h"
