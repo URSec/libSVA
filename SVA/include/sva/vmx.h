@@ -41,7 +41,7 @@
  *    c-define-macro-for-debug-printing#1644898
  */
 #define DBGPRNT(args) \
-  do { if (SVAVMX_DEBUG) printf args; } while (0)
+  do { if (SVAVMX_DEBUG) printf("(SVA VMX debug) "); printf args; } while (0)
 
 /**********
  * Constants and Enumerations
