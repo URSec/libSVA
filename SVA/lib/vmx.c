@@ -505,9 +505,10 @@ sva_initvmx(void) {
    * the VMXON region in any other way." For good measure, though, we'll
    * zero-fill the rest of it.
    */
-  unsigned char * VMXON_vaddr = getVirtualSVADMAP(VMXON_paddr);
+  unsigned char * VMXON_vaddr = getVirtual(VMXON_paddr);
 
-  DBGPRNT(("Zero-filling VMXON frame...\n"));
+  DBGPRNT(("Zero-filling VMXON frame (paddr=0x%lx,vaddr=0x%p)...\n",
+        VMXON_paddr, VMXON_vaddr));
   memset(VMXON_vaddr, 0, VMCS_ALLOC_SIZE);
 
   DBGPRNT(("Reading IA32_VMX_BASIC MSR...\n"));
@@ -526,8 +527,6 @@ sva_initvmx(void) {
   *VMXON_id_field = VMCS_rev_id;
   DBGPRNT(("VMCS revision identifier written to VMXON region.\n"));
 
-  DBGPRNT(("Physical address of VMXON: 0x%lx\n", VMXON_paddr));
-  DBGPRNT(("Virtual address of VMXON pointer: %p\n", &VMXON_paddr));
   /* Enter VMX operation. This is done by executing the VMXON instruction,
    * passing the physical address of the VMXON region as a memory operand.
    */
@@ -697,7 +696,7 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
   vm_descs[vmid].vmcs_paddr = alloc_frame();
 
   /* Zero-fill the VMCS frame, for good measure. */
-  unsigned char * vmcs_vaddr = getVirtualSVADMAP(vm_descs[vmid].vmcs_paddr);
+  unsigned char * vmcs_vaddr = getVirtual(vm_descs[vmid].vmcs_paddr);
   memset(vmcs_vaddr, 0, VMCS_ALLOC_SIZE);
 
   /*
