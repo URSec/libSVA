@@ -518,6 +518,19 @@ isPresent_maybeEPT (page_entry_t * pte, unsigned char isEPT) {
     return isPresent(pte);
 }
 
+/**
+ * Determine if a page table entry maps a "huge" page.
+ *
+ * Note: Behavior is undefined if this is called on a page table entry that is
+ * not from an l2 or l3 table.
+ *
+ * @param entry The page table entry that may map a huge page
+ * @return      True if `entry` maps a huge page, otherwise false.
+ */
+static inline bool isHugePage(page_entry_t* pte) {
+  return *pte & PG_PS;
+}
+
 /*
  * Function: get_pagetable()
  *
