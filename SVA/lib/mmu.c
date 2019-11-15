@@ -2975,6 +2975,37 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
   usersva_to_kernel_pcid();
 }
 
+pte_t* sva_get_l1_entry(uintptr_t vaddr) {
+  pde_t* pde = sva_get_l2_entry(vaddr);
+  if (pde != NULL && isPresent(pde) && !isHugePage(pde)) {
+    return get_pteVaddr(pde, vaddr);
+  } else {
+    return NULL;
+  }
+}
+
+pde_t* sva_get_l2_entry(uintptr_t vaddr) {
+  pdpte_t* pdpte = sva_get_l3_entry(vaddr);
+  if (pdpte != NULL && isPresent(pdpte) && !isHugePage(pdpte)) {
+    return get_pdeVaddr(pdpte, vaddr);
+  } else {
+    return NULL;
+  }
+}
+
+pdpte_t* sva_get_l3_entry(uintptr_t vaddr) {
+  pml4e_t* pml4e = sva_get_l4_entry(vaddr);
+  if (isPresent(pml4e)) {
+    return get_pdpteVaddr(pml4e, vaddr);
+  } else {
+    return NULL;
+  }
+}
+
+pml4e_t* sva_get_l4_entry(uintptr_t vaddr) {
+  return get_pml4eVaddr(get_pagetable(), vaddr);
+}
+
 #ifdef SVA_ASID_PG
 /*
  * Intrinsic: sva_set_kernel_pml4pg_ready()
