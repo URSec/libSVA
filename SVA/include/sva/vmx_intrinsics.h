@@ -470,6 +470,7 @@ typedef struct sva_vmx_guest_state {
  *  (vmx.c and vmx_ept.c)
  *****************************************************************************
  */
+unsigned char sva_initvmx(void);
 int sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
     struct sva_vmx_guest_state * initial_state,
     pml4e_t *initial_eptable);
@@ -500,12 +501,15 @@ void sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val);
 void sva_load_eptable(int vmid, pml4e_t *epml4t);
 uintptr_t sva_save_eptable(int vmid);
 
-/* These intrinsics are for use during development.
+/*
+ * These intrinsics are for use during development.
  * They will be removed "soon" and are not part of the designed SVA-VMX
  * interface.
  */
-unsigned char sva_initvmx(void);
-/* Defined in debug.c */
+/* "Cheater's code" to support gradual porting of Xen */
+uintptr_t sva_get_vmcs_paddr(int vmid); /* defined in debug.c */
+int sva_get_vmid_from_vmcs(uintptr_t vmcs_paddr); /* defined in debug.c */
+/* Functions for printing debug information to screen (defined in debug.c) */
 void sva_print_vmx_msrs(void);
 void print_vmcs_field_name(enum sva_vmcs_field);
 void print_vmcs_field(enum sva_vmcs_field field, uint64_t value);

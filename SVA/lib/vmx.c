@@ -388,15 +388,6 @@ check_cr4_fixed_bits(void) {
  * Return value:
  *  True if VMX initialization was successful (or initialization was not
  *  performed because it was already done earlier), false otherwise.
- *
- * TODO:
- *  Figure out where I'm actually supposed to put libsva initialization
- *  code! (This function should probably be called by said initialization
- *  code automatically during boot, rather than called by the OS as an
- *  intrinsic.)
- *  (If we do decide to keep this as an intrinsic, all the other SVA_VMX
- *  intrinsics will need to check if sva_vmx_initialized is true before doing
- *  anything.)
  */
 unsigned char
 sva_initvmx(void) {
@@ -625,10 +616,14 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    * Ensure that the inputs are mapped and accessible.  If they are not, then
    * trap here.
    */
+  /* FIXME: for now, skip this when building for Xen. At this stage in the
+   * port we are expecting Xen to pass null pointers for these. */
+#ifndef XEN
   if (usevmx) {
     sva_check_memory_read(initial_ctrls, sizeof(struct sva_vmx_vm_ctrls));
     sva_check_memory_read(initial_state, sizeof(struct sva_vmx_guest_state));
   }
+#endif
 
   /*
    * Scan the vm_descs array for the first free slot, i.e., the first entry
@@ -669,6 +664,11 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
     return -1;
   }
 
+  /* FIXME: similar to above where we call sva_check_memory_read() on these
+   * two pointers, we need to disable these for now in the Xen config. At
+   * this stage in the port, we are expecting Xen to pass null pointers for
+   * these. */
+#ifndef XEN
   /*
    * Save initial values of VMCS controls to be initialized the first the the
    * VMCS is loaded. (Intel's hardware interface doesn't let us write to a
@@ -680,6 +680,7 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    * Initialize the guest system state (registers, program counter, etc.).
    */
   vm_descs[vmid].state = *initial_state;
+#endif
 
   /*
    * Initialize the Extended Page Table Pointer (EPTP).
@@ -688,7 +689,13 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    * functionality of sva_load_eptable(), because we know vmid is valid (but
    * still need to vet the extended page table pointer).
    */
+  /* FIXME: for now, skip initializing the EPTP when building for Xen.
+   * This allows us to port Xen incrementally, allowing it to use
+   * sva_alloc/freevm() to manage VMCSes without yet using the rest of the
+   * Shade intrinsics for loading and running VMs. */
+#ifndef XEN
   load_eptable_internal(vmid, initial_eptable, 1 /* is initial setting */);
+#endif
 
   /*
    * Allocate a physical frame of SVA secure memory from the frame cache to
@@ -829,6 +836,14 @@ sva_freevm(int vmid) {
     }
   }
 
+  /* FIXME: for now, don't do refcount accounting for the EPTP (since we
+   * are skipping it in sva_allocvm() and are expecting Xen to pass a null
+   * pointer for this)
+   *
+   * This allows us to port Xen incrementally, allowing it to use
+   * sva_alloc/freevm() to manage VMCSes without yet using the rest of the
+   * Shade intrinsics for loading and running VMs. */
+#ifndef XEN
   /*
    * Decrement the refcount for the VM's top-level extended-page-table page
    * to reflect the fact that this VM is no longer using it.
@@ -846,6 +861,7 @@ sva_freevm(int vmid) {
         "[EPTP released by freevm]");
   }
   ptpDesc->count--;
+#endif
 
   /* Return the VMCS frame to the frame cache. */
   DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));

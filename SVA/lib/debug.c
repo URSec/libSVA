@@ -540,7 +540,7 @@ sva_checkptr (uintptr_t p) {
 }
 
 /*
- * Intrinsic: sva_print_vmx_msrs()
+ * Debug intrinsic: sva_print_vmx_msrs()
  *
  * Description:
  *  Print the values of various VMX-related MSRs to the kernel console.
@@ -1411,7 +1411,7 @@ print_vmcs_field(enum sva_vmcs_field field, uint64_t value) {
 }
 
 /*
- * Intrinsic: sva_print_vmcs_allowed_settings()
+ * Debug intrinsic: sva_print_vmcs_allowed_settings()
  *
  * Description:
  *  Prints the allowed settings of various VMCS controls as reported by the
@@ -1576,7 +1576,7 @@ sva_print_vmcs_allowed_settings() {
 }
 
 /*
- * Intrinsic: sva_print_mpx_regs()
+ * Debug intrinsic: sva_print_mpx_regs()
  *
  * Description:
  *  Prints the values of the MPX bounds registers BND0-BND3 and the MPX
@@ -1680,4 +1680,132 @@ sva_verify_gsbase(const char *const context_msg) {
 
   /* Return true to indicate GSBASE correctly pointed to SVA's TLS. */
   return 1;
+}
+
+/*
+ * Debug intrinsic: sva_get_vmcs_paddr()
+ *
+ * Description:
+ *  Gets the raw physical address pointer to the Virtual Machine Control
+ *  Structure (VMCS) for a virtual machine managed by SVA.
+ *
+ *  The VMCS lives in secure memory, so in theory the OS/hypervisor shouldn't
+ *  care what address it's at, because it can't access it anyway. However,
+ *  during the process of porting Xen to SVA, it is necessary to let Xen
+ *  continue to use its own code to access an SVA-managed VMCS. (This,
+ *  obviously, will only work with the SFI checks turned off or otherwise
+ *  neutered.)
+ *
+ *  This is for use during early development. It is not part of the designed
+ *  SVA-VMX interface and will be removed.
+ */
+uintptr_t
+sva_get_vmcs_paddr(int vmid) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
+  if (usevmx) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
+  }
+
+  /*
+   * Bounds check on vmid.
+   *
+   * vmid must be positive and less than MAX_VMS.
+   */
+  if (usevmx) {
+    if (vmid >= MAX_VMS || vmid <= 0) {
+      panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
+    }
+  }
+  /*
+   * If this VM's VMCS pointer is null, then this VMID does not correspond to
+   * a VM that is actually allocated. (It may have been freed, or never
+   * allocated in the first place.)
+   */
+  if (usevmx) {
+    if (!vm_descs[vmid].vmcs_paddr) {
+      panic("Fatal error: tried to access a VM ID that is not allocated "
+            "(vmcs_paddr = 0)!\n");
+    }
+  }
+
+  uintptr_t retval = vm_descs[vmid].vmcs_paddr;
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+
+  return retval;
+}
+
+/*
+ * Debug intrinsic: sva_get_vmid_from_vmcs()
+ *
+ * Description:
+ *  Given the physical address of a Virtual Machine Control Structure (VMCS),
+ *  find and return SVA's numeric VMID corresponding to that VMCS.
+ *
+ *  This is feasible since SVA maintains a one-to-one correspondence between
+ *  VMIDs and VMCSes. (It's not especially efficient since we need to do a
+ *  brute-force search through the VM descriptor array, but that's fine for a
+ *  stopgap intrinsic like this. There are only 128 entries in the array.)
+ *
+ *  This is for use during early development. It is not part of the designed
+ *  SVA-VMX interface and will be removed.
+ *
+ *  (Used by Xen temporarily until we transition Xen to keeping track of
+ *  VMIDs instead of VMCs addresses.)
+ *
+ * Return value:
+ *  The VMID corresponding to the given VMCS physical address, if it exists.
+ *
+ *  If no VM matching the given VMCS pointer was found in SVA's VM descriptor
+ *  array, a negative value is returned, indicating an error.
+ */
+int
+sva_get_vmid_from_vmcs(uintptr_t vmcs_paddr) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
+  if (usevmx) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
+  }
+
+  /*
+   * Search SVA's VM descriptor array to find the VM whose VMCS pointer
+   * matches the one we've been given.
+   *
+   * (We skip the entry at index 0 since VPID=0 is used to tag the host's
+   * entries in the TLB, and thus SVA will never assign a VM an ID of 0.)
+   */
+  int vmid = -1;
+  for (int i = 1; i < MAX_VMS; i++) {
+    if (vm_descs[i].vmcs_paddr == vmcs_paddr) {
+      vmid = i;
+      break;
+    }
+  }
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+
+  return vmid;
 }
