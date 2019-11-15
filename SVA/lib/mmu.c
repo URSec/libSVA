@@ -2975,6 +2975,10 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
   usersva_to_kernel_pcid();
 }
 
+uintptr_t sva_get_physical_address(uintptr_t vaddr) {
+  return getPhysicalAddr((void*)vaddr);
+}
+
 pte_t* sva_get_l1_entry(uintptr_t vaddr) {
   pde_t* pde = sva_get_l2_entry(vaddr);
   if (pde != NULL && isPresent(pde) && !isHugePage(pde)) {

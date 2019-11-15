@@ -82,6 +82,7 @@ extern void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val);
 extern void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys);
 extern void sva_set_kernel_pml4pg_ready(uintptr_t orig_phys);
 extern void sva_remove_mapping (page_entry_t * ptePtr);
+extern uintptr_t sva_get_physical_address(uintptr_t vaddr);
 extern pte_t* sva_get_l1_entry(uintptr_t vaddr);
 extern pde_t* sva_get_l2_entry(uintptr_t vaddr);
 extern pdpte_t* sva_get_l3_entry(uintptr_t vaddr);
