@@ -46,7 +46,18 @@
 /**********
  * Constants and Enumerations
 **********/
-static const size_t MAX_VMS = 128;
+/*
+ * NOTE: MAX_VMS must be less than 2^16-1 (16-bit UINT_MAX) because SVA's VM
+ * identifiers do double-duty as VPIDs to tag TLB entries belonging to the
+ * VM. Intel's specification limits these to 16-bit positive integers.
+ *
+ * Note also that SVA statically allocates an array of VM descriptors
+ * (vm_descs) based on this value, so actually setting this limit to 2^16-1
+ * would use memory rather excessively. We do not expect to need to run
+ * anywhere near that many VMs at once on real hardware. (Real hypervisors
+ * likely have their own limits as well that are lower than that.)
+ */
+static const int MAX_VMS = 128;
 
 /* MSRs (non-VMX-related) */
 static const u_int FEATURE_CONTROL_MSR = 0x3a;
@@ -519,7 +530,7 @@ static inline int readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data);
 static inline int writevmcs_checked(enum sva_vmcs_field field, uint64_t data);
 static inline int writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data);
 void load_eptable_internal(
-    size_t vmid, pml4e_t *epml4t, unsigned char is_initial_setting);
+    int vmid, pml4e_t *epml4t, unsigned char is_initial_setting);
 
 /*
  * Function: query_vmx_result()

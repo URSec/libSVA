@@ -427,7 +427,7 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
  *    (EPML4) that the VM should use.
  */
 void
-sva_load_eptable(size_t vmid, pml4e_t *epml4t) {
+sva_load_eptable(int vmid, pml4e_t *epml4t) {
   /*
    * Switch to the user/SVA page tables so that we can access SVA memory
    * regions.
@@ -441,12 +441,15 @@ sva_load_eptable(size_t vmid, pml4e_t *epml4t) {
           "SVA-VMX intrinsic.\n");
   }
 
-  /* Bounds check on vmid.
+  /*
+   * Bounds check on vmid.
    *
-   * (vmid is unsigned, so this also checks for negative values.)
+   * vmid must be positive and less than MAX_VMS.
    */
-  if (vmid >= MAX_VMS) {
-    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  if (usevmx) {
+    if (vmid >= MAX_VMS || vmid <= 0) {
+      panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
+    }
   }
 
   /* If this VM descriptor indicated by this ID has a null VMCS pointer, it
@@ -503,7 +506,7 @@ sva_load_eptable(size_t vmid, pml4e_t *epml4t) {
  */
 void
 load_eptable_internal(
-    size_t vmid, pml4e_t *epml4t, unsigned char is_initial_setting) {
+    int vmid, pml4e_t *epml4t, unsigned char is_initial_setting) {
   /*
    * Verify that the given extended page table pointer points to a valid
    * top-level extended-page-table page (i.e., one properly declared with
@@ -598,7 +601,7 @@ load_eptable_internal(
  *    table is being queried.
  */
 uintptr_t
-sva_save_eptable(size_t vmid) {
+sva_save_eptable(int vmid) {
   /*
    * Switch to the user/SVA page tables so that we can access SVA memory
    * regions.
@@ -607,12 +610,15 @@ sva_save_eptable(size_t vmid) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
-  /* Bounds check on vmid.
+  /*
+   * Bounds check on vmid.
    *
-   * (vmid is unsigned, so this also checks for negative values.)
+   * vmid must be positive and less than MAX_VMS.
    */
-  if (vmid >= MAX_VMS) {
-    panic("Fatal error: specified out-of-bounds VM ID!\n");
+  if (usevmx) {
+    if (vmid >= MAX_VMS || vmid <= 0) {
+      panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
+    }
   }
 
   /* If this VM descriptor indicated by this ID has a null VMCS pointer, it

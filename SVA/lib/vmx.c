@@ -401,7 +401,9 @@ check_cr4_fixed_bits(void) {
 unsigned char
 sva_initvmx(void) {
   if (sva_vmx_initialized) {
-    DBGPRNT(("Kernel called sva_initvmx(), but it was already initialized.\n"));
+    DBGPRNT(("Kernel called sva_initvmx(), but SVA's VMX support was "
+             "already initialized. sva_initvmx() will return without "
+             "doing anything.\n"));
     return 1;
   }
 
@@ -409,7 +411,7 @@ sva_initvmx(void) {
    *
    * This has the effect of marking all VM IDs as free to be assigned.
    */
-  for (size_t i = 0; i < MAX_VMS; i++) {
+  for (int i = 0; i < MAX_VMS; i++) {
     memset(&vm_descs[i], 0, sizeof(vm_desc_t));
   }
 
@@ -589,10 +591,12 @@ sva_initvmx(void) {
  *  machine in future invocations of VMX intrinsics. If the return value is
  *  negative, an error occurred and nothing was allocated.
  *
- *  FIXME: You're returning negative error codes, but the return type is
- *  size_t, an unsigned type...
+ *  Note that zero is not used as a VMID because we use the VMID as the VPID
+ *  to tag TLB entries belonging to the VM; Intel reserves VPID=0 to tag the
+ *  host's TLB entires (and asking the processor to launch a VM with VPID=0
+ *  will result in an error). This intrinsic should *never* return zero.
  */
-size_t
+int
 sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
     struct sva_vmx_guest_state * initial_state,
     pml4e_t *initial_eptable) {
@@ -645,10 +649,10 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    * the host's TLB entries; an attempt to launch a VM with VPID=0 will
    * result in an error.
    */
-  size_t vmid = -1;
-  for (size_t i = 1; i < MAX_VMS; i++) {
+  int vmid = -1;
+  for (int i = 1; i < MAX_VMS; i++) {
     if (vm_descs[i].vmcs_paddr == 0) {
-      DBGPRNT(("First free VM ID found: %lu\n", i));
+      DBGPRNT(("First free VM ID found: %d\n", i));
 
       vmid = i;
       break;
@@ -656,8 +660,8 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
   }
 
   /* If there were no free slots, return failure. */
-  if (vmid == (size_t)-1) {
-    DBGPRNT(("Error: all %lu VM IDs are in use; cannot create a new VM.\n",
+  if (vmid == -1) {
+    DBGPRNT(("Error: all %d VM IDs are in use; cannot create a new VM.\n",
           MAX_VMS));
 
     usersva_to_kernel_pcid();
@@ -743,7 +747,8 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
     DBGPRNT(("Error: failed to initialize VMCS with VMCLEAR.\n"));
 
     /* Return the VMCS frame to the frame cache. */
-    DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));
+    DBGPRNT(("Returning VMCS frame 0x%lx to SVA's frame cache.\n",
+          vm_descs[vmid].vmcs_paddr));
     free_frame(vm_descs[vmid].vmcs_paddr);
 
     /* Restore the VM descriptor to a clear state so that it is interpreted
@@ -779,7 +784,7 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
  *  - vmid: the numeric handle of the virtual machine to be deallocated.
  */
 void
-sva_freevm(size_t vmid) {
+sva_freevm(int vmid) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -788,7 +793,7 @@ sva_freevm(size_t vmid) {
    */
   kernel_to_usersva_pcid();
 
-  DBGPRNT(("sva_freevm() intrinsic called for VM ID: %lu\n", vmid));
+  DBGPRNT(("sva_freevm() intrinsic called for VM ID: %d\n", vmid));
 
   if (usevmx) {
     if (!sva_vmx_initialized) {
@@ -797,13 +802,14 @@ sva_freevm(size_t vmid) {
     }
   }
 
-  /* Bounds check on vmid.
+  /*
+   * Bounds check on vmid.
    *
-   * (vmid is unsigned, so this also checks for negative values.)
+   * vmid must be positive and less than MAX_VMS.
    */
   if (usevmx) {
-    if (vmid >= MAX_VMS) {
-      panic("Fatal error: specified out-of-bounds VM ID!\n");
+    if (vmid >= MAX_VMS || vmid <= 0) {
+      panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
     }
   }
   /* If this VM's VMCS pointer is already null, this is a double free (or
@@ -870,7 +876,7 @@ sva_freevm(size_t vmid) {
  *  success, and a negative value indicates failure.
  */
 int
-sva_loadvm(size_t vmid) {
+sva_loadvm(int vmid) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -879,7 +885,7 @@ sva_loadvm(size_t vmid) {
    */
   kernel_to_usersva_pcid();
 
-  DBGPRNT(("sva_loadvm() intrinsic called for VM ID: %lu\n", vmid));
+  DBGPRNT(("sva_loadvm() intrinsic called for VM ID: %d\n", vmid));
   if (usevmx) {
     if (!sva_vmx_initialized) {
       panic("Fatal error: must call sva_initvmx() before any other "
@@ -890,11 +896,11 @@ sva_loadvm(size_t vmid) {
   /*
    * Bounds check on vmid.
    *
-   * (vmid is unsigned, so this also checks for negative values.)
+   * vmid must be positive and less than MAX_VMS.
    */
   if (usevmx) {
-    if (vmid >= MAX_VMS) {
-      panic("Fatal error: specified out-of-bounds VM ID!\n");
+    if (vmid >= MAX_VMS || vmid <= 0) {
+      panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
     }
   }
   /*
@@ -3290,7 +3296,7 @@ writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data) {
  *  False otherwise
  */
 unsigned char
-sva_getfp(size_t vmid, unsigned char *fp_state ) {
+sva_getfp(int vmid, unsigned char *fp_state ) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -3309,11 +3315,11 @@ sva_getfp(size_t vmid, unsigned char *fp_state ) {
   /*
    * Bounds check on vmid.
    *
-   * (vmid is unsigned, so this also checks for negative values.)
+   * vmid must be positive and less than MAX_VMS.
    */
-  if ( usevmx ) {
-    if (vmid >= MAX_VMS) {
-      panic("Fatal error: specified out-of-bounds VM ID!\n");
+  if (usevmx) {
+    if (vmid >= MAX_VMS || vmid <= 0) {
+      panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
     }
   }
 
@@ -3352,7 +3358,7 @@ sva_getfp(size_t vmid, unsigned char *fp_state ) {
  *  than 64 bits, it is zero-extended to an unsigned 64-bit value.
  */
 uint64_t
-sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
+sva_getvmreg(int vmid, enum sva_vm_reg reg) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -3371,11 +3377,11 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
   /*
    * Bounds check on vmid.
    *
-   * (vmid is unsigned, so this also checks for negative values.)
+   * vmid must be positive and less than MAX_VMS.
    */
   if (usevmx) {
-    if (vmid >= MAX_VMS) {
-      panic("Fatal error: specified out-of-bounds VM ID!\n");
+    if (vmid >= MAX_VMS || vmid <= 0) {
+      panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
     }
   }
 
@@ -3512,7 +3518,7 @@ sva_getvmreg(size_t vmid, enum sva_vm_reg reg) {
  *          register is smaller than 64 bits, the higher bits are ignored.
  */
 void
-sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
+sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -3529,11 +3535,11 @@ sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data) {
   /*
    * Bounds check on vmid.
    *
-   * (vmid is unsigned, so this also checks for negative values.)
+   * vmid must be positive and less than MAX_VMS.
    */
   if (usevmx) {
-    if (vmid >= MAX_VMS) {
-      panic("Fatal error: specified out-of-bounds VM ID!\n");
+    if (vmid >= MAX_VMS || vmid <= 0) {
+      panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
     }
   }
 

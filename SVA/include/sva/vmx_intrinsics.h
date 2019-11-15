@@ -470,18 +470,18 @@ typedef struct sva_vmx_guest_state {
  *  (vmx.c and vmx_ept.c)
  *****************************************************************************
  */
-size_t sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
+int sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
     struct sva_vmx_guest_state * initial_state,
     pml4e_t *initial_eptable);
-void sva_freevm(size_t vmid);
-int sva_loadvm(size_t vmid);
+void sva_freevm(int vmid);
+int sva_loadvm(int vmid);
 int sva_unloadvm(void);
 int sva_readvmcs(enum sva_vmcs_field field, uint64_t *data);
 int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 int sva_launchvm(void);
 int sva_resumevm(void);
-uint64_t sva_getvmreg(size_t vmid, enum sva_vm_reg reg);
-void sva_setvmreg(size_t vmid, enum sva_vm_reg reg, uint64_t data);
+uint64_t sva_getvmreg(int vmid, enum sva_vm_reg reg);
+void sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data);
 
 /*
  * VMX-specific MMU intrinsics for managing Extended Page Tables.
@@ -497,8 +497,8 @@ void sva_declare_l2_eptpage(uintptr_t frameAddr);
 void sva_declare_l3_eptpage(uintptr_t frameAddr);
 void sva_declare_l4_eptpage(uintptr_t frameAddr);
 void sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val);
-void sva_load_eptable(size_t vmid, pml4e_t *epml4t);
-uintptr_t sva_save_eptable(size_t vmid);
+void sva_load_eptable(int vmid, pml4e_t *epml4t);
+uintptr_t sva_save_eptable(int vmid);
 
 /* These intrinsics are for use during development.
  * They will be removed "soon" and are not part of the designed SVA-VMX
