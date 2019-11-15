@@ -126,9 +126,10 @@ SVA_ASSERT (unsigned char passed, char * str) {
  *  An assert that unconditionally fails. Used to assert that a particular
  *  code path should never be reached.
  */
-static inline void
+static inline void __attribute__((__noreturn__))
 SVA_ASSERT_UNREACHABLE (char * str) {
   SVA_ASSERT(0, str);
+  __builtin_unreachable();
 }
 
 /*
