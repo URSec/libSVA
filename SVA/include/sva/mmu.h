@@ -221,6 +221,11 @@ typedef struct page_desc_t {
  */
 extern page_desc_t page_desc[numPageDescEntries];
 
+/**
+ * True if the MMU has been initialized (and MMU checks should be performed),
+ * otherwise false.
+ */
+extern bool mmuIsInitialized;
 
 /*
  * ===========================================================================
@@ -761,6 +766,8 @@ page_desc_t * getPageDescPtr(unsigned long mapping);
 static inline page_entry_t * va_to_pte (uintptr_t va, enum page_type_t level);
 static inline int isValidMappingOrder (page_desc_t *pgDesc, uintptr_t newVA);
 void initDeclaredPage (unsigned long frameAddr);
+page_entry_t *get_pgeVaddr(uintptr_t vaddr);
+void page_entry_store(unsigned long *page_entry, page_entry_t newVal);
 
 #if 0
 static inline uintptr_t
