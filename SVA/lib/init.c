@@ -646,8 +646,9 @@ sva_init_primary_xen(void *tss) {
   init_dispatcher();
   init_idt(0);
 
-#if 0
   init_mmu();
+
+#if 0
   init_mpx();
   init_fpu();
   llva_reset_counters();

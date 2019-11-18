@@ -208,6 +208,7 @@ void * DMPDphys, void * DMPTphys, unsigned long ndmpdp, unsigned long ndm1g)
   return;
 }
 
+#ifdef FreeBSD
 /*
  * Function: declare_ptp_and_walk_pt_entries
  *
@@ -797,3 +798,453 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
 
   record_tsc(sva_mmu_init_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
+#endif /* FreeBSD */
+
+#ifdef XEN
+/**
+ * Canonicalize a virtual address
+ *
+ * @param vaddr A (possibly non-canonical) virtual address
+ * @return      The canonicalization of `vaddr` (sign-extention of its low 48
+ *              bits)
+ */
+static inline uintptr_t canonicalize(uintptr_t vaddr) {
+  uintptr_t sign = vaddr & 0x0000800000000000UL;
+  return sign ? vaddr | 0xffff800000000000UL : vaddr;
+}
+
+/**
+ * Compute the intersection of a permissions mask and the permissions specified
+ * in a page table entry.
+ *
+ * NB: The meaning of the "no-execute" bit in the permissions mask is reversed
+ * from its meaning in the hardware page tables: the bit being *set* indicates
+ * that the page is executable. This makes computing the permission
+ * intersections much easier.
+ *
+ * @param perms The initial permissions mask
+ * @param pte   A page table entry
+ * @return      A permissions mask with the intersection of the permissions in
+ *              `perms` and those specified by `pte`.
+ */
+static page_entry_t intersect_perms(page_entry_t perms, page_entry_t pte) {
+  // The execute permission is *disabled* by setting this bit. Reverse that
+  // to make computing permission intersections more convienient.
+  pte ^= PG_NX;
+
+  // The flags we care about are read, write, execute, and user-accesible.
+  if (perms & pte & PG_V) {
+    return perms & pte & (PG_V | PG_RW | PG_NX | PG_U);
+  } else {
+    return 0; // An unmapped page has no permissions
+  }
+}
+
+/**
+ * Print a page table entry and the virtual address it maps for debugging.
+ *
+ * Doesn't do anything in a release build.
+ *
+ * @param entry The page table entry
+ * @param level The level of page table *mapped by* `entry`
+ * @param vaddr The base virtual address mapped by `entry`
+ */
+static void print_entry(page_entry_t entry, enum page_type_t level,
+                        uintptr_t vaddr) {
+#ifndef NDEBUG
+  const char *level_name;
+  switch (level) {
+  case PG_L4:
+    level_name = "CR3";
+    break;
+  case PG_L3:
+    level_name = "  L4";
+    break;
+  case PG_L2:
+    level_name = "    L3";
+    break;
+  case PG_L1:
+    level_name = "      L2";
+    break;
+  case PG_LEAF:
+    level_name = "        L1";
+    break;
+  default:
+    level_name = "(unknown)";
+    break;
+  }
+  printf("%s entry 0x%016lx mapping 0x%016lx\n",
+         level_name, entry, vaddr);
+#endif
+}
+
+/**
+ * Get the type of page mapped by the entries in a page table.
+ *
+ * @param level The level of page table
+ * @return      The type of page mapped by entries in a page table at `level`
+ */
+static inline enum page_type_t getSublevelType(enum page_type_t level) {
+  switch (level) {
+  case PG_L4:
+    return PG_L3;
+  case PG_L3:
+    return PG_L2;
+  case PG_L2:
+    return PG_L1;
+  case PG_L1:
+    return PG_LEAF;
+  default:
+    SVA_ASSERT_UNREACHABLE("SVA: FATAL: Not a page table frame type\n");
+  }
+}
+
+/**
+ * Get the number of bytes mapped by a page table entry.
+ *
+ * @param level The level of the page table entry
+ * @return      The number of bytes mapped by a page table entry at a given
+ *              level page table
+ */
+static inline size_t getMappedSize(enum page_type_t level) {
+  switch (level) {
+  case PG_L4:
+    return 1UL << 39;
+  case PG_L3:
+    return 1UL << 30;
+  case PG_L2:
+    return 1UL << 21;
+  case PG_L1:
+    return 1UL << 12;
+  default:
+    SVA_ASSERT_UNREACHABLE("SVA: FATAL: Not a page table frame type\n");
+  }
+}
+
+/**
+ * Get the number of bytes in a superpage.
+ *
+ * @param level The level of page table that would be mapped by this entry if it
+ *              wasn't a superpage
+ * @return      The number of bytes in a superpage at the given level
+ */
+static inline size_t getSuperpageSize(enum page_type_t level) {
+  switch (level) {
+  case PG_L2: // 1GB superpage
+    return 1UL << 30;
+  case PG_L1: // 2MB superpage
+    return 1UL << 21;
+  case PG_LEAF: // Normal 4KB page
+    return 1UL << 12;
+  default:
+    SVA_ASSERT_UNREACHABLE("SVA: FATAL: Invalid page type for superpage\n");
+  }
+}
+
+/**
+ * Lower permissions of page mappings to conform to SVA's security model.
+ *
+ * This function walks the page tables and lowers the permissions of page table
+ * entries to ensure that they are appropriate for the type of the pages being
+ * mapped. This function assumes that the `page_desc` array has already been
+ * initialized.
+ *
+ * @param entry The page table entry currently under examination
+ * @param level The type of the page mapped by `entry`
+ * @param vaddr The virtual address that `entry' maps
+ * @return      `entry` with the necessary permissions removed.
+ */
+static page_entry_t lower_permissions(page_entry_t entry,
+                                      enum page_type_t level,
+                                      uintptr_t vaddr) {
+  page_desc_t* desc = getPageDescPtr(entry);
+
+  print_entry(entry, level, vaddr);
+
+  if (level == PG_LEAF || isHugePage(&entry)) {
+    // This is a leaf (super)page.
+
+    /// The number of 4KB frames mapped by this entry.
+    size_t count = getSuperpageSize(level) / PAGE_SIZE;
+    /// The maximal set of permissions this mapping is allowed to have.
+    page_entry_t perms = PG_V | PG_RW | PG_NX;
+
+    for (size_t i = 0; i < count; ++i) {
+      switch (desc[i].type) {
+      case PG_L4:
+      case PG_L3:
+      case PG_L2:
+      case PG_L1:
+      case PG_CODE:
+#ifndef SVA_DMAP
+        if (!isKernelDirectMap(vaddr))
+#endif
+          perms &= ~PG_RW;
+        break;
+      case PG_TKDATA:
+        // NB: we use the "no-execute" bit here to mean "page is executable."
+        perms &= ~PG_NX;
+        break;
+      case PG_SVA:
+        if (!isInSecureMemory(vaddr)) {
+          perms = 0;
+        }
+        break;
+      default:
+        SVA_ASSERT_UNREACHABLE("SVA: FATAL: Bad frame type\n");
+      }
+    }
+
+    if (perms & PG_V) {
+      entry = (entry & ~(PG_V | PG_RW)) | (entry & (perms & ~PG_NX));
+      // Turn the "no-execute" bit *on* if the permission is disabled.
+      entry |= (PG_NX ^ (perms & PG_NX));
+    } else {
+      entry = 0;
+    }
+#ifndef NDEBUG
+    printf("Entry changed to 0x%016lx\n", entry);
+#endif
+  } else {
+    // This is a page table page.
+
+    /// The type of the pages mapped by the entries in this page table.
+    enum page_type_t sublevel = getSublevelType(level);
+    /// The number of bytes mapped by this page.
+    size_t span = getMappedSize(level);
+
+    page_entry_t* entries = (page_entry_t*)getVirtual(entry & PG_FRAME);
+    for (size_t i = 0; i < 512; ++i) {
+      if (entries[i] & PG_V) {
+        entries[i] = lower_permissions(entries[i], sublevel,
+                                       canonicalize(vaddr + span * i));
+      }
+    }
+  }
+
+  return entry;
+}
+
+/**
+ * Import existing page tables from the kernel.
+ *
+ * This function walks the page tables, starting at the root table in `%cr3`,
+ * and registers them with SVA. It also performs consistency checks on the page
+ * tables as they are being imported, specifically checking to make sure that a
+ * given frame is only used as one particular type (code, data, or page table
+ * page at exactly one level).
+ *
+ * This function is recursive and should initially be called with
+ * `entry = %cr3` and `level = PG_L4`.
+ *
+ * @param entry     The page table entry mapping the current page being examined
+ * @param level     The type of the entries in the page this entry references
+ *                  (or `PG_LEAF` for a terminal page)
+ * @param max_perms The maximal permissions that a paged mapped my this entry
+ *                  may have
+ * @param vaddr     The beginning of the virtual address range mapped by this
+ *                  entry
+ */
+static void
+import_existing_mappings(page_entry_t entry,
+                         enum page_type_t level,
+                         page_entry_t max_perms,
+                         uintptr_t vaddr) {
+  page_desc_t* desc = getPageDescPtr(entry);
+
+  print_entry(entry, level, vaddr);
+
+  // Disabled permissions higher in the page table hierarchy override enabled
+  // ones that appear lower.
+  page_entry_t perms =
+    level == PG_L4 ?
+      // CR3 does not specify any permissions, so ignore its "permission" bits.
+      max_perms :
+      intersect_perms(max_perms, entry);
+
+  if (level == PG_LEAF || isHugePage(&entry)) {
+    // This is a leaf (super)page.
+
+    /// The number of 4KB frames mapped by this entry.
+    size_t count = getSuperpageSize(level) / PAGE_SIZE;
+
+    if ((perms & PG_NX) && (perms & PG_RW)) {
+      printf("SVA: WARNING: Page is writable and executable\n");
+    }
+
+    enum page_type_t type = perms & PG_NX ? PG_CODE : PG_TKDATA;
+    for (size_t i = 0; i < count; ++i) {
+      enum page_type_t newType = type;
+
+      if (desc[i].type != PG_UNUSED && desc[i].type != type) {
+        switch (desc[i].type) {
+        case PG_L4:
+        case PG_L3:
+        case PG_L2:
+        case PG_L1:
+          if (type == PG_CODE) {
+            // Page table mapped as code?!
+            SVA_ASSERT_UNREACHABLE(
+              "SVA: FATAL: Page table frame also mapped as code\n");
+          } else {
+            // Page table mapped as data; make the mapping read-only.
+            printf("SVA: WARNING: Page table mapped as data\n");
+            newType = desc[i].type;
+          }
+          break;
+        case PG_CODE:
+        case PG_TKDATA:
+          printf("SVA: WARNING: Frame mapped as both code and data\n");
+          newType = PG_CODE;
+          break;
+        default:
+          SVA_ASSERT_UNREACHABLE(
+            "SVA: FATAL: Frame shouldn't have this type yet\n");
+        }
+      }
+
+      desc[i].type = newType;
+      desc[i].user = false;
+      desc[i].count++;
+    }
+  } else {
+    // This is a page table page.
+
+    /// The type of the pages mapped by the entries in this page table.
+    enum page_type_t sublevel = getSublevelType(level);
+    /// The number of bytes mapped by this page.
+    size_t span = getMappedSize(level);
+
+    if (desc->type != PG_UNUSED && desc->type != level) {
+      switch (desc->type) {
+      case PG_L4:
+      case PG_L3:
+      case PG_L2:
+      case PG_L1:
+        SVA_ASSERT_UNREACHABLE(
+          "SVA: FATAL: Frame used at multiple page table levels\n");
+      case PG_CODE:
+        SVA_ASSERT_UNREACHABLE("SVA: FATAL: Code frame used as page table\n");
+      case PG_TKDATA:
+        printf("SVA: WARNING: Data frame used as page table\n");
+        break;
+      default:
+        SVA_ASSERT_UNREACHABLE(
+          "SVA: FATAL: Frame shouldn't have this type yet\n");
+      }
+    }
+
+    desc->type = level;
+    desc->user = false;
+    desc->count++;
+
+    page_entry_t* entries = (page_entry_t*)getVirtual(entry & PG_FRAME);
+    for (size_t i = 0; i < 512; ++i) {
+      if (entries[i] & PG_V) {
+        import_existing_mappings(entries[i], sublevel, perms,
+                                 canonicalize(vaddr + span * i));
+      }
+    }
+  }
+}
+
+/**
+ * Initialize SVA's MMU handling.
+ *
+ * This function will walk over the currently active page tables and initialize
+ * the page descriptors for all currently used frames.
+ */
+void sva_mmu_init(void) {
+  uint64_t tsc_tmp = 0;
+  if (tsc_read_enable_sva)
+     tsc_tmp = sva_read_tsc();
+
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+
+  /*
+   * This intrinsic should only be called *once*, during system boot.
+   * Attempting to call it again later (e.g. maliciously) would be sheer
+   * insanity and could compromise system security in any number of ways.
+   */
+  SVA_ASSERT(!mmuIsInitialized,
+      "SVA: MMU: The system software attempted to call sva_mmu_init(), but "
+      "the MMU has already been initialized. This must only be done *once* "
+      "during system boot.");
+
+  /* Zero out the page descriptor array */
+  memset(page_desc, 0, numPageDescEntries * sizeof(page_desc_t));
+
+  cr3_t root_tbl = read_cr3();
+
+  /* Walk the kernel page tables and initialize the sva page_desc. */
+  import_existing_mappings(root_tbl, PG_L4, (PG_V | PG_RW | PG_NX | PG_U), 0);
+  lower_permissions(root_tbl, PG_L4, 0);
+
+#if 0
+  /*
+   * Increment each physical page's refcount in the page_desc by 2 to reflect
+   * the fact that it's referenced by both the kernel's and SVA's direct
+   * maps.
+   *
+   * SVA's direct map is not part of the kernel's page tables so it is not
+   * seen by declare_ptp_and_walk_pt_entries().
+   *
+   * FIXME: I'm not really sure why the page-table walk isn't picking up the
+   * references from the kernel's direct map. There's some code that that,
+   * per the comments, is supposed to skip over kernel DMAP references (to
+   * avoid setting all the memory referenced by the DMAP as PG_TKDATA), but
+   * it's commented out.
+   */
+  for (unsigned long i = 0; i < numPageDescEntries; i++)
+    page_desc[i].count += 2;
+#endif
+
+  unsigned long initial_cr3 = root_tbl & PG_FRAME;
+
+  /*
+   * Increment the refcount of the initial top-level page table page to
+   * reflect the fact that CR3 will be pointing to it.
+   *
+   * Note that we don't need to increment the refcount for the companion
+   * kernel version of the PML4 (as we do in sva_mm_load_pgtable()) because
+   * it doesn't exist yet for the initial set of page tables loaded here.
+   * (This is guaranteed to be true because we zeroed out the page descriptor
+   * array earlier in this function. If the kernel made any attempt to
+   * improperly set up an alternate PML4 prior to calling sva_mmu_init(), it
+   * would've been wiped away.)
+   */
+  page_desc_t *pml4Desc = getPageDescPtr(initial_cr3);
+  SVA_ASSERT(pgRefCount(pml4Desc) < ((1u << 13) - 1),
+      "SVA: MMU: integer overflow in page refcount");
+  pml4Desc->count++;
+
+  /* Now load the initial value of CR3 to complete kernel init. */
+  write_cr3(initial_cr3);
+
+  /*
+   * Note that the MMU is now initialized.
+   */
+  mmuIsInitialized = 1;
+
+#if 0 // TODO: what's this?
+#ifdef SVA_DMAP
+  for (int ptindex = 0; ptindex < 1024; ++ptindex) {
+    if (SVAPTPages[ptindex] == NULL)
+      panic("SVAPTPages[%d] is not allocated\n", ptindex);
+
+    PTPages[ptindex].paddr   = getPhysicalAddr(SVAPTPages[ptindex]);
+    PTPages[ptindex].vosaddr = getVirtualSVADMAP(PTPages[ptindex].paddr);
+
+    if (pgdef)
+      removeOSDirectMap(getVirtual(PTPages[ptindex].paddr));
+  }
+#endif
+#endif
+
+  /* Restore interrupts. */
+  sva_exit_critical(rflags);
+
+  record_tsc(sva_mmu_init_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+}
+#endif /* XEN */

@@ -87,11 +87,18 @@ extern pte_t* sva_get_l1_entry(uintptr_t vaddr);
 extern pde_t* sva_get_l2_entry(uintptr_t vaddr);
 extern pdpte_t* sva_get_l3_entry(uintptr_t vaddr);
 extern pml4e_t* sva_get_l4_entry(uintptr_t vaddr);
+
+#ifdef FreeBSD
 extern void sva_mmu_init(pml4e_t * kpml4Mapping,
                          unsigned long nkpml4e,
                          uintptr_t *,
                          uintptr_t btext,
                          uintptr_t etext);
+#endif
+
+#if defined(XEN) || defined(__XEN__)
+extern void sva_mmu_init(void);
+#endif
 
 /* Key initialization and secure storage allocation */
 extern void * sva_translate(void * entryPoint);
