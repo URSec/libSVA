@@ -173,23 +173,15 @@ sva_exit_critical (unsigned long rflags) {
   return;
 }
 
-/*
- * Function: isNotWithinSecureMemory()
+/**
+ * Determine if a virtual address is within the secure memory region.
  *
- * Description:
- *  Determine if the specified pointer is within the secure memory region.
- *
- * Return value:
- *  true - The pointer is *not* within the secure memory region.
- *  false - The pointer is within the secure memory region.
+ * @param p The virtual address to test
+ * @return  Whether or not `p` is in the secure memory region
  */
-static inline unsigned char
-isNotWithinSecureMemory(void* p) {
-  uintptr_t i = (uintptr_t)p;
-  if (SECMEMSTART <= i && i < SVADMAPEND)
-    return 0;
-  else
-    return 1;
+static inline bool
+isInSecureMemory(uintptr_t p) {
+  return SECMEMSTART <= p && p < SVADMAPEND;
 }
 
 static inline void

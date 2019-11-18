@@ -898,7 +898,7 @@ sva_ialloca (uintptr_t size, uintptr_t alignment, void * initp) {
    * does, then don't allocate anything.
    */
   if (vg) {
-    allocaOkay &= isNotWithinSecureMemory (initp);
+    allocaOkay &= !isInSecureMemory((uintptr_t)initp);
   }
 
   /*
@@ -936,7 +936,7 @@ sva_ialloca (uintptr_t size, uintptr_t alignment, void * initp) {
      * kernel memory.
      */
     unsigned char spOkay = 1;
-    if (isNotWithinSecureMemory(icontextp->rsp) &&
+    if (!isInSecureMemory((uintptr_t)icontextp->rsp) &&
        ((((uintptr_t)allocap) >= 0xffffffff00000000u) ||
         ((((uintptr_t)allocap) + size) >= 0xffffffff00000000u))) {
       spOkay = 0;
