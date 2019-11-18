@@ -94,7 +94,7 @@
 
 #ifndef __ASSEMBLER__
 
-#include <sva/mmu_types.h> /* for uintptr_t */
+#include <sva/types.h> /* for uintptr_t */
 
 /*
  * Struction: tss_t

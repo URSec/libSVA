@@ -14,9 +14,9 @@
  *===----------------------------------------------------------------------===
  */
 
-#include <stdbool.h>
 #include <stddef.h>
 
+#include <sva/types.h>
 #include <sva/callbacks.h>
 #include <sva/config.h>
 #include <sva/state.h>

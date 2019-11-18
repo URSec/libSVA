@@ -23,22 +23,7 @@
 #ifndef SVA_MMU_TYPES_H
 #define SVA_MMU_TYPES_H
 
-#if !(defined(XEN) || defined(__XEN__))
-/* FreeBSD headers not available when building with Xen */
-#include <stdint.h>
-#include <sys/types.h>
-#elif defined(XEN) && !defined(__XEN__)
-/*
- * When building SVA for Xen (#ifdef XEN), we need to define uintptr_t
- * without the FreeBSD headers.
- *
- * However, when this header file is included into code in Xen proper
- * (#ifdef __XEN__) via downstream headers exporting SVA public interfaces
- * (e.g. mmu_intrinsics.h), we must *not* redefine uintptr_t, because Xen
- * already defines it (as unsigned long, just like we do) in its own types.h.
- */
-typedef unsigned long uintptr_t;
-#endif
+#include <sva/types.h>
 
 typedef uintptr_t cr3_t;
 typedef uintptr_t pml4e_t;

@@ -81,6 +81,7 @@
  * $FreeBSD: release/9.0.0/sys/amd64/include/cpufunc.h 223796 2011-07-05 18:42:10Z jkim $
  */
 
+#include "sva/types.h"
 #include "sva/config.h"
 #include "sva/state.h"
 #include "sva/util.h"
@@ -92,8 +93,6 @@
 
 #include <string.h>
 #include <limits.h>
-
-#include <sys/types.h>
 
 void register_x86_interrupt (int number, void (*interrupt)(void), unsigned char priv);
 void register_x86_trap (int number, void (*trap)(void));

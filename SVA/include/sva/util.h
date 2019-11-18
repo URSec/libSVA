@@ -16,7 +16,7 @@
 #ifndef _SVA_UTIL_H
 #define _SVA_UTIL_H
 
-#include <stdint.h>
+#include <sva/types.h>
 
 #include <sva/cr.h>
 #include <sva/secmem.h>

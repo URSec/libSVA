@@ -13,10 +13,9 @@
  *===----------------------------------------------------------------------===
  */
 
+#include "sva/types.h"
 #include "sva/mmu.h"
 #include "sva/util.h"
-
-#include <sys/types.h>
 
 void
 sva_check_buffer (uintptr_t start, uintptr_t len) {

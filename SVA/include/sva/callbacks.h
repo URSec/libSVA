@@ -15,9 +15,7 @@
 #ifndef SVA_CALLBACKS_H
 #define SVA_CALLBACKS_H
 
-#include <stdint.h>
-
-#include <sys/types.h>
+#include <sva/types.h>
 
 /* Kernel callback function for allocating memory */
 extern uintptr_t provideSVAMemory (uintptr_t size);

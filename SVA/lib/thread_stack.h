@@ -15,8 +15,8 @@
 #ifndef _SVA_LIB_THREAD_STACK_H_
 #define _SVA_LIB_THREAD_STACK_H_
 
-#include "sva/state.h"
-#include <stdint.h>
+#include <sva/state.h>
+#include <sva/types.h>
 
 extern void init_threads(void);
 extern struct SVAThread * findNextFreeThread (void);

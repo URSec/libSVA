@@ -15,8 +15,7 @@
  */
 
 
-#include <sys/types.h>
-
+#include <sva/types.h>
 #include <sva/util.h>
 
 /* Global variables used for profiling */

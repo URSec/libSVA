@@ -12,9 +12,9 @@
  *===----------------------------------------------------------------------===
  */
 
-#include <stdbool.h>
 #include <string.h>
 
+#include <sva/types.h>
 #if 1
 #include <sva/config.h>
 #endif

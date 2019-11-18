@@ -16,10 +16,9 @@
 
 #include <string.h>
 
-#include <sys/types.h>
-
 #include "icat.h"
 
+#include "sva/types.h"
 #include "sva/callbacks.h"
 #include "sva/config.h"
 #include "sva/mmu.h"
