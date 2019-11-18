@@ -1623,6 +1623,7 @@ sva_print_mpx_regs(void) {
 #endif
 }
 
+#if SVA_DEBUG_GSBASE
 /*
  * Debug intrinsic: sva_verify_gsbase()
  *
@@ -1681,6 +1682,7 @@ sva_verify_gsbase(const char *const context_msg) {
   /* Return true to indicate GSBASE correctly pointed to SVA's TLS. */
   return 1;
 }
+#endif /* SVA_DEBUG_GSBASE */
 
 /*
  * Debug intrinsic: sva_get_vmcs_paddr()
