@@ -262,7 +262,8 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
    *       the kernel's direct map before starting the kernel. As a result,
    *       we get page table addresses that don't fall into the direct map.
    */
-  SVA_NOOP_ASSERT(isDirectMap(page_entry), "SVA: MMU: Not direct map\n");
+  SVA_NOOP_ASSERT(isKernelDirectMap((uintptr_t)page_entry),
+                  "SVA: MMU: Not direct map\n");
 
   /*
    * Verify that we're not trying to modify the PML4 entry that controls the

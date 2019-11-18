@@ -846,8 +846,13 @@ static inline int isFramePg (page_desc_t *page) {
 static inline int pgIsActive (page_desc_t *page) 
     { return page->type != PG_UNUSED ; } 
 
-static inline unsigned char isDirectMap (void * p) {
-  uintptr_t address = (uintptr_t)p;
+/**
+ * Determine if a virtual address is part of the kernel's direct map.
+ *
+ * @param address The virtual address to check
+ * @return        Whether or not `address` is part of the kernel's direct map
+ */
+static inline unsigned char isKernelDirectMap(uintptr_t address) {
   return ((KERNDMAPSTART <= address) && (address < KERNDMAPEND));
 }
 
