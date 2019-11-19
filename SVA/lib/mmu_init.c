@@ -1264,23 +1264,6 @@ void sva_mmu_init(void) {
 
   unsigned long initial_cr3 = root_tbl & PG_FRAME;
 
-  /*
-   * Increment the refcount of the initial top-level page table page to
-   * reflect the fact that CR3 will be pointing to it.
-   *
-   * Note that we don't need to increment the refcount for the companion
-   * kernel version of the PML4 (as we do in sva_mm_load_pgtable()) because
-   * it doesn't exist yet for the initial set of page tables loaded here.
-   * (This is guaranteed to be true because we zeroed out the page descriptor
-   * array earlier in this function. If the kernel made any attempt to
-   * improperly set up an alternate PML4 prior to calling sva_mmu_init(), it
-   * would've been wiped away.)
-   */
-  page_desc_t *pml4Desc = getPageDescPtr(initial_cr3);
-  SVA_ASSERT(pgRefCount(pml4Desc) < ((1u << 13) - 1),
-      "SVA: MMU: integer overflow in page refcount");
-  pml4Desc->count++;
-
   /* Now load the initial value of CR3 to complete kernel init. */
   write_cr3(initial_cr3);
 
