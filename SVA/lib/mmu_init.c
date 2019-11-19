@@ -999,6 +999,10 @@ static page_entry_t lower_permissions(page_entry_t entry,
       entry |= (PG_NX ^ (perms & PG_NX));
     } else {
       entry = 0;
+      // We removed the mapping to these frames, decrement their reference count
+      for (size_t i = 0; i < count; ++i) {
+        desc[i].count--;
+      }
     }
 #ifndef NDEBUG
     printf("Entry changed to 0x%016lx\n", entry);
