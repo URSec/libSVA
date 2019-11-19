@@ -305,6 +305,43 @@ extern bool mmuIsInitialized;
  * ===========================================================================
  */
 
+/// The number of entries in a page table
+#define PG_ENTRIES 512
+
+/*
+ * Shift amounts for the virtual address bits corresponding to each paging
+ * level.
+ */
+#define PG_L1_SHIFT 12
+#define PG_L2_SHIFT 21
+#define PG_L3_SHIFT 30
+#define PG_L4_SHIFT 39
+
+/*
+ * The number of bytes mapped by a page table entry at each level.
+ */
+#define PG_L1_SIZE (1UL << PG_L1_SHIFT)
+#define PG_L2_SIZE (1UL << PG_L2_SHIFT)
+#define PG_L3_SIZE (1UL << PG_L3_SHIFT)
+#define PG_L4_SIZE (1UL << PG_L4_SHIFT)
+
+/*
+ * Macros to get the entry index in a page table at each level for a given
+ * virtual address.
+ */
+#define PG_L1_ENTRY(v) ((uintptr_t)(v) >> PG_L1_SHIFT & (PG_ENTRIES - 1))
+#define PG_L2_ENTRY(v) ((uintptr_t)(v) >> PG_L2_SHIFT & (PG_ENTRIES - 1))
+#define PG_L3_ENTRY(v) ((uintptr_t)(v) >> PG_L3_SHIFT & (PG_ENTRIES - 1))
+#define PG_L4_ENTRY(v) ((uintptr_t)(v) >> PG_L4_SHIFT & (PG_ENTRIES - 1))
+
+#ifdef SVA_DMAP
+/*
+ * Flags for SVA direct map page table entries.
+ */
+#define PG_DMAP_L3 (PG_V | PG_RW | PG_A | PG_PS | PG_G | PG_NX)
+#define PG_DMAP_L4 (PG_V | PG_RW | PG_A | PG_G | PG_NX)
+#endif
+
 /*
  * NDMPML4E is the number of PML4 entries that are used to implement the
  * SVA direct map.  It must be a power of two.
