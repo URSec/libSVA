@@ -492,7 +492,8 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
   }
 
 #if DEBUG_INIT >= 1
-  SVA_ASSERT((nNonValPgs + nValPgs) == 512, "Wrong number of entries traversed");
+  SVA_ASSERT((nNonValPgs + nValPgs) == PG_ENTRIES,
+             "Wrong number of entries traversed");
 
   printf("%sThe number of || non valid pages: %lu || valid pages: %lu\n",
           indent, nNonValPgs, nValPgs);
@@ -911,13 +912,13 @@ static inline enum page_type_t getSublevelType(enum page_type_t level) {
 static inline size_t getMappedSize(enum page_type_t level) {
   switch (level) {
   case PG_L4:
-    return 1UL << 39;
+    return PG_L4_SIZE;
   case PG_L3:
-    return 1UL << 30;
+    return PG_L3_SIZE;
   case PG_L2:
-    return 1UL << 21;
+    return PG_L2_SIZE;
   case PG_L1:
-    return 1UL << 12;
+    return PG_L1_SIZE;
   default:
     SVA_ASSERT_UNREACHABLE("SVA: FATAL: Not a page table frame type\n");
   }
@@ -933,11 +934,11 @@ static inline size_t getMappedSize(enum page_type_t level) {
 static inline size_t getSuperpageSize(enum page_type_t level) {
   switch (level) {
   case PG_L2: // 1GB superpage
-    return 1UL << 30;
+    return PG_L3_SIZE;
   case PG_L1: // 2MB superpage
-    return 1UL << 21;
+    return PG_L2_SIZE;
   case PG_LEAF: // Normal 4KB page
-    return 1UL << 12;
+    return PG_L1_SIZE;
   default:
     SVA_ASSERT_UNREACHABLE("SVA: FATAL: Invalid page type for superpage\n");
   }
@@ -1022,7 +1023,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
     size_t span = getMappedSize(level);
 
     page_entry_t* entries = (page_entry_t*)getVirtual(entry & PG_FRAME);
-    for (size_t i = 0; i < 512; ++i) {
+    for (size_t i = 0; i < PG_ENTRIES; ++i) {
       if (entries[i] & PG_V) {
         entries[i] = lower_permissions(entries[i], sublevel,
                                        canonicalize(vaddr + span * i));
@@ -1169,7 +1170,7 @@ import_existing_mappings(page_entry_t entry,
     desc->count++;
 
     page_entry_t* entries = (page_entry_t*)getVirtual(entry & PG_FRAME);
-    for (size_t i = 0; i < 512; ++i) {
+    for (size_t i = 0; i < PG_ENTRIES; ++i) {
       if (entries[i] & PG_V) {
         import_existing_mappings(entries[i], sublevel, perms,
                                  canonicalize(vaddr + span * i));
