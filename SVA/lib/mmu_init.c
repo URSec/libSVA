@@ -1070,7 +1070,13 @@ import_existing_mappings(page_entry_t entry,
       printf("SVA: WARNING: Page is writable and executable\n");
     }
 
-    enum page_type_t type = perms & PG_NX ? PG_CODE : PG_TKDATA;
+    enum page_type_t type;
+    if (isGhostVA(vaddr)) {
+      type = PG_SVA;
+    } else {
+      type = perms & PG_NX ? PG_CODE : PG_TKDATA;
+    }
+
     for (size_t i = 0; i < count; ++i) {
       enum page_type_t newType = type;
 
@@ -1080,7 +1086,10 @@ import_existing_mappings(page_entry_t entry,
         case PG_L3:
         case PG_L2:
         case PG_L1:
-          if (type == PG_CODE) {
+          if (type == PG_SVA) {
+            SVA_ASSERT_UNREACHABLE(
+              "SVA: FATAL: Page table frame also mapped as SVA data\n");
+          } else if (type == PG_CODE) {
             // Page table mapped as code?!
             SVA_ASSERT_UNREACHABLE(
               "SVA: FATAL: Page table frame also mapped as code\n");
@@ -1092,8 +1101,16 @@ import_existing_mappings(page_entry_t entry,
           break;
         case PG_CODE:
         case PG_TKDATA:
-          printf("SVA: WARNING: Frame mapped as both code and data\n");
-          newType = PG_CODE;
+          if (type == PG_SVA) {
+            printf("SVA: WARNING: Kernel mapped frame used for SVA memory\n");
+            newType = PG_SVA;
+          } else {
+            printf("SVA: WARNING: Frame mapped as both code and data\n");
+            newType = PG_CODE;
+          }
+          break;
+        case PG_SVA:
+          printf("SVA: WARNING: Kernel mapped frame used for SVA memory\n");
           break;
         default:
           SVA_ASSERT_UNREACHABLE(
@@ -1126,6 +1143,8 @@ import_existing_mappings(page_entry_t entry,
       case PG_TKDATA:
         printf("SVA: WARNING: Data frame used as page table\n");
         break;
+      case PG_SVA:
+        SVA_ASSERT_UNREACHABLE("SVA: FATAL: SVA memory used as page table\n");
       default:
         SVA_ASSERT_UNREACHABLE(
           "SVA: FATAL: Frame shouldn't have this type yet\n");
