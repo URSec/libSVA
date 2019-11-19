@@ -42,6 +42,12 @@
 /* Define whether or not the mmu_init code assumes virtual addresses */
 #define USE_VIRT            0
 
+#ifdef DEBUG
+#define sva_dbg(...) printf(__VA_ARGS__)
+#else
+#define sva_dbg(...)
+#endif
+
 /*
  *****************************************************************************
  * Define paging structures and related constants local to this source file
@@ -849,7 +855,6 @@ static page_entry_t intersect_perms(page_entry_t perms, page_entry_t pte) {
  */
 static void print_entry(page_entry_t entry, enum page_type_t level,
                         uintptr_t vaddr) {
-#ifndef NDEBUG
   const char *level_name;
   switch (level) {
   case PG_L4:
@@ -871,9 +876,8 @@ static void print_entry(page_entry_t entry, enum page_type_t level,
     level_name = "(unknown)";
     break;
   }
-  printf("%s entry 0x%016lx mapping 0x%016lx\n",
-         level_name, entry, vaddr);
-#endif
+  sva_dbg("%s entry 0x%016lx mapping 0x%016lx\n",
+          level_name, entry, vaddr);
 }
 
 /**
@@ -1004,9 +1008,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
         desc[i].count--;
       }
     }
-#ifndef NDEBUG
-    printf("Entry changed to 0x%016lx\n", entry);
-#endif
+    sva_dbg("Entry changed to 0x%016lx\n", entry);
   } else {
     // This is a page table page.
 
@@ -1071,7 +1073,7 @@ import_existing_mappings(page_entry_t entry,
     size_t count = getSuperpageSize(level) / PAGE_SIZE;
 
     if ((perms & PG_NX) && (perms & PG_RW)) {
-      printf("SVA: WARNING: Page is writable and executable\n");
+      sva_dbg("SVA: WARNING: Page is writable and executable\n");
     }
 
     enum page_type_t type;
@@ -1099,22 +1101,22 @@ import_existing_mappings(page_entry_t entry,
               "SVA: FATAL: Page table frame also mapped as code\n");
           } else {
             // Page table mapped as data; make the mapping read-only.
-            printf("SVA: WARNING: Page table mapped as data\n");
+            sva_dbg("SVA: WARNING: Page table mapped as data\n");
             newType = desc[i].type;
           }
           break;
         case PG_CODE:
         case PG_TKDATA:
           if (type == PG_SVA) {
-            printf("SVA: WARNING: Kernel mapped frame used for SVA memory\n");
+            sva_dbg("SVA: WARNING: Kernel mapped frame used for SVA memory\n");
             newType = PG_SVA;
           } else {
-            printf("SVA: WARNING: Frame mapped as both code and data\n");
+            sva_dbg("SVA: WARNING: Frame mapped as both code and data\n");
             newType = PG_CODE;
           }
           break;
         case PG_SVA:
-          printf("SVA: WARNING: Kernel mapped frame used for SVA memory\n");
+          sva_dbg("SVA: WARNING: Kernel mapped frame used for SVA memory\n");
           break;
         default:
           SVA_ASSERT_UNREACHABLE(
@@ -1145,7 +1147,7 @@ import_existing_mappings(page_entry_t entry,
       case PG_CODE:
         SVA_ASSERT_UNREACHABLE("SVA: FATAL: Code frame used as page table\n");
       case PG_TKDATA:
-        printf("SVA: WARNING: Data frame used as page table\n");
+        sva_dbg("SVA: WARNING: Data frame used as page table\n");
         break;
       case PG_SVA:
         SVA_ASSERT_UNREACHABLE("SVA: FATAL: SVA memory used as page table\n");
