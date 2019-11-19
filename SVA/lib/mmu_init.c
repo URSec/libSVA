@@ -1262,25 +1262,6 @@ void sva_mmu_init(void) {
   lower_permissions(root_tbl, PG_L4, 0);
   invltlb_all();
 
-#if 0
-  /*
-   * Increment each physical page's refcount in the page_desc by 2 to reflect
-   * the fact that it's referenced by both the kernel's and SVA's direct
-   * maps.
-   *
-   * SVA's direct map is not part of the kernel's page tables so it is not
-   * seen by declare_ptp_and_walk_pt_entries().
-   *
-   * FIXME: I'm not really sure why the page-table walk isn't picking up the
-   * references from the kernel's direct map. There's some code that that,
-   * per the comments, is supposed to skip over kernel DMAP references (to
-   * avoid setting all the memory referenced by the DMAP as PG_TKDATA), but
-   * it's commented out.
-   */
-  for (unsigned long i = 0; i < numPageDescEntries; i++)
-    page_desc[i].count += 2;
-#endif
-
   unsigned long initial_cr3 = root_tbl & PG_FRAME;
 
   /*
@@ -1307,21 +1288,6 @@ void sva_mmu_init(void) {
    * Note that the MMU is now initialized.
    */
   mmuIsInitialized = 1;
-
-#if 0 // TODO: what's this?
-#ifdef SVA_DMAP
-  for (int ptindex = 0; ptindex < 1024; ++ptindex) {
-    if (SVAPTPages[ptindex] == NULL)
-      panic("SVAPTPages[%d] is not allocated\n", ptindex);
-
-    PTPages[ptindex].paddr   = getPhysicalAddr(SVAPTPages[ptindex]);
-    PTPages[ptindex].vosaddr = getVirtualSVADMAP(PTPages[ptindex].paddr);
-
-    if (pgdef)
-      removeOSDirectMap(getVirtual(PTPages[ptindex].paddr));
-  }
-#endif
-#endif
 
   /* Restore interrupts. */
   sva_exit_critical(rflags);
