@@ -889,8 +889,37 @@ static inline int pgIsActive (page_desc_t *page)
  * @param address The virtual address to check
  * @return        Whether or not `address` is part of the kernel's direct map
  */
-static inline unsigned char isKernelDirectMap(uintptr_t address) {
+static inline bool isKernelDirectMap(uintptr_t address) {
   return ((KERNDMAPSTART <= address) && (address < KERNDMAPEND));
+}
+
+#ifdef SVA_DMAP
+/**
+ * Determine if a virtual address is part of SVA's direct map.
+ *
+ * @param address The virtual address to check
+ * @return        Whether or not `address` is part of SVA's direct map
+ */
+static inline bool isSVADirectMap(uintptr_t address) {
+  return ((SVADMAPSTART <= address) && (address < SVADMAPEND));
+}
+#endif
+
+/**
+ * Determine if a virtual address is part of the direct map.
+ *
+ * This checks SVA's direct map if it is enabled, otherwise it checks the
+ * kernel's.
+ *
+ * @param address The virtual address to check
+ * @return        Whether or not `address` is part of the direct map
+ */
+static inline bool isDirectMap(uintptr_t address) {
+#ifdef SVA_DMAP
+  return isSVADirectMap(address);
+#else
+  return isKernelDirectMap(address);
+#endif
 }
 
 /* The number of active references to the page */

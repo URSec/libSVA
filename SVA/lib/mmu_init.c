@@ -978,10 +978,9 @@ static page_entry_t lower_permissions(page_entry_t entry,
       case PG_L2:
       case PG_L1:
       case PG_CODE:
-#ifndef SVA_DMAP
-        if (!isKernelDirectMap(vaddr))
-#endif
+        if (!isDirectMap(vaddr)) {
           perms &= ~PG_RW;
+        }
         break;
       case PG_TKDATA:
         // NB: we use the "no-execute" bit here to mean "page is executable."
@@ -989,6 +988,11 @@ static page_entry_t lower_permissions(page_entry_t entry,
         break;
       case PG_SVA:
         if (!isInSecureMemory(vaddr)) {
+          perms = 0;
+        }
+        break;
+      case PG_UNUSED:
+        if (!isDirectMap(vaddr)) {
           perms = 0;
         }
         break;
@@ -1084,47 +1088,50 @@ import_existing_mappings(page_entry_t entry,
     }
 
     for (size_t i = 0; i < count; ++i) {
-      enum page_type_t newType = type;
+      if (!isDirectMap(vaddr)) {
+        enum page_type_t newType = type;
 
-      if (desc[i].type != PG_UNUSED && desc[i].type != type) {
-        switch (desc[i].type) {
-        case PG_L4:
-        case PG_L3:
-        case PG_L2:
-        case PG_L1:
-          if (type == PG_SVA) {
-            SVA_ASSERT_UNREACHABLE(
-              "SVA: FATAL: Page table frame also mapped as SVA data\n");
-          } else if (type == PG_CODE) {
-            // Page table mapped as code?!
-            SVA_ASSERT_UNREACHABLE(
-              "SVA: FATAL: Page table frame also mapped as code\n");
-          } else {
-            // Page table mapped as data; make the mapping read-only.
-            sva_dbg("SVA: WARNING: Page table mapped as data\n");
-            newType = desc[i].type;
-          }
-          break;
-        case PG_CODE:
-        case PG_TKDATA:
-          if (type == PG_SVA) {
+        if (desc[i].type != PG_UNUSED && desc[i].type != type) {
+          switch (desc[i].type) {
+          case PG_L4:
+          case PG_L3:
+          case PG_L2:
+          case PG_L1:
+            if (type == PG_SVA) {
+              SVA_ASSERT_UNREACHABLE(
+                "SVA: FATAL: Page table frame also mapped as SVA data\n");
+            } else if (type == PG_CODE) {
+              // Page table mapped as code?!
+              SVA_ASSERT_UNREACHABLE(
+                "SVA: FATAL: Page table frame also mapped as code\n");
+            } else {
+              // Page table mapped as data; make the mapping read-only.
+              sva_dbg("SVA: WARNING: Page table mapped as data\n");
+              newType = desc[i].type;
+            }
+            break;
+          case PG_CODE:
+          case PG_TKDATA:
+            if (type == PG_SVA) {
+              sva_dbg("SVA: WARNING: Kernel mapped frame used for SVA memory\n");
+              newType = PG_SVA;
+            } else {
+              sva_dbg("SVA: WARNING: Frame mapped as both code and data\n");
+              newType = PG_CODE;
+            }
+            break;
+          case PG_SVA:
             sva_dbg("SVA: WARNING: Kernel mapped frame used for SVA memory\n");
-            newType = PG_SVA;
-          } else {
-            sva_dbg("SVA: WARNING: Frame mapped as both code and data\n");
-            newType = PG_CODE;
+            break;
+          default:
+            SVA_ASSERT_UNREACHABLE(
+              "SVA: FATAL: Frame shouldn't have this type yet\n");
           }
-          break;
-        case PG_SVA:
-          sva_dbg("SVA: WARNING: Kernel mapped frame used for SVA memory\n");
-          break;
-        default:
-          SVA_ASSERT_UNREACHABLE(
-            "SVA: FATAL: Frame shouldn't have this type yet\n");
         }
+
+        desc[i].type = newType;
       }
 
-      desc[i].type = newType;
       desc[i].user = false;
       desc[i].count++;
     }
@@ -1171,6 +1178,44 @@ import_existing_mappings(page_entry_t entry,
   }
 }
 
+#ifdef SVA_DMAP
+/**
+ * Create SVA's direct map.
+ *
+ * This function will create a direct map in a specified virtual address range
+ * using 1GB super pages. It will request pages from the kernel to use as L3
+ * page tables.
+ *
+ * @param first_dmap_entry  A pointer to the first L4 entry of the direct map
+ * @param num_dmap_entries  The number of L4 entries to use for the direct map
+ */
+void create_sva_direct_map(pml4e_t *first_dmap_entry, size_t num_dmap_entries) {
+  for (size_t i = 0; i < num_dmap_entries; ++i) {
+    SVA_ASSERT(first_dmap_entry[i] == 0,
+               "SVA: FATAL: DMAP entry not initially empty");
+
+    if (i * PG_L4_SIZE < memSize) {
+      uintptr_t l3_table_frame = provideSVAMemory(PAGE_SIZE);
+      SVA_ASSERT(l3_table_frame != 0, "SVA: FATAL: Out of memory\n");
+      pdpte_t* l3_table = (pdpte_t*)(KERNDMAPSTART + l3_table_frame);
+
+      memset(l3_table, 0, PAGE_SIZE);
+      for (size_t j = 0; j < PG_ENTRIES; ++j) {
+        uintptr_t frame = i * PG_L4_SIZE + j * PG_L3_SIZE;
+        if (frame >= memSize) {
+          break;
+        }
+        l3_table[j] = frame | PG_DMAP_L3;
+      }
+
+      first_dmap_entry[i] = l3_table_frame | PG_DMAP_L4;
+    } else {
+      first_dmap_entry[i] = 0;
+    }
+  }
+}
+#endif
+
 /**
  * Initialize SVA's MMU handling.
  *
@@ -1199,6 +1244,17 @@ void sva_mmu_init(void) {
   memset(page_desc, 0, numPageDescEntries * sizeof(page_desc_t));
 
   cr3_t root_tbl = read_cr3();
+
+#ifdef SVA_DMAP
+  /*
+   * Since SVA's direct map doesn't exist yet, we have to get the virtual
+   * address for the L4 page table from the kernel's direct map.
+   */
+  pml4e_t* l4_table = (pml4e_t*)(KERNDMAPSTART + (root_tbl & PG_FRAME));
+  create_sva_direct_map(l4_table + PG_L4_ENTRY(SVADMAPSTART),
+                        PG_L4_ENTRY(SVADMAPEND) - PG_L4_ENTRY(SVADMAPSTART));
+  sva_dbg("SVA: INFO: Built SVA direct map\n");
+#endif
 
   /* Walk the kernel page tables and initialize the sva page_desc. */
   import_existing_mappings(root_tbl, PG_L4, (PG_V | PG_RW | PG_NX | PG_U), 0);
