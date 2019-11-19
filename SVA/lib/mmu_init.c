@@ -73,6 +73,7 @@ init_mmu () {
   return;
 }
 
+#ifdef FreeBSD
 /*
  * Function: declare_kernel_code_pages()
  *
@@ -212,7 +213,6 @@ void * DMPDphys, void * DMPTphys, unsigned long ndmpdp, unsigned long ndm1g)
   return;
 }
 
-#ifdef FreeBSD
 /*
  * Function: declare_ptp_and_walk_pt_entries
  *
