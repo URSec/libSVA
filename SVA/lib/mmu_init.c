@@ -1259,6 +1259,7 @@ void sva_mmu_init(void) {
   /* Walk the kernel page tables and initialize the sva page_desc. */
   import_existing_mappings(root_tbl, PG_L4, (PG_V | PG_RW | PG_NX | PG_U), 0);
   lower_permissions(root_tbl, PG_L4, 0);
+  invltlb_all();
 
 #if 0
   /*
