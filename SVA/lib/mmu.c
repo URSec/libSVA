@@ -2005,6 +2005,10 @@ void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val)
  */
 void
 sva_declare_l1_page (uintptr_t frameAddr) {
+  if (!mmuIsInitialized) {
+    return;
+  }
+
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
@@ -2086,6 +2090,10 @@ sva_declare_l1_page (uintptr_t frameAddr) {
  */
 void
 sva_declare_l2_page (uintptr_t frameAddr) {
+  if (!mmuIsInitialized) {
+    return;
+  }
+
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
@@ -2164,6 +2172,10 @@ sva_declare_l2_page (uintptr_t frameAddr) {
  */
 void
 sva_declare_l3_page (uintptr_t frameAddr) {
+  if (!mmuIsInitialized) {
+    return;
+  }
+
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
@@ -2241,6 +2253,10 @@ sva_declare_l3_page (uintptr_t frameAddr) {
  */
 void
 sva_declare_l4_page (uintptr_t frameAddr) {
+  if (!mmuIsInitialized) {
+    return;
+  }
+
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
