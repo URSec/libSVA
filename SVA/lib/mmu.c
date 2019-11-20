@@ -668,6 +668,10 @@ __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
   return;
 }
 
+void sva_mm_flush_tlb(void* address) {
+  invlpg((uintptr_t)address);
+}
+
 /*
  * Function: initDeclaredPage
  *
@@ -1843,6 +1847,10 @@ sva_mm_load_pgtable (void * pg_ptr) {
   usersva_to_kernel_pcid();
 
   record_tsc(sva_mm_load_pgtable_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+}
+
+void* sva_mm_save_pgtable(void) {
+  return (void*)read_cr3();
 }
 
 /*

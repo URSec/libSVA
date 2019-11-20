@@ -107,24 +107,12 @@ extern void * sva_translate(void * entryPoint);
 extern void ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread);
 
 /*
- *****************************************************************************
- * SVA intrinsics implemented as inline functions
- *****************************************************************************
- */
-
-/*
- * Function: sva_mm_save_pgtable()
+ * Intrinsic: sva_mm_save_pgtable()
  *
  * Description:
  *  Get the current page table.
  */
-static inline void *
-sva_mm_save_pgtable (void)
-{
-  void * p = (void*)read_cr3();
-  
-  return p;
-}
+void* sva_mm_save_pgtable(void);
 
 /*
  * Function: sva_mm_flush_tlb()
@@ -140,10 +128,6 @@ sva_mm_save_pgtable (void)
  *  the FreeBSD code is why we have the BSD copyright and attribute comment at
  *  the top of this file.
  */
-static inline void
-sva_mm_flush_tlb (void * address) {
-  __asm__ __volatile__ ("invlpg %0" : : "m" (*((char *)address)) : "memory");
-  return;
-}
+void sva_mm_flush_tlb(void* address);
 
 #endif /* SVA_MMU_INTRINSICS_H */
