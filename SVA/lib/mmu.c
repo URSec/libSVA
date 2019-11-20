@@ -2705,6 +2705,15 @@ sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned lon
  */
 void
 sva_update_l1_mapping(pte_t * pteptr, page_entry_t val) {
+  if (!mmuIsInitialized) {
+    /*
+     * MMU initialization has not been performed, so don't perform any safety
+     * checks.
+     */
+    *pteptr = val;
+    return;
+  }
+
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
@@ -2747,6 +2756,15 @@ sva_update_l1_mapping(pte_t * pteptr, page_entry_t val) {
  */
 void
 sva_update_l2_mapping(pde_t * pdePtr, page_entry_t val) {
+  if (!mmuIsInitialized) {
+    /*
+     * MMU initialization has not been performed, so don't perform any safety
+     * checks.
+     */
+    *pdePtr = val;
+    return;
+  }
+
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
@@ -2782,6 +2800,15 @@ sva_update_l2_mapping(pde_t * pdePtr, page_entry_t val) {
  * Updates a level3 mapping 
  */
 void sva_update_l3_mapping(pdpte_t * pdptePtr, page_entry_t val) {
+  if (!mmuIsInitialized) {
+    /*
+     * MMU initialization has not been performed, so don't perform any safety
+     * checks.
+     */
+    *pdptePtr = val;
+    return;
+  }
+
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
@@ -2815,6 +2842,15 @@ void sva_update_l3_mapping(pdpte_t * pdptePtr, page_entry_t val) {
  * updates a level4 mapping 
  */
 void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
+  if (!mmuIsInitialized) {
+    /*
+     * MMU initialization has not been performed, so don't perform any safety
+     * checks.
+     */
+    *pml4ePtr = val;
+    return;
+  }
+
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
