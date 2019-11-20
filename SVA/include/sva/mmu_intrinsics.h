@@ -112,7 +112,7 @@ extern void ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread
  * Description:
  *  Get the current page table.
  */
-void* sva_mm_save_pgtable(void);
+cr3_t sva_mm_save_pgtable(void);
 
 /*
  * Function: sva_mm_flush_tlb()

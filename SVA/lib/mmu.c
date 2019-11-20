@@ -1849,8 +1849,8 @@ sva_mm_load_pgtable (void * pg_ptr) {
   record_tsc(sva_mm_load_pgtable_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
 
-void* sva_mm_save_pgtable(void) {
-  return (void*)read_cr3();
+cr3_t sva_mm_save_pgtable(void) {
+  return read_cr3();
 }
 
 /*
