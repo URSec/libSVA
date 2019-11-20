@@ -42,7 +42,7 @@
 /* Define whether or not the mmu_init code assumes virtual addresses */
 #define USE_VIRT            0
 
-#ifdef DEBUG
+#if DEBUG
 #define sva_dbg(...) printf(__VA_ARGS__)
 #else
 #define sva_dbg(...)
