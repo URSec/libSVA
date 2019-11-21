@@ -455,6 +455,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
        */
       switch (ptePG->type) {
         case PG_L4:
+#ifdef FreeBSD
           /* 
            * FreeBSD inserts a self mapping into the pml4, therefore it is
            * valid to map in an L4 page into the L4.
@@ -464,6 +465,10 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
            */
           SVA_ASSERT(isL3Pg(newPG) || isL4Pg(newPG), 
               "SVA: MMU: Mapping non-L3/L4 page into L4.");
+#else
+          SVA_ASSERT(isL3Pg(newPG),
+              "SVA: MMU: Mapping non-L3 page into L4.");
+#endif
           break;
         case PG_L3:
           SVA_ASSERT(isL2Pg(newPG),
