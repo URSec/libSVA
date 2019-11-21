@@ -215,6 +215,8 @@ get_frame_from_os(void) {
    * established through intrinsics that update it.
    */
   page_desc_t * page = getPageDescPtr(paddr);
+  SVA_ASSERT(page != NULL,
+    "SVA: FATAL: Kernel gave us a frame which doesn't exist\n");
   if (page->count > 1) {
     panic("SVA: OS gave us a frame for secure memory which is still mapped "
         "somewhere else (in %d places). The OS is lying to us and has been "
@@ -276,6 +278,8 @@ static inline void return_frame_to_os(uintptr_t paddr) {
 #ifndef XEN
   /* FIXME: re-enable this code for Xen once MMU has been ported */
   page_desc_t * page = getPageDescPtr(paddr);
+  SVA_ASSERT(ptDesc != NULL,
+    "SVA: FATAL: Returning non-existant frame to kernel\n");
   page->type = PG_UNUSED;
 #endif /* end #ifndef XEN */
 
@@ -744,6 +748,8 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
     uintptr_t paddr = *pte & PG_FRAME;
 
     page_desc_t *pgDesc_old = getPageDescPtr(paddr);
+    SVA_ASSERT(pgDesc_old != NULL,
+      "SVA: FATAL: Ghost memory mapped to non-existant frame\n");
     if (pgDesc_old->type != PG_GHOST)
       panic("SVA: sva_ghost_fault: vaddr = 0x%lx paddr = 0x%lx "
           "is not a ghost memory page!\n", vaddr, paddr);
@@ -773,6 +779,8 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
       uintptr_t paddr_new = alloc_frame();
       void *vaddr_new = getVirtualSVADMAP(paddr_new);
       page_desc_t *pgDesc_new = getPageDescPtr(paddr_new);
+      SVA_ASSERT(pgDesc_new != NULL,
+        "SVA: FATAL: New ghost memory allocation is a non-existant frame\n");
       /* count == 1 means only mapped in SVA's DMAP */
       if (pgRefCount(pgDesc_new) > 1) {
         panic("SVA: Ghost page still in use somewhere else!\n");

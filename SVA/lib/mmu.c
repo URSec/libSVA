@@ -550,6 +550,9 @@ updateNewPageData(page_entry_t mapping, unsigned char isEPT) {
    * If the new mapping is valid, update the counts for it.
    */
   if (isPresent_maybeEPT(&mapping, isEPT)) {
+    SVA_ASSERT(newPG != NULL,
+      "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
+
 #if 0
     /*
      * If the new page is to a page table page and this is the first reference
@@ -597,6 +600,9 @@ updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
    * mapping.
    */
   if (isPresent_maybeEPT(&mapping, isEPT)) {
+    SVA_ASSERT(origPG != NULL,
+      "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
+
     /*
      * Check that the refcount isn't already below 2, which would mean it
      * isn't mapped anywhere besides SVA's direct map. That shouldn't be the
@@ -1292,6 +1298,8 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    * should be 1, i.e., the page should only be present in SVA's direct map.
    */
   page_desc_t *pgDesc = getPageDescPtr(paddr);
+  SVA_ASSERT(pgDesc != NULL,
+    "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
   if (pgRefCount(pgDesc) > 1) {
     panic("SVA: Ghost page still in use somewhere else! "
         "refcount = %d\n", pgRefCount(pgDesc));
@@ -1753,10 +1761,14 @@ sva_mm_load_pgtable (void * pg_ptr) {
   /*
    * Check that the new page table is an L4 page table page.
    */
-  if ((mmuIsInitialized) && (!disableMMUChecks)
-      && (getPageDescPtr(new_pml4)->type != PG_L4)) {
-    panic("SVA: Loading non-L4 page into CR3: %lx %x\n",
-        new_pml4, getPageDescPtr(new_pml4)->type);
+  if ((mmuIsInitialized) && (!disableMMUChecks)) {
+    page_desc_t* pml4Desc = getPageDescPtr(new_pml4);
+    SVA_ASSERT(pml4Desc != NULL,
+      "SVA: FATAL: Using non-existant frame as root page table\n");
+    if (pml4Desc->type != PG_L4) {
+      panic("SVA: Loading non-L4 page into CR3: %lx %x\n",
+          new_pml4, getPageDescPtr(new_pml4)->type);
+    }
   }
 
   /*
@@ -1786,6 +1798,8 @@ sva_mm_load_pgtable (void * pg_ptr) {
   page_desc_t *newpml4Desc = getPageDescPtr(new_pml4);
   page_desc_t *oldpml4Desc = getPageDescPtr(read_cr3());
 
+  SVA_ASSERT(newpml4Desc != NULL,
+    "SVA: FATAL: Using non-existant frame as root page table\n");
   SVA_ASSERT(pgRefCount(newpml4Desc) < ((1u << 13) - 1),
       "SVA: MMU: integer overflow in page refcount");
   newpml4Desc->count++;
@@ -2027,6 +2041,8 @@ sva_declare_l1_page (uintptr_t frameAddr) {
 
   /* Get the page_desc for the newly declared l4 page frame */
   page_desc_t *pgDesc = getPageDescPtr(frameAddr);
+  SVA_ASSERT(pgDesc != NULL,
+    "SVA: FATAL: Attempt to use non-existant frame as l1 page table\n");
 
   /*
    * Make sure that this is already an L1 page, an unused page, or a kernel
@@ -2113,6 +2129,8 @@ sva_declare_l2_page (uintptr_t frameAddr) {
 
   /* Get the page_desc for the newly declared l4 page frame */
   page_desc_t *pgDesc = getPageDescPtr(frameAddr);
+  SVA_ASSERT(pgDesc != NULL,
+    "SVA: FATAL: Attempt to use non-existant frame as l2 page table\n");
 
   /*
    * Make sure that this is already an L2 page, an unused page, or a kernel
@@ -2194,6 +2212,8 @@ sva_declare_l3_page (uintptr_t frameAddr) {
 
   /* Get the page_desc for the newly declared l4 page frame */
   page_desc_t *pgDesc = getPageDescPtr(frameAddr);
+  SVA_ASSERT(pgDesc != NULL,
+    "SVA: FATAL: Attempt to use non-existant frame as l3 page table\n");
 
   /*
    * Make sure that this is already an L3 page, an unused page, or a kernel
@@ -2276,6 +2296,8 @@ sva_declare_l4_page (uintptr_t frameAddr) {
 
   /* Get the page_desc for the newly declared l4 page frame */
   page_desc_t *pgDesc = getPageDescPtr(frameAddr);
+  SVA_ASSERT(pgDesc != NULL,
+    "SVA: FATAL: Attempt to use non-existant frame as l4 page table\n");
 
   /* 
    * Assert that this is a new L4. We don't want to declare an L4 with and
@@ -2345,10 +2367,12 @@ sva_declare_l4_page (uintptr_t frameAddr) {
  * Input:
  *   frameAddr - the address of a physical page frame
  */
-void sva_declare_dmap_page(uintptr_t frameAddr)
- {
-    getPageDescPtr(frameAddr)->dmap = 1;
- }
+void sva_declare_dmap_page(uintptr_t frameAddr) {
+  page_desc_t* pgDesc = getPageDescPtr(frameAddr);
+  SVA_ASSERT(pgDesc != NULL,
+    "SVA: FATAL: Attempt to use non-existant frame as direct map page table\n");
+  pgDesc->dmap = 1;
+}
 
 static inline page_entry_t * 
 printPTES (uintptr_t vaddr) {
@@ -2431,6 +2455,8 @@ sva_remove_page (uintptr_t paddr) {
 
   /* Get the descriptor for the physical frame where this PTP resides. */
   page_desc_t *pgDesc = getPageDescPtr(paddr);
+  SVA_ASSERT(pgDesc != NULL,
+    "SVA: FATAL: Frame being removed doesn't exist\n");
 
   /*
    * Make sure that this is a page table page. We don't want the system
@@ -2595,6 +2621,8 @@ sva_remove_page (uintptr_t paddr) {
 uintptr_t sva_get_kernel_pml4pg(uintptr_t paddr)
 {
 	page_desc_t *pgDesc = getPageDescPtr(paddr);
+        SVA_ASSERT(pgDesc != NULL,
+          "SVA: FATAL: Frame doesn't exist\n");
 	uintptr_t other_paddr = pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
 	return other_paddr;		
 }
@@ -2634,6 +2662,8 @@ sva_remove_mapping(page_entry_t * pteptr) {
    */
   uintptr_t ptePA = getPhysicalAddr(pteptr);
   page_desc_t *ptePG = getPageDescPtr(ptePA);
+  SVA_ASSERT(ptePG != NULL,
+    "SVA: FATAL: Page table frame doesn't exist\n");
 
   if(ptePG->type == PG_L4) {
     uintptr_t other_cr3 = ptePG->other_pgPaddr & ~PML4_SWITCH_DISABLE;
@@ -2695,6 +2725,8 @@ sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned lon
    * then report an error.
    */
   page_desc_t * ptDesc = getPageDescPtr (getPhysicalAddr(pteptr));
+  SVA_ASSERT(ptDesc != NULL,
+    "SVA: FATAL: Page table frame doesn't exist\n");
   if ((ptDesc->type != PG_L1) && (!disableMMUChecks)) {
     panic ("SVA: MMU: update_l1 not an L1: %p %lx: %x\n", pteptr, val, ptDesc->type);
   }
@@ -2754,6 +2786,8 @@ sva_update_l1_mapping(pte_t * pteptr, page_entry_t val) {
    * then report an error.
    */
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pteptr));
+  SVA_ASSERT(ptDesc != NULL,
+    "SVA: FATAL: L1 page table frame doesn't exist\n");
   if ((ptDesc->type != PG_L1) && (!disableMMUChecks)) {
     panic("SVA: MMU: update_l1 not an L1: %p %lx: %x\n", pteptr, val, ptDesc->type);
   }
@@ -2805,6 +2839,8 @@ sva_update_l2_mapping(pde_t * pdePtr, page_entry_t val) {
    * then report an error.
    */
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pdePtr));
+  SVA_ASSERT(ptDesc != NULL,
+    "SVA: FATAL: L2 page table frame doesn't exist\n");
   if ((ptDesc->type != PG_L2) && (!disableMMUChecks)) {
     panic("SVA: MMU: update_l2 not an L2: %p %lx: type=%x count=%x\n", pdePtr, val, ptDesc->type, ptDesc->count);
   }
@@ -2849,6 +2885,8 @@ void sva_update_l3_mapping(pdpte_t * pdptePtr, page_entry_t val) {
    * then report an error.
    */
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pdptePtr));
+  SVA_ASSERT(ptDesc != NULL,
+    "SVA: FATAL: L3 page table frame doesn't exist\n");
   if ((ptDesc->type != PG_L3) && (!disableMMUChecks)) {
     panic("SVA: MMU: update_l3 not an L3: %p %lx: %x\n", pdptePtr, val, ptDesc->type);
   }
@@ -2891,6 +2929,8 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
    * then report an error.
    */
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pml4ePtr));
+  SVA_ASSERT(ptDesc != NULL,
+    "SVA: FATAL: L4 page table frame doesn't exist\n");
   if ((ptDesc->type != PG_L4) && (!disableMMUChecks)) {
     panic("SVA: MMU: update_l4 not an L4: %p %lx: %x\n", pml4ePtr, val, ptDesc->type);
   }
@@ -2972,7 +3012,11 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
   kernel_phys &= PG_FRAME;
 
   page_desc_t *kernel_ptDesc = getPageDescPtr(kernel_phys);
+  SVA_ASSERT(kernel_ptDesc != NULL,
+    "SVA: FATAL: Attempt to use non-existant frame as a root page table\n");
   page_desc_t *usersva_ptDesc = getPageDescPtr(orig_phys);
+  SVA_ASSERT(usersva_ptDesc != NULL,
+    "SVA: FATAL: Attempt to use non-existant frame as a root page table\n");
 
   /*
    * Ensure that the new kernel PML4 page has been declared to SVA as an L4
@@ -3109,6 +3153,8 @@ void sva_set_kernel_pml4pg_ready(uintptr_t orig_phys) {
    * kernel counterpart.
    */
   page_desc_t *usersva_ptDesc = getPageDescPtr(orig_phys);
+  SVA_ASSERT(usersva_ptDesc != NULL,
+    "SVA: FATAL: Attempt to use non-existant frame as a root page table\n");
   usersva_ptDesc->other_pgPaddr =
     usersva_ptDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
 

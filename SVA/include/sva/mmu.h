@@ -1015,7 +1015,10 @@ readOnlyPageType(page_desc_t *pg) {
  */
 static inline unsigned char 
 mapPageReadOnly(page_desc_t * ptePG, page_entry_t mapping) {
-  if (readOnlyPageType(getPageDescPtr(mapping))){
+  page_desc_t* mapping_pgDesc = getPageDescPtr(mapping);
+  SVA_ASSERT(mapping_pgDesc != NULL,
+    "SVA: FATAL: Attempt to map non-existant frame\n");
+  if (readOnlyPageType(mapping_pgDesc)){
     /*
      * L1 pages should always be mapped read-only.
      */
