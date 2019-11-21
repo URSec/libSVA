@@ -116,18 +116,24 @@ page_desc_t __svadata page_desc[numPageDescEntries];
  *           (or a physical address pointing anywhere within the frame)
  *
  * Return value:
- *  Pointer to the page_desc for this frame.
+ *  Pointer to the page_desc for this frame, or `NULL` if the frame is beyond
+ *  the maximum supported physical memory.
  */
 page_desc_t * getPageDescPtr(unsigned long mapping) {
   unsigned long frameIndex = (mapping & PG_FRAME) / pageSize;
   if (frameIndex >= numPageDescEntries)
-    panic ("SVA: getPageDescPtr: %lx %lx\n", frameIndex, numPageDescEntries);
+    return NULL;
   return page_desc + frameIndex;
 }
 
 void
 printPageType (unsigned char * p) {
-  printf ("SVA: page type: %p: %x\n", p, getPageDescPtr(getPhysicalAddr(p))->type);
+  page_desc_t *pageDesc = getPageDescPtr(getPhysicalAddr(p));
+  if (pageDesc == NULL) {
+    printf("SVA: page type: %p: nonexistant\n", p);
+  } else {
+    printf ("SVA: page type: %p: %x\n", p, pageDesc->type);
+  }
   return;
 }
 
@@ -286,12 +292,6 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
   }
 
   /*
-   * Verify that we're not attempting to establish a mapping to a ghost PTP.
-   */
-  if (isGhostPTP(newPG))
-    panic("SVA: MMU: Kernel attempted to map a ghost PTP!");
-
-  /*
    * Add check that the direct map is not being modified.
    */
   if ((PG_DML1 <= ptePG->type) && (ptePG->type <= PG_DML4)) {
@@ -303,6 +303,15 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
    * some cases we must, otherwise the checks will fail.
    */
   if (isPresent_maybeEPT(&newVal, isEPT)) {
+    SVA_ASSERT(newPG != NULL,
+      "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
+
+    /*
+     * Verify that we're not attempting to establish a mapping to a ghost PTP.
+     */
+    if (isGhostPTP(newPG))
+      panic("SVA: MMU: Kernel attempted to map a ghost PTP!");
+
     /*
      * If this is a last-level mapping (L1 or large page with PS bit set),
      * verify that the mapping points to physical memory the OS is allowed to
@@ -492,7 +501,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
 
     /* Don't allow existing kernel code mappings to be changed/removed. */
     if (origPA != newPA) {
-      if (isCodePg(origPG)) {
+      if (origPG != NULL && isCodePg(origPG)) {
         SVA_ASSERT((*page_entry & PG_U), "SVA: MMU: Kernel attempted to "
             "modify a kernel-space code page mapping!");
       }
