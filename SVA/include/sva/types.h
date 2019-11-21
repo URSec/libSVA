@@ -22,6 +22,7 @@
 // System headers are unavailable when building XEN
 #include <xen/types.h>
 #else
+#include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>

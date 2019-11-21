@@ -30,7 +30,6 @@ static inline struct SVAThread *ftstack_pop(void);
 #define spin_lock(l)  while (__sync_lock_test_and_set((l), 1))
 #define spin_unlock(l) __sync_lock_release((l))
 #define init_lock(l) *(l) = 0
-#define NULL  0
 
 /* Pre-allocate a large number of SVA Threads */
 static struct SVAThread __svadata Threads[THREAD_STACK_SIZE] __attribute__ ((aligned (16)));
