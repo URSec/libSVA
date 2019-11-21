@@ -275,9 +275,9 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
    * ghost address space.
    */
   if (vg) {
-    if ((ptePG->type == PG_L4) && ((ptePAddr & PG_FRAME) == secmemOffset)) {
-      panic("SVA: MMU: Kernel attempted to modify ghost memory pml4e!\n");
-    }
+    SVA_ASSERT(!(ptePG->type == PG_L4 &&
+                 (ptePAddr & PG_FRAME) == secmemOffset),
+      "SVA: MMU: Kernel attempted to modify ghost memory pml4e!\n");
   }
 
   /*
@@ -294,9 +294,8 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
   /*
    * Add check that the direct map is not being modified.
    */
-  if ((PG_DML1 <= ptePG->type) && (ptePG->type <= PG_DML4)) {
-    panic("SVA: MMU: Modifying direct map!\n");
-  }
+  SVA_ASSERT(!(PG_DML1 <= ptePG->type && ptePG->type <= PG_DML4),
+    "SVA: MMU: Modifying direct map!\n");
 
   /* 
    * If we aren't mapping a new page then we can skip several checks, and in
@@ -309,8 +308,8 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
     /*
      * Verify that we're not attempting to establish a mapping to a ghost PTP.
      */
-    if (isGhostPTP(newPG))
-      panic("SVA: MMU: Kernel attempted to map a ghost PTP!");
+    SVA_ASSERT(!isGhostPTP(newPG),
+      "SVA: MMU: Kernel attempted to map a ghost PTP!\n");
 
     /*
      * If this is a last-level mapping (L1 or large page with PS bit set),
@@ -377,9 +376,8 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
            */
 #if 0
           if (isCodePg(newPG)) {
-            if ((newVal & (PG_RW | PG_U)) == (PG_RW)) {
-              panic ("SVA: Making kernel code writeable: %lx %lx\n", newVA, newVal);
-            }
+            SVA_ASSERT(!((newVal & (PG_RW | PG_U)) == PG_RW)
+              "SVA: Making kernel code writeable: %lx %lx\n", newVA, newVal);
           }
 #endif
         case PG_L1:
@@ -409,10 +407,9 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
            */
 #if 0
           if (pgRefCount(newPG) > 1) {
-            if (newPG->pgVaddr != page_entry) {
-              panic ("SVA: PG: %lx %lx: type=%x\n",
-                  newPG->pgVaddr, page_entry, newPG->type);
-            }
+            SVA_ASSERT(newPG->pgVaddr == page_entry,
+              "SVA: PG: %lx %lx: type=%x\n",
+              newPG->pgVaddr, page_entry, newPG->type);
             SVA_ASSERT (newPG->pgVaddr == page_entry,
                 "MMU: Map PTP to second VA");
           } else {
@@ -439,14 +436,14 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
           retValue = 0;
           break;
         case PG_SVA:
-          panic("SVA: MMU: Kernel attempted to map an SVA page!");
-          break;
+          SVA_ASSERT_UNREACHABLE(
+            "SVA: MMU: Kernel attempted to map an SVA page!\n");
 
           /* All other mapping types are disallowed. */
         default:
-          panic("SVA: MMU: Kernel attempted to map a page of unrecognized type! "
-              "paddr: 0x%lx; type: 0x%x", newPA, newPG->type);
-          break;
+          SVA_ASSERT_UNREACHABLE(
+            "SVA: MMU: Kernel attempted to map a page of unrecognized type! "
+            "paddr: 0x%lx; type: 0x%x\n", newPA, newPG->type);
       }
     } else { /* not an L1 or large page PTE */
       /*
@@ -615,12 +612,12 @@ updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
      * intrinsic that calls this code. If it is, SVA's frame metadata has
      * somehow become inconsistent.
      */
-    if (pgRefCount(origPG) < 2) {
-      panic("SVA: MMU: frame metadata inconsistency detected "
-          "(attempted to decrement refcount below 1) "
-          "[updateOrigPageData()] "
-          "refcount = %d", pgRefCount(origPG));
-    }
+    SVA_ASSERT(pgRefCount(origPG) >= 2,
+      "SVA: MMU: frame metadata inconsistency detected "
+      "(attempted to decrement refcount below 1)\n"
+      "[updateOrigPageData()] "
+      "refcount = %d\n",
+      pgRefCount(origPG));
 
     origPG->count--;
   }
@@ -808,7 +805,7 @@ __update_mapping (pte_t * pageEntryPtr, page_entry_t val) {
       return;
 
     default:
-      panic("##### SVA invalid page update!!!\n");
+      SVA_ASSERT_UNREACHABLE("##### SVA invalid page update!!!\n");
   }
 
   return;
@@ -1106,8 +1103,8 @@ removeOSDirectMap (void * v) {
    */
   pte_t * pte = get_pteVaddr (pde, vaddr);
 
-  if(*pte == 0)
-  	panic("The direct mapping PTE of the SVA PTP does not exist");
+  SVA_ASSERT(*pte != 0,
+    "The direct mapping PTE of the SVA PTP does not exist\n");
 
   *pte = 0; 
 
@@ -1143,8 +1140,8 @@ allocPTPage (void) {
       break;
     }
   }
-  if (ptindex == 1024)
-    panic ("SVA: allocPTPage: No more table space!\n");
+  SVA_ASSERT(ptindex < 1024,
+    "SVA: allocPTPage: No more table space!\n");
 
   /*
    * Ask the system software for a page of memory.
@@ -1305,14 +1302,12 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
   page_desc_t *pgDesc = getPageDescPtr(paddr);
   SVA_ASSERT(pgDesc != NULL,
     "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
-  if (pgRefCount(pgDesc) > 1) {
-    panic("SVA: Ghost page still in use somewhere else! "
-        "refcount = %d\n", pgRefCount(pgDesc));
-  }
-  if (isPTP(pgDesc) || isCodePG(pgDesc)) {
-    panic("SVA: Ghost page has wrong type! "
-        "type = %d\n", pgDesc->type);
-  }
+  SVA_ASSERT(pgRefCount(pgDesc) <= 1,
+    "SVA: Ghost page still in use somewhere else! "
+    "refcount = %d\n", pgRefCount(pgDesc));
+  SVA_ASSERT(!isPTP(pgDesc) && !isCodePG(pgDesc),
+    "SVA: Ghost page has wrong type! "
+    "type = %d\n", pgDesc->type);
 
   /*
    * Disable protections.
@@ -1410,9 +1405,8 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    */
   pte_t *pte = get_pteVaddr(pde, vaddr);
 #if 0
-  if (isPresent(pte)) {
-    panic("SVA: mapSecurePage: PTE is present: %p!\n", pte);
-  }
+  SVA_ASSERT(!isPresent(pte),
+    "SVA: mapSecurePage: PTE is present: %p!\n", pte);
 #endif
 
   /*
@@ -1524,11 +1518,10 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
    * improperly used this function to remove an entry in SVA's DMAP).
    */
   page_desc_t *pageDesc = getPageDescPtr(*pte & PG_FRAME);
-  if (pgRefCount(pageDesc) < 2) {
-    panic("SVA: MMU: frame metadata inconsistency detected "
-        "(attempted to remove ghost mapping with refcount <= 2). "
-        "refcount = %d\n", pageDesc->count);
-  }
+  SVA_ASSERT(pgRefCount(pageDesc) >= 2,
+    "SVA: MMU: frame metadata inconsistency detected "
+    "(attempted to remove ghost mapping with refcount < 2). "
+    "refcount = %d\n", pageDesc->count);
   pageDesc->count--;
 
   /*
@@ -1712,18 +1705,18 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
 
         page_desc_t *pgDesc = getPageDescPtr(*src_pte & PG_FRAME);
 
-        if (pgDesc->type != PG_GHOST)
-          panic("SVA: ghostmemCOW: page is not a ghost memory page! "
-              "vaddr = 0x%lx, src_pte = %p, *src_pte = 0x%lx, "
-              "src_pde = %p, *src_pde = 0x%lx\n",
-              vaddr_pte, src_pte, *src_pte, src_pde, *src_pde);
+        SVA_ASSERT(pgDesc->type == PG_GHOST,
+          "SVA: ghostmemCOW: page is not a ghost memory page!\n"
+          "vaddr = 0x%lx, src_pte = %p, *src_pte = 0x%lx, "
+          "src_pde = %p, *src_pde = 0x%lx\n",
+          vaddr_pte, src_pte, *src_pte, src_pde, *src_pde);
 
         *src_pte &= ~PTE_CANWRITE;
         *pte = *src_pte;
         updateUses(pte);
         /* Check that we aren't overflowing the counter. */
         SVA_ASSERT(pgRefCount(pgDesc) < ((1u << 13) - 1),
-            "SVA: MMU: integer overflow in page refcount");
+            "SVA: MMU: integer overflow in page refcount\n");
         pgDesc->count++;
       }
     }
@@ -1770,10 +1763,9 @@ sva_mm_load_pgtable (void * pg_ptr) {
     page_desc_t* pml4Desc = getPageDescPtr(new_pml4);
     SVA_ASSERT(pml4Desc != NULL,
       "SVA: FATAL: Using non-existant frame as root page table\n");
-    if (pml4Desc->type != PG_L4) {
-      panic("SVA: Loading non-L4 page into CR3: %lx %x\n",
-          new_pml4, getPageDescPtr(new_pml4)->type);
-    }
+    SVA_ASSERT(pml4Desc->type == PG_L4,
+      "SVA: Loading non-L4 page into CR3: %lx %x\n",
+      new_pml4, getPageDescPtr(new_pml4)->type);
   }
 
   /*
@@ -1806,7 +1798,7 @@ sva_mm_load_pgtable (void * pg_ptr) {
   SVA_ASSERT(newpml4Desc != NULL,
     "SVA: FATAL: Using non-existant frame as root page table\n");
   SVA_ASSERT(pgRefCount(newpml4Desc) < ((1u << 13) - 1),
-      "SVA: MMU: integer overflow in page refcount");
+      "SVA: MMU: integer overflow in page refcount\n");
   newpml4Desc->count++;
 
   /*
@@ -1815,12 +1807,11 @@ sva_mm_load_pgtable (void * pg_ptr) {
    * case for a PML4 that was (until now) in use by CR3. If it is, SVA's
    * frame metadata has somehow become inconsistent.
    */
-  if (pgRefCount(oldpml4Desc) < 2) {
-    panic("SVA: MMU: frame metadata inconsistency detected "
-      "(attempted to decrement refcount below 1) "
-      "[old CR3 being replaced] "
-      "refcount = %d", pgRefCount(oldpml4Desc));
-  }
+  SVA_ASSERT(pgRefCount(oldpml4Desc) >= 2,
+    "SVA: MMU: frame metadata inconsistency detected "
+    "(attempted to decrement refcount below 1)\n"
+    "[old CR3 being replaced] "
+    "refcount = %d\n", pgRefCount(oldpml4Desc));
   oldpml4Desc->count--;
 
 #ifdef SVA_ASID_PG
@@ -1841,12 +1832,11 @@ sva_mm_load_pgtable (void * pg_ptr) {
     page_desc_t *kernel_oldpml4Desc =
       getPageDescPtr(oldpml4Desc->other_pgPaddr);
 
-    if (pgRefCount(oldpml4Desc) < 2) {
-      panic("SVA: MMU: frame metadata inconsistency detected "
-          "(attempted to decrement refcount below 1) "
-          "[old kernel PML4 being replaced] "
-          "refcount = %d", pgRefCount(oldpml4Desc));
-    }
+    SVA_ASSERT(pgRefCount(oldpml4Desc) >= 2,
+      "SVA: MMU: frame metadata inconsistency detected "
+      "(attempted to decrement refcount below 1)\n"
+      "[old kernel PML4 being replaced] "
+      "refcount = %d\n", pgRefCount(oldpml4Desc));
     kernel_oldpml4Desc->count--;
   }
 
@@ -2060,14 +2050,18 @@ sva_declare_l1_page (uintptr_t frameAddr) {
       break;
 
     default:
-      printf ("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
-      panic ("SVA: Declaring L1 for wrong page: frameAddr = %lx, pgDesc=%p, type=%x\n", frameAddr, pgDesc, pgDesc->type);
-      break;
+      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
+      SVA_ASSERT_UNREACHABLE(
+        "SVA: Declaring L1 for wrong page: "
+        "frameAddr = %lx, pgDesc=%p, type=%x\n",
+        frameAddr, pgDesc, pgDesc->type);
   }
 
 #ifdef SVA_DMAP
   /* A page can only be declared as a page table page if its reference count is 2 or less.*/
-  SVA_ASSERT((pgRefCount(pgDesc) <= 2), "sva_declare_l1_page: more than one virtual addresses are still using this page!");
+  SVA_ASSERT(pgRefCount(pgDesc) <= 2,
+    "sva_declare_l1_page: "
+    "more than one virtual addresses are still using this page!\n");
 #else
   /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
   //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l1_page: more than one virtual addresses are still using this page!");
@@ -2076,28 +2070,26 @@ sva_declare_l1_page (uintptr_t frameAddr) {
   /* 
    * Declare the page as an L1 page (unless it is already an L1 page).
    */
-  if (pgDesc->type != PG_L1) {
-    /*
-     * Mark this page frame as an L1 page frame.
-     */
-    pgDesc->type = PG_L1;
+  SVA_ASSERT(pgDesc->type != PG_L1,
+    "SVA: declare L1: type = %x\n", pgDesc->type);
+  /*
+   * Mark this page frame as an L1 page frame.
+   */
+  pgDesc->type = PG_L1;
 
 #if 0
-    /*
-     * Reset the virtual address which can point to this page table page.
-     */
-    pgDesc->pgVaddr = 0;
+  /*
+   * Reset the virtual address which can point to this page table page.
+   */
+  pgDesc->pgVaddr = 0;
 #endif
 
-    /* 
-     * Initialize the page data and page entry. Note that we pass a general
-     * page_entry_t to the function as it enables reuse of code for each of the
-     * entry declaration functions. 
-     */
-    initDeclaredPage(frameAddr);
-  } else {
-    panic ("SVA: declare L1: type = %x\n", pgDesc->type);
-  }
+  /*
+   * Initialize the page data and page entry. Note that we pass a general
+   * page_entry_t to the function as it enables reuse of code for each of the
+   * entry declaration functions.
+   */
+  initDeclaredPage(frameAddr);
 
   /* Restore interrupts */
   sva_exit_critical (rflags);
@@ -2148,14 +2140,18 @@ sva_declare_l2_page (uintptr_t frameAddr) {
       break;
 
     default:
-      printf ("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
-      panic ("SVA: Declaring L2 for wrong page: frameAddr = %lx, pgDesc=%p, type=%x count=%x\n", frameAddr, pgDesc, pgDesc->type, pgDesc->count);
-      break;
+      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
+      SVA_ASSERT_UNREACHABLE(
+        "SVA: Declaring L2 for wrong page: "
+        "frameAddr = %lx, pgDesc=%p, type=%x count=%x\n",
+        frameAddr, pgDesc, pgDesc->type, pgDesc->count);
   }
 
 #ifdef SVA_DMAP
  /* A page can only be declared as a page table page if its reference count is 2 or less.*/
-  SVA_ASSERT((pgRefCount(pgDesc) <= 2), "sva_declare_l2_page: more than one virtual addresses are still using this page!");
+  SVA_ASSERT(pgRefCount(pgDesc) <= 2,
+    "sva_declare_l2_page: "
+    "more than one virtual addresses are still using this page!\n");
 #else
   /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
   //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l2_page: more than one virtual addresses are still using this page!");
@@ -2231,14 +2227,18 @@ sva_declare_l3_page (uintptr_t frameAddr) {
       break;
 
     default:
-      printf ("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
-      panic ("SVA: Declaring L3 for wrong page: frameAddr = %lx, pgDesc=%p, type=%x count=%x\n", frameAddr, pgDesc, pgDesc->type, pgDesc->count);
-      break;
+      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
+      SVA_ASSERT_UNREACHABLE(
+        "SVA: Declaring L3 for wrong page: "
+        "frameAddr = %lx, pgDesc=%p, type=%x count=%x\n",
+        frameAddr, pgDesc, pgDesc->type, pgDesc->count);
   }
 
 #ifdef SVA_DMAP
  /* A page can only be declared as a page table page if its reference count is 2 or less.*/
-  SVA_ASSERT((pgRefCount(pgDesc) <= 2), "sva_declare_l3_page: more than one virtual addresses are still using this page!");
+  SVA_ASSERT(pgRefCount(pgDesc) <= 2,
+    "sva_declare_l3_page: "
+    "more than one virtual addresses are still using this page!\n");
 #else
    /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
   //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l3_page: more than one virtual addresses are still using this page!");
@@ -2323,14 +2323,18 @@ sva_declare_l4_page (uintptr_t frameAddr) {
       break;
 
     default:
-      printf ("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
-      panic ("SVA: Declaring L4 for wrong page: frameAddr = %lx, pgDesc=%p, type=%x\n", frameAddr, pgDesc, pgDesc->type);
-      break;
+      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
+      SVA_ASSERT_UNREACHABLE(
+        "SVA: Declaring L4 for wrong page: "
+        "frameAddr = %lx, pgDesc=%p, type=%x\n",
+        frameAddr, pgDesc, pgDesc->type);
   }
 
 #ifdef SVA_DMAP
  /* A page can only be declared as a page table page if its reference count is 2 or less.*/
-  SVA_ASSERT((pgRefCount(pgDesc) <= 2), "sva_declare_l4_page: more than one virtual addresses are still using this page!");
+  SVA_ASSERT(pgRefCount(pgDesc) <= 2,
+    "sva_declare_l4_page: "
+    "more than one virtual addresses are still using this page!\n");
 #else
  /* A page can only be declared as a page table page if its reference count is less than 2.*/
   //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l4_page: more than one virtual addresses are still using this page!");
@@ -2486,13 +2490,15 @@ sva_remove_page (uintptr_t paddr) {
       break;
 
     default:
-      panic("SVA: undeclare bad page type: %lx %x\n", paddr, pgDesc->type);
+      SVA_ASSERT_UNREACHABLE(
+        "SVA: undeclare bad page type: %lx %x\n", paddr, pgDesc->type);
+#if 0
       /* Restore interrupts and return to kernel page tables */
       sva_exit_critical(rflags);
       usersva_to_kernel_pcid();
       record_tsc(sva_remove_page_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
       return;
-      break;
+#endif
   }
 
   /*
@@ -2732,9 +2738,8 @@ sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned lon
   page_desc_t * ptDesc = getPageDescPtr (getPhysicalAddr(pteptr));
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: Page table frame doesn't exist\n");
-  if ((ptDesc->type != PG_L1) && (!disableMMUChecks)) {
-    panic ("SVA: MMU: update_l1 not an L1: %p %lx: %x\n", pteptr, val, ptDesc->type);
-  }
+  SVA_ASSERT(disableMMUChecks || ptDesc->type == PG_L1,
+    "SVA: MMU: update_l1 not an L1: %p %lx: %x\n", pteptr, val, ptDesc->type);
 
   /*
    * Update the page table with the new mapping.
@@ -2793,9 +2798,8 @@ sva_update_l1_mapping(pte_t * pteptr, page_entry_t val) {
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pteptr));
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: L1 page table frame doesn't exist\n");
-  if ((ptDesc->type != PG_L1) && (!disableMMUChecks)) {
-    panic("SVA: MMU: update_l1 not an L1: %p %lx: %x\n", pteptr, val, ptDesc->type);
-  }
+  SVA_ASSERT(disableMMUChecks || ptDesc->type == PG_L1,
+    "SVA: MMU: update_l1 not an L1: %p %lx: %x\n", pteptr, val, ptDesc->type);
 
   /*
    * Update the page table with the new mapping.
@@ -2846,9 +2850,9 @@ sva_update_l2_mapping(pde_t * pdePtr, page_entry_t val) {
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pdePtr));
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: L2 page table frame doesn't exist\n");
-  if ((ptDesc->type != PG_L2) && (!disableMMUChecks)) {
-    panic("SVA: MMU: update_l2 not an L2: %p %lx: type=%x count=%x\n", pdePtr, val, ptDesc->type, ptDesc->count);
-  }
+  SVA_ASSERT(disableMMUChecks || ptDesc->type == PG_L2,
+    "SVA: MMU: update_l2 not an L2: %p %lx: type=%x count=%x\n",
+    pdePtr, val, ptDesc->type, ptDesc->count);
 
   /*
    * Update the page mapping.
@@ -2892,9 +2896,8 @@ void sva_update_l3_mapping(pdpte_t * pdptePtr, page_entry_t val) {
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pdptePtr));
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: L3 page table frame doesn't exist\n");
-  if ((ptDesc->type != PG_L3) && (!disableMMUChecks)) {
-    panic("SVA: MMU: update_l3 not an L3: %p %lx: %x\n", pdptePtr, val, ptDesc->type);
-  }
+  SVA_ASSERT(disableMMUChecks || ptDesc->type == PG_L3,
+    "SVA: MMU: update_l3 not an L3: %p %lx: %x\n", pdptePtr, val, ptDesc->type);
 
   __update_mapping(pdptePtr, val);
 
@@ -2936,10 +2939,8 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pml4ePtr));
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: L4 page table frame doesn't exist\n");
-  if ((ptDesc->type != PG_L4) && (!disableMMUChecks)) {
-    panic("SVA: MMU: update_l4 not an L4: %p %lx: %x\n", pml4ePtr, val, ptDesc->type);
-  }
-
+  SVA_ASSERT(disableMMUChecks || ptDesc->type == PG_L4,
+    "SVA: MMU: update_l4 not an L4: %p %lx: %x\n", pml4ePtr, val, ptDesc->type);
 
   __update_mapping(pml4ePtr, val);
 
@@ -2950,9 +2951,9 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
     uintptr_t index = (uintptr_t)pml4ePtr & vmask;
     pml4e_t * kernel_pml4ePtr = (pml4e_t *)((uintptr_t) getVirtual(other_cr3) | index); 
     page_desc_t * kernel_ptDesc = getPageDescPtr(other_cr3);
-    if((kernel_ptDesc->type != PG_L4) && (!disableMMUChecks)){
-           panic("SVA: MMU: update_l4 kernel or sva version pte not an L4: %lx %lx: %x\n", kernel_pml4ePtr, val, kernel_ptDesc->type);
-    }
+    SVA_ASSERT(disableMMUChecks || kernel_ptDesc->type == PG_L4,
+      "SVA: MMU: update_l4 kernel or sva version pte not an L4: %lx %lx: %x\n",
+      kernel_pml4ePtr, val, kernel_ptDesc->type);
 
     if(((index >> 3) == PML4PML4I) && ((val & PG_FRAME) == (getPhysicalAddr(pml4ePtr) & PG_FRAME)))
         val = other_cr3 | (val & 0xfff);
@@ -3027,20 +3028,21 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
    * Ensure that the new kernel PML4 page has been declared to SVA as an L4
    * PTP frame.
    */
-  if (kernel_ptDesc->type != PG_L4)
-    panic("SVA: MMU: attempted to use a page as a kernel PML4 that wasn't "
-        "declared to SVA as an L4 PTP frame! "
-        "paddr = 0x%lx\n; type = %d", kernel_phys, kernel_ptDesc->type);
+  SVA_ASSERT(kernel_ptDesc->type == PG_L4,
+    "SVA: MMU: attempted to use a page as a kernel PML4 that wasn't "
+    "declared to SVA as an L4 PTP frame!\n"
+    "paddr = 0x%lx\n; type = %d\n", kernel_phys, kernel_ptDesc->type);
 
   /*
    * Ensure that the original PML4 page (i.e. the user/SVA version PML4) that
    * the new kernel PML4 is being attached to really is itself a PML4.
    */
-  if (usersva_ptDesc->type != PG_L4)
-    panic("SVA: MMU: attempted to set up a kernel version of a PML4 that "
-        "isn't actually a PML4! Fake original page paddr = 0x%lx, "
-        "type = %d; Kernel PML4 paddr = 0x%lx\n",
-        orig_phys, usersva_ptDesc->type, kernel_phys);
+  SVA_ASSERT(usersva_ptDesc->type == PG_L4,
+    "SVA: MMU: attempted to set up a kernel version of a PML4 that "
+    "isn't actually a PML4!\n"
+    "Fake original page paddr = 0x%lx, "
+    "type = %d; Kernel PML4 paddr = 0x%lx\n",
+    orig_phys, usersva_ptDesc->type, kernel_phys);
 
 #ifdef SVA_ASID_PG
   /*
@@ -3051,10 +3053,9 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
    * it's certainly not a sane way to configure things and would be a mess to
    * support, especially w.r.t. refcounts.)
    */
-  if (usersva_ptDesc->other_pgPaddr != 0)
-    panic("SVA: MMU: attempted to set up a kernel version of a user/SVA PML4 "
-        "that already has a counterpart kernel PML4. paddr = 0x%lx\n",
-        kernel_phys);
+  SVA_ASSERT(usersva_ptDesc->other_pgPaddr == 0,
+    "SVA: MMU: attempted to set up a kernel version of a user/SVA PML4 "
+    "that already has a counterpart kernel PML4. paddr = 0x%lx\n", kernel_phys);
 
   /*
    * Point the two PML4s' page descriptors' cross-references (the

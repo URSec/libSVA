@@ -412,8 +412,10 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
       break;
 
     default:
-      printf("SVA: page type %d. Frame addr: %p\n",thisPg->type, pagePtr);
-      panic("SVA: walked an entry with invalid page type.");
+      SVA_ASSERT_UNREACHABLE(
+        "SVA: FATAL: Walked an entry with invalid page type %d "
+        "(frame address %p).\n",
+        thisPg->type, pagePtr);
   }
 
   /*
@@ -623,8 +625,8 @@ remap_internal_memory (uintptr_t * firstpaddr) {
     }
 
     for (unsigned index = 0; index < 100; ++index) {
-      if ((*(q + index)) != ('a' + index))
-        panic ("SVA: No match: %x: %p != %p\n", index, p + index, q + index);
+      SVA_ASSERT((*(q + index)) == ('a' + index),
+        "SVA: No match: %x: %p != %p\n", index, p + index, q + index);
     }
 
     /* Move to the next virtual address */
@@ -787,8 +789,8 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
 
 #ifdef SVA_DMAP
   for (int ptindex = 0; ptindex < 1024; ++ptindex) {
-    if (SVAPTPages[ptindex] == NULL)
-      panic("SVAPTPages[%d] is not allocated\n", ptindex);
+    SVA_ASSERT(SVAPTPages[ptindex] != NULL,
+      "SVAPTPages[%d] is not allocated\n", ptindex);
 
     PTPages[ptindex].paddr   = getPhysicalAddr(SVAPTPages[ptindex]);
     PTPages[ptindex].vosaddr = getVirtualSVADMAP(PTPages[ptindex].paddr);
