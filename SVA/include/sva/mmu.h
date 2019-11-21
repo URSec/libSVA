@@ -58,6 +58,7 @@
 
 #include "mmu_types.h"
 
+#include "sva/assert.h"
 #include "sva/callbacks.h"
 #include "sva/secmem.h"
 #include "sva/state.h"
@@ -92,45 +93,6 @@ static const uintptr_t secmemOffset = ((SECMEMSTART >> 39) << 3) & vmask;
 
 /* Zero mapping is the mapping that eliminates the previous entry */
 static const uintptr_t ZERO_MAPPING = 0;
-
-/*
- * Assert macro for SVA
- */
-/* 
- * TODO: this will be removed. It is only used for temporarily obtaining
- * performance numbers.
- */
-static inline void
-SVA_NOOP_ASSERT (int res, char * st) {
-  if (!res) res++;
-}
-
-/*
- * Function: SVA_ASSERT()
- *
- * Description:
- *  Check that the test (given as the first argument) passed.  If it did not,
- *  then panic with the specified string.
- */
-static inline void
-SVA_ASSERT (unsigned char passed, char * str) {
-  if (!passed)
-    panic ("%s", str);
-  return;
-}
-
-/*
- * Function: SVA_ASSERT_UNREACHABLE()
- *
- * Description:
- *  An assert that unconditionally fails. Used to assert that a particular
- *  code path should never be reached.
- */
-static inline void __attribute__((__noreturn__))
-SVA_ASSERT_UNREACHABLE (char * str) {
-  SVA_ASSERT(0, str);
-  __builtin_unreachable();
-}
 
 /*
  *****************************************************************************

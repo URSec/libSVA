@@ -14,6 +14,7 @@
 
 #include <string.h>
 
+#include "sva/assert.h"
 #include "sva/types.h"
 #include "sva/config.h"
 #include "sva/callbacks.h"
