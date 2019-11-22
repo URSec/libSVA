@@ -2023,6 +2023,7 @@ void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val)
 void
 sva_declare_l1_page (uintptr_t frameAddr) {
   if (!mmuIsInitialized) {
+    memset(getVirtualKernelDMAP(frameAddr), 0, PAGE_SIZE);
     return;
   }
 
@@ -2112,6 +2113,7 @@ sva_declare_l1_page (uintptr_t frameAddr) {
 void
 sva_declare_l2_page (uintptr_t frameAddr) {
   if (!mmuIsInitialized) {
+    memset(getVirtualKernelDMAP(frameAddr), 0, PAGE_SIZE);
     return;
   }
 
@@ -2200,6 +2202,7 @@ sva_declare_l2_page (uintptr_t frameAddr) {
 void
 sva_declare_l3_page (uintptr_t frameAddr) {
   if (!mmuIsInitialized) {
+    memset(getVirtualKernelDMAP(frameAddr), 0, PAGE_SIZE);
     return;
   }
 
@@ -2287,6 +2290,7 @@ sva_declare_l3_page (uintptr_t frameAddr) {
 void
 sva_declare_l4_page (uintptr_t frameAddr) {
   if (!mmuIsInitialized) {
+    memset(getVirtualKernelDMAP(frameAddr), 0, PAGE_SIZE);
     return;
   }
 
