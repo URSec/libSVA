@@ -2978,6 +2978,102 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
   return;
 }
 
+/**
+ * Change the permissions on a code page.
+ *
+ * Note: This function allows the creation of writable+executable mappings as
+ * well as setting unvetted data as executable. Use with caution.
+ *
+ * @param vaddr The virtual address for which to change permissions
+ * @param perms The new permissions to set
+ */
+static void protect_code_page(uintptr_t vaddr, page_entry_t perms) {
+  // Get a pointer to the page table entry
+  page_entry_t* leaf_entry;
+  pdpte_t* l3e = sva_get_l3_entry(vaddr);
+  SVA_ASSERT(l3e != NULL && isPresent(l3e),
+    "SVA: FATAL: Attempt to change permissions on unmapped page\n");
+  if (isHugePage(l3e)) {
+    leaf_entry = l3e;
+  } else {
+    pde_t* l2e = get_pdeVaddr(l3e, vaddr);
+    SVA_ASSERT(l2e != NULL && isPresent(l2e),
+      "SVA: FATAL: Attempt to change permissions on unmapped page\n");
+    if (isHugePage(l2e)) {
+      leaf_entry = l2e;
+    } else {
+      pte_t* l1e = get_pteVaddr(l2e, vaddr);
+      SVA_ASSERT(l1e != NULL && isPresent(l1e),
+        "SVA: FATAL: Attempt to change permissions on unmapped page\n");
+      leaf_entry = l1e;
+    }
+  }
+
+  page_desc_t* pgDesc = getPageDescPtr(*leaf_entry & PG_FRAME);
+  SVA_ASSERT(pgDesc != NULL,
+    "SVA: FATAL: Page table entry maps invalid frame\n");
+  SVA_ASSERT(pgDesc->type = PG_CODE,
+    "SVA: FATAL: Changing permissons on non-code page 0x%016lx\n", vaddr);
+
+  *leaf_entry &= ~(PG_V | PG_RW | PG_NX) | perms;
+  *leaf_entry |= perms;
+
+  invlpg(vaddr);
+}
+
+/*
+ * Remove write-protection from a code page.
+ *
+ * This is a hack which is intended to support limited uses of runtime-generated
+ * code which have not been fully ported.
+ *
+ * @param vaddr The virtual address for which to change protections
+ */
+void sva_unprotect_code_page(void* vaddr) {
+  SVA_ASSERT(mmuIsInitialized,
+    "SVA: FATAL: sva_unprotect_code_page called before MMU init\n");
+
+  uint64_t tsc_tmp = 0;
+  if(tsc_read_enable_sva)
+     tsc_tmp = sva_read_tsc();
+
+  unsigned long flags = sva_enter_critical();
+  kernel_to_usersva_pcid();
+
+  protect_code_page((uintptr_t)vaddr, PG_V | PG_RW | PG_NX);
+
+  usersva_to_kernel_pcid();
+  sva_exit_critical(flags);
+
+  record_tsc(sva_update_l1_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+}
+
+/*
+ * Re-add write-protection to a code page.
+ *
+ * This is a hack which is intended to support limited uses of runtime-generated
+ * code which have not been fully ported.
+ *
+ * @param vaddr The virtual address for which to change protections
+ */
+void sva_protect_code_page(void* vaddr) {
+  SVA_ASSERT(mmuIsInitialized,
+    "SVA: FATAL: sva_unprotect_code_page called before MMU init\n");
+
+  uint64_t tsc_tmp = 0;
+  if(tsc_read_enable_sva)
+     tsc_tmp = sva_read_tsc();
+
+  unsigned long flags = sva_enter_critical();
+  kernel_to_usersva_pcid();
+
+  protect_code_page((uintptr_t)vaddr, PG_V);
+
+  usersva_to_kernel_pcid();
+  sva_exit_critical(flags);
+
+  record_tsc(sva_update_l1_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+}
 
 /*
  * Intrisic: sva_create_kernel_pml4pg()
