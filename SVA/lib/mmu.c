@@ -1732,7 +1732,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
  *  pg - The physical address of the top-level page table page.
  */
 void
-sva_mm_load_pgtable (void * pg_ptr) {
+sva_mm_load_pgtable (cr3_t pg_ptr) {
   if (!mmuIsInitialized) {
     write_cr3(pg_ptr);
     return;
@@ -1758,7 +1758,7 @@ sva_mm_load_pgtable (void * pg_ptr) {
    * (These bits aren't *supposed* to be set by the caller, but we can't
    * trust the system software to be honest.)
    */
-  uintptr_t new_pml4 = ((uintptr_t) pg_ptr) & PG_FRAME;
+  uintptr_t new_pml4 = pg_ptr & PG_FRAME;
 
   /*
    * Check that the new page table is an L4 page table page.
