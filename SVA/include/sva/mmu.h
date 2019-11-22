@@ -368,6 +368,19 @@ getVirtualSVADMAP (uintptr_t physical) {
   return (unsigned char *)(physical | SVADMAPSTART);
 }
 
+/**
+ * Get the kernel direct map virtual address for a physical address.
+ *
+ * @param paddr A physical address
+ * @return      A virtual address in the kernel's direct map which maps to
+ *              `paddr`
+ */
+static inline unsigned char*
+getVirtualKernelDMAP(uintptr_t physical) {
+  return (unsigned char *)(physical | KERNDMAPSTART);
+}
+
+
 /*
  * Function: getVirtual()
  *
@@ -386,7 +399,7 @@ getVirtual (uintptr_t physical) {
 #ifdef SVA_DMAP
   return getVirtualSVADMAP(physical);
 #else
-  return (unsigned char *)(physical | KERNDMAPSTART);
+  return getVirtualKernelDMAP(physical);
 #endif
 }
 
