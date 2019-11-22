@@ -1733,6 +1733,11 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
  */
 void
 sva_mm_load_pgtable (void * pg_ptr) {
+  if (!mmuIsInitialized) {
+    write_cr3(pg_ptr);
+    return;
+  }
+
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
