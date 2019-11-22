@@ -722,17 +722,16 @@ initDeclaredPage (unsigned long frameAddr) {
    * Get a pointer to the page table entry that maps the physical page into the
    * direct map.
    */
-  page_entry_t * page_entry = get_pgeVaddr ((uintptr_t)vaddr);
-  if (page_entry) {
+  vaddr = getVirtualKernelDMAP(frameAddr);
+  page_entry_t* page_entry = get_pgeVaddr((uintptr_t)vaddr);
+  if (page_entry != NULL) {
     /*
      * Make the direct map entry for the page read-only to ensure that the OS
      * goes through SVA to make page table changes.
      *
      * This change will take effect when we do a global TLB flush below.
      */
-    if (((*page_entry) & PG_PS) == 0) {
-      page_entry_store (page_entry, setMappingReadOnly(*page_entry));
-    }
+    page_entry_store(page_entry, setMappingReadOnly(*page_entry));
   }
 
   /*
@@ -831,7 +830,7 @@ __update_mapping (pte_t * pageEntryPtr, page_entry_t val) {
  */
 page_entry_t *get_pgeVaddr(uintptr_t vaddr) {
   /* Pointer to the page table entry for the virtual address */
-  page_entry_t *pge = 0;
+  page_entry_t *pge = NULL;
 
   /* Get the base of the pml4 to traverse */
   uintptr_t cr3 = (uintptr_t) get_pagetable();
