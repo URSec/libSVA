@@ -166,9 +166,6 @@ typedef struct page_desc_t {
     /* Number of times a page is mapped */
     unsigned count : PG_REF_COUNT_BITS;
     
-    /* Flag denoting whether or not this frame is a code frame */
-    unsigned code : 1;
-    
     /* State of page: value of != 0 is active and 0 is inactive */
     unsigned active : 1;
 
@@ -972,7 +969,7 @@ static inline int isPTP (page_desc_t *pg) {
 static inline int isUserMapping (page_entry_t mapping) { return (mapping & PG_U);}
 static inline int isUserPTP (page_desc_t *page) { return isPTP(page) && page->user;}
 static inline int isUserPG (page_desc_t *page){ return page->user; }
-static inline int isCodePG (page_desc_t *page){ return page->code; }
+static inline int isCodePG (page_desc_t *page){ return page->type == PG_CODE; }
 
 /*
  * Function: readOnlyPage
