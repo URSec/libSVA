@@ -165,9 +165,6 @@ typedef struct page_desc_t {
 
     /* Number of times a page is mapped */
     unsigned count : PG_REF_COUNT_BITS;
-    
-    /* State of page: value of != 0 is active and 0 is inactive */
-    unsigned active : 1;
 
     /* Is this page a user page? */
     unsigned user : 1;
