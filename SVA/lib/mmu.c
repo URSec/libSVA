@@ -573,9 +573,7 @@ updateNewPageData(page_entry_t mapping, unsigned char isEPT) {
      * Update the reference count for the new page frame. Check that we aren't
      * overflowing the counter.
      */
-    SVA_ASSERT(pgRefCount(newPG) < ((1u << 13) - 1),
-               "SVA: MMU: integer overflow in page refcount");
-    newPG->count++;
+    pgRefCountInc(newPG);
   }
 
   return;
@@ -619,7 +617,7 @@ updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
       "refcount = %d\n",
       pgRefCount(origPG));
 
-    origPG->count--;
+    pgRefCountDec(origPG);
   }
 
   return;
@@ -1429,9 +1427,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    *
    * Check that we don't overflow the counter.
    */
-  SVA_ASSERT(pgRefCount(pgDesc) < ((1u << 13) - 1),
-      "SVA: MMU: integer overflow in page refcount");
-  pgDesc->count++;
+  pgRefCountInc(pgDesc);
 
   /*
    * Mark the physical page frames used to map the entry as Ghost Page Table
@@ -1520,8 +1516,8 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
   SVA_ASSERT(pgRefCount(pageDesc) >= 2,
     "SVA: MMU: frame metadata inconsistency detected "
     "(attempted to remove ghost mapping with refcount < 2). "
-    "refcount = %d\n", pageDesc->count);
-  pageDesc->count--;
+    "refcount = %d\n", pgRefCount(pageDesc));
+  pgRefCountDec(pageDesc);
 
   /*
    * If we have removed the last ghost mapping to this frame, mark its type
@@ -1533,8 +1529,10 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
    * been upheld). Now that we are done using it as ghost memory, we return
    * it to this type.
    */
-  if (pageDesc->count == 1) /* count == 1 means mapped only in SVA's DMAP */
+  if (pgRefCount(pageDesc) == 1) {
+    /* count == 1 means mapped only in SVA's DMAP */
     pageDesc->type = PG_SVA;
+  }
 
   /*
    * Modify the PTE so that the page is not present.
@@ -1714,9 +1712,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
         *pte = *src_pte;
         updateUses(pte);
         /* Check that we aren't overflowing the counter. */
-        SVA_ASSERT(pgRefCount(pgDesc) < ((1u << 13) - 1),
-            "SVA: MMU: integer overflow in page refcount\n");
-        pgDesc->count++;
+        pgRefCountInc(pgDesc);
       }
     }
   }
@@ -1801,9 +1797,7 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
 
   SVA_ASSERT(newpml4Desc != NULL,
     "SVA: FATAL: Using non-existant frame as root page table\n");
-  SVA_ASSERT(pgRefCount(newpml4Desc) < ((1u << 13) - 1),
-      "SVA: MMU: integer overflow in page refcount\n");
-  newpml4Desc->count++;
+  pgRefCountInc(newpml4Desc);
 
   /*
    * Check that the refcount isn't already below 2, which would mean that it
@@ -1816,7 +1810,7 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
     "(attempted to decrement refcount below 1)\n"
     "[old CR3 being replaced] "
     "refcount = %d\n", pgRefCount(oldpml4Desc));
-  oldpml4Desc->count--;
+  pgRefCountDec(oldpml4Desc);
 
 #ifdef SVA_ASID_PG
   /*
@@ -1827,9 +1821,7 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
     page_desc_t *kernel_newpml4Desc =
       getPageDescPtr(newpml4Desc->other_pgPaddr);
 
-    SVA_ASSERT(pgRefCount(kernel_newpml4Desc) < ((1u << 13) - 1),
-        "SVA: MMU: integer overflow in page refcount");
-    kernel_newpml4Desc->count++;
+    pgRefCountInc(kernel_newpml4Desc);
   }
 
   if (oldpml4Desc->other_pgPaddr) {
@@ -1841,7 +1833,7 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
       "(attempted to decrement refcount below 1)\n"
       "[old kernel PML4 being replaced] "
       "refcount = %d\n", pgRefCount(oldpml4Desc));
-    kernel_oldpml4Desc->count--;
+    pgRefCountDec(kernel_oldpml4Desc);
   }
 
   /*
@@ -2150,7 +2142,7 @@ sva_declare_l2_page (uintptr_t frameAddr) {
       SVA_ASSERT_UNREACHABLE(
         "SVA: Declaring L2 for wrong page: "
         "frameAddr = %lx, pgDesc=%p, type=%x count=%x\n",
-        frameAddr, pgDesc, pgDesc->type, pgDesc->count);
+        frameAddr, pgDesc, pgDesc->type, pgRefCount(pgDesc));
   }
 
 #ifdef SVA_DMAP
@@ -2238,7 +2230,7 @@ sva_declare_l3_page (uintptr_t frameAddr) {
       SVA_ASSERT_UNREACHABLE(
         "SVA: Declaring L3 for wrong page: "
         "frameAddr = %lx, pgDesc=%p, type=%x count=%x\n",
-        frameAddr, pgDesc, pgDesc->type, pgDesc->count);
+        frameAddr, pgDesc, pgDesc->type, pgRefCount(pgDesc));
   }
 
 #ifdef SVA_DMAP
@@ -2520,7 +2512,7 @@ sva_remove_page (uintptr_t paddr) {
    * mapped in the kernel's direct map (albeit read-only, which we'll be
    * un-setting below).
    */
-  if (pgDesc->count <= 2) {
+  if (pgRefCount(pgDesc) <= 2) {
     /*
      * If any valid mappings remain within the PTP, explicitly remove them to
      * ensure consistency of SVA's page metadata.
@@ -2581,7 +2573,7 @@ sva_remove_page (uintptr_t paddr) {
        */
       if (other_cr3) {
         page_desc_t *other_pgDesc = getPageDescPtr(other_cr3);
-        SVA_ASSERT((other_pgDesc->count <= 2),
+        SVA_ASSERT(pgRefCount(other_pgDesc) <= 2,
             "the kernel version pml4 page table page "
             "still has reference.\n" );
 
@@ -2618,7 +2610,7 @@ sva_remove_page (uintptr_t paddr) {
 #endif
   } else {
     printf("SVA: undeclare page with outstanding references: "
-        "type=%d count=%d\n", pgDesc->type, pgDesc->count);
+        "type=%d count=%d\n", pgDesc->type, pgRefCount(pgDesc));
   }
 
   /* Restore interrupts and return to kernel page tables */
@@ -2860,7 +2852,7 @@ sva_update_l2_mapping(pde_t * pdePtr, page_entry_t val) {
     "SVA: FATAL: L2 page table frame doesn't exist\n");
   SVA_ASSERT(disableMMUChecks || ptDesc->type == PG_L2,
     "SVA: MMU: update_l2 not an L2: %p %lx: type=%x count=%x\n",
-    pdePtr, val, ptDesc->type, ptDesc->count);
+    pdePtr, val, ptDesc->type, pgRefCount(ptDesc));
 
   /*
    * Update the page mapping.
@@ -3181,10 +3173,7 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
    * was loaded).
    */
   if (orig_phys == (read_cr3() & PG_FRAME)) {
-    SVA_ASSERT(pgRefCount(kernel_ptDesc) < ((1u << 13) - 1),
-        "SVA: MMU: integer overflow in page refcount");
-
-    kernel_ptDesc->count++;
+    pgRefCountInc(kernel_ptDesc);
   }
 
   /* 

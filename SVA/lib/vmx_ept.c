@@ -535,11 +535,7 @@ load_eptable_internal(
    *
    * Check that we aren't overflowing the counter.
    */
-  if ( usevmx ) {
-	  SVA_ASSERT(pgRefCount(ptpDesc) < ((1u << 13) - 1),
-				 "SVA: MMU: integer overflow in page refcount");
-  }
-  ptpDesc->count++;
+  pgRefCountInc(ptpDesc);
 
   /*
    * Decrement the reference count for the old PTP.
@@ -555,13 +551,7 @@ load_eptable_internal(
      * underflow). If so, our frame metadata has become inconsistent (as a
      * reference clearly exists).
      */
-    if ( usevmx ) {
-      SVA_ASSERT(pgRefCount(old_ptpDesc) > 0,
-          "SVA: MMU: frame metadata inconsistency detected "
-          "(attempted to decrement refcount below zero)"
-          "[EPTP replaced by sva_load_eptable()]");
-    }
-    old_ptpDesc->count--;
+    pgRefCountDec(old_ptpDesc);
   }
 
   /*

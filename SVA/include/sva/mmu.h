@@ -160,8 +160,11 @@ typedef struct page_desc_t {
     /* Flag denoting whether or not this frame is a stack frame */
     unsigned stack : 1;
 
+#define PG_REF_COUNT_BITS 12
+#define PG_REF_COUNT_MAX ((1U << PG_REF_COUNT_BITS) - 1)
+
     /* Number of times a page is mapped */
-    unsigned count : 12;
+    unsigned count : PG_REF_COUNT_BITS;
     
     /* Flag denoting whether or not this frame is a code frame */
     unsigned code : 1;
@@ -897,8 +900,45 @@ static inline bool isDirectMap(uintptr_t address) {
 #endif
 }
 
-/* The number of active references to the page */
-static inline unsigned int pgRefCount(page_desc_t *page) { return page->count; }
+/**
+ * Get the number of active references to the page.
+ *
+ * @param page  The page for which to get the reference count
+ * @return      The reference count for the page
+ */
+static inline unsigned int pgRefCount(page_desc_t* page) {
+  return page->count;
+}
+
+/**
+ * Increment a page's reference count, and get the old value.
+ *
+ * @param page  The page whose reference count is to be incremented
+ * @return      The old reference count for the page
+ */
+static inline unsigned int pgRefCountInc(page_desc_t* page) {
+  unsigned int count = page->count;
+  SVA_ASSERT(count < PG_REF_COUNT_MAX,
+    "Overflow in page reference count: frame %lx\n", (page - page_desc));
+  page->count = count + 1;
+  return count;
+}
+
+/**
+ * Decrement a page's reference count, and get the old value.
+ *
+ * @param page  The page whose reference count is to be decremented
+ * @return      The old reference count for the page
+ */
+static inline unsigned int pgRefCountDec(page_desc_t* page) {
+  unsigned int count = page->count;
+  SVA_ASSERT(count > 0,
+    "Frame metadata inconsistency: "
+    "attempt to decrement reference count below 0: "
+    "frame %lx\n", (page - page_desc));
+  page->count = count - 1;
+  return count;
+}
 
 /* Page type queries */
 static inline int isL1Pg (page_desc_t *page) { return page->type == PG_L1; }

@@ -854,13 +854,7 @@ sva_freevm(int vmid) {
    * underflow). If so, our frame metadata has become inconsistent (as a
    * reference clearly exists).
    */
-  if (usevmx) {
-    SVA_ASSERT(pgRefCount(ptpDesc) > 0,
-        "SVA: MMU: frame metadata inconsistency detected "
-        "(attempted to decrement refcount below zero)"
-        "[EPTP released by freevm]");
-  }
-  ptpDesc->count--;
+  pgRefCountDec(ptpDesc);
 #endif
 
   /* Return the VMCS frame to the frame cache. */

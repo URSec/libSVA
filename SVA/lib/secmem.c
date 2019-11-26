@@ -218,11 +218,11 @@ get_frame_from_os(void) {
   page_desc_t * page = getPageDescPtr(paddr);
   SVA_ASSERT(page != NULL,
     "SVA: FATAL: Kernel gave us a frame which doesn't exist\n");
-  if (page->count > 1) {
+  if (pgRefCount(page) > 1) {
     panic("SVA: OS gave us a frame for secure memory which is still mapped "
         "somewhere else (in %d places). The OS is lying to us and has been "
         "terminated with extreme prejudice. Frame physical address: 0x%lx\n",
-        page->count - 1, paddr);
+        pgRefCount(page) - 1, paddr);
   }
 
   /* Set the page_desc entry for this frame to type PG_SVA. */
@@ -663,7 +663,7 @@ ghostFree (struct SVAThread * threadp, unsigned char * p, intptr_t size) {
          * mappings point to this frame. Zero the frame before returning it
          * to the frame cache (and thence to the OS).
          */
-        if (getPageDescPtr(paddr)->count == 1) {
+        if (pgRefCount(getPageDescPtr(paddr)) == 1) {
           /*
            * Zero out the contents of the ghost memory.
            */
@@ -764,7 +764,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
      * processes that they belong to, so count == 2 means only one process
      * maps this page.
      */
-    if (pgDesc_old->count == 2) {
+    if (pgRefCount(pgDesc_old) == 2) {
       *pte = (*pte) | PTE_CANWRITE;
     } else {
       /*
@@ -803,15 +803,13 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
        * copy. Check that we aren't overflowing the counter.
        */
       pgDesc_new->type = PG_GHOST;
-      SVA_ASSERT(pgRefCount(pgDesc_new) < ((1u << 13) - 1),
-          "SVA: MMU: integer overflow in page refcount");
-      pgDesc_new->count++;
+      pgRefCountInc(pgDesc_new);
 
       /*
        * Decrement the refcount for the old copy to reflect that it is no
        * longer being shared by the process that got the new copy.
        */
-      pgDesc_old->count--;
+      pgRefCountDec(pgDesc_old);
       /*
        * Check that we haven't underflowed the counter. There should be at
        * least two outstanding references to the old copy:
@@ -822,7 +820,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
       if (pgRefCount(pgDesc_old) < 2) {
         panic("SVA: MMU: frame metadata inconsistency detected "
             "(fewer than 2 references remaining after ghost COW) "
-            "refcount = %d", pgDesc_old->count);
+            "refcount = %d", pgRefCount(pgDesc_old));
       }
     }
     return;
