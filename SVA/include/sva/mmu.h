@@ -929,28 +929,73 @@ static inline unsigned int pgWrRefCount(page_desc_t* page) {
 }
 
 /**
- * Increment a page's reference count, and get the old value.
+ * Increment a page's writable reference count, and get the old value.
  *
- * @param page  The page whose reference count is to be incremented
- * @return      The old reference count for the page
+ * This is useful for e.g. copy-on-write to change just a frame's writable
+ * reference count.
+ *
+ * @param page  The page whose writable reference count is to be incremented
+ * @return      The old writable reference count for the page
  */
-static inline unsigned int pgRefCountInc(page_desc_t* page) {
-  unsigned int count = page->count;
+static inline unsigned int pgRefCountIncWr(page_desc_t* page) {
   unsigned int wr_count = page->wr_count;
 
-  SVA_ASSERT(wr_count <= count,
+  SVA_ASSERT(wr_count + 1 <= page->count,
     "SVA: FATAL: Frame metadata inconsistency: "
     "writable count is greater than total count: frame 0x%lx\n",
     (page - page_desc));
-  SVA_ASSERT(count < PG_REF_COUNT_MAX,
-    "SVA: FATAL: Overflow in frame reference count: frame %lx\n",
-    (page - page_desc));
+
   SVA_ASSERT(wr_count < PG_REF_COUNT_MAX,
     "SVA: FATAL: Overflow in frame writable reference count: frame %lx\n",
     (page - page_desc));
-
-  page->count = count + 1;
   page->wr_count = wr_count + 1;
+
+  return wr_count;
+}
+
+/**
+ * Decrement a page's writable reference count, and get the old value.
+ *
+ * This is useful for e.g. copy-on-write to change just a frame's writable
+ * reference count.
+ *
+ * @param page  The page whose writable reference count is to be decremented
+ * @return      The old writable reference count for the page
+ */
+static inline unsigned int pgRefCountDecWr(page_desc_t* page) {
+  unsigned int wr_count = page->wr_count;
+
+  SVA_ASSERT(wr_count <= page->count,
+    "SVA: FATAL: Frame metadata inconsistency: "
+    "writable count is greater than total count: frame 0x%lx\n",
+    (page - page_desc));
+
+  SVA_ASSERT(wr_count > 0,
+    "SVA: FATAL: Frame metadata inconsistency: "
+    "attempt to decrement writable reference count below 0: "
+    "frame %lx\n", (page - page_desc));
+  page->wr_count = wr_count - 1;
+
+  return wr_count;
+}
+
+/**
+ * Increment a page's reference count, and get the old value.
+ *
+ * @param page      The page whose reference count is to be incremented
+ * @param writable  Whether to also increment the writable reference count
+ * @return          The old reference count for the page
+ */
+static inline unsigned int pgRefCountInc(page_desc_t* page, bool writable) {
+  unsigned int count = page->count;
+
+  SVA_ASSERT(count < PG_REF_COUNT_MAX,
+    "SVA: FATAL: Overflow in frame reference count: frame %lx\n",
+    (page - page_desc));
+  page->count = count + 1;
+  if (writable) {
+    pgRefCountIncWr(page);
+  }
 
   return count;
 }
@@ -958,28 +1003,21 @@ static inline unsigned int pgRefCountInc(page_desc_t* page) {
 /**
  * Decrement a page's reference count, and get the old value.
  *
- * @param page  The page whose reference count is to be decremented
- * @return      The old reference count for the page
+ * @param page      The page whose reference count is to be decremented
+ * @param writable  Whether to also increment the writable reference count
+ * @return          The old reference count for the page
  */
-static inline unsigned int pgRefCountDec(page_desc_t* page) {
+static inline unsigned int pgRefCountDec(page_desc_t* page, bool writable) {
   unsigned int count = page->count;
-  unsigned int wr_count = page->wr_count;
 
-  SVA_ASSERT(wr_count <= count,
-    "SVA: FATAL: Frame metadata inconsistency: "
-    "writable count is greater than total count: frame 0x%lx\n",
-    (page - page_desc));
+  if (writable) {
+    pgRefCountDecWr(page);
+  }
   SVA_ASSERT(count > 0,
     "SVA: FATAL: Frame metadata inconsistency: "
     "attempt to decrement reference count below 0: "
     "frame %lx\n", (page - page_desc));
-  SVA_ASSERT(wr_count > 0,
-    "SVA: FATAL: Frame metadata inconsistency: "
-    "attempt to decrement writable reference count below 0: "
-    "frame %lx\n", (page - page_desc));
-
   page->count = count - 1;
-  page->wr_count = wr_count - 1;
 
   return count;
 }

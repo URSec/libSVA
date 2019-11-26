@@ -854,7 +854,7 @@ sva_freevm(int vmid) {
    * underflow). If so, our frame metadata has become inconsistent (as a
    * reference clearly exists).
    */
-  pgRefCountDec(ptpDesc);
+  pgRefCountDec(ptpDesc, false);
 #endif
 
   /* Return the VMCS frame to the frame cache. */

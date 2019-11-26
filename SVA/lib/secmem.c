@@ -765,6 +765,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
      * maps this page.
      */
     if (pgRefCount(pgDesc_old) == 2) {
+      pgRefCountIncWr(pgDesc_old);
       *pte = (*pte) | PTE_CANWRITE;
     } else {
       /*
@@ -803,13 +804,13 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
        * copy. Check that we aren't overflowing the counter.
        */
       pgDesc_new->type = PG_GHOST;
-      pgRefCountInc(pgDesc_new);
+      pgRefCountInc(pgDesc_new, true);
 
       /*
        * Decrement the refcount for the old copy to reflect that it is no
        * longer being shared by the process that got the new copy.
        */
-      pgRefCountDec(pgDesc_old);
+      pgRefCountDec(pgDesc_old, false);
       /*
        * Check that we haven't underflowed the counter. There should be at
        * least two outstanding references to the old copy:

@@ -341,7 +341,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
 
       thisPg->type = PG_L4;       /* Set the page type to L4 */
       thisPg->user = 0;           /* Set the priv flag to kernel */
-      pgRefCountInc(thisPg);
+      pgRefCountInc(thisPg, false);
       subLevelPgType = PG_L3;
       numSubLevelPgEntries = NPML4EPG;//    numPgEntries;
       break;
@@ -352,7 +352,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
       if (thisPg->type != PG_L4)
         thisPg->type = PG_L3;       /* Set the page type to L3 */
       thisPg->user = 0;           /* Set the priv flag to kernel */
-      pgRefCountInc(thisPg);
+      pgRefCountInc(thisPg, false);
       subLevelPgType = PG_L2;
       numSubLevelPgEntries = NPDPEPG; //numPgEntries;
       break;
@@ -373,12 +373,12 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
         if (page_desc[index].type == PG_UNUSED)
           page_desc[index].type = PG_TKDATA;
         page_desc[index].user = 0;           /* Set the priv flag to kernel */
-        pgRefCountInc(&page_desc[index]);
+        pgRefCountInc(&page_desc[index], pageMapping & PG_RW);
         return;
       } else {
         thisPg->type = PG_L2;       /* Set the page type to L2 */
         thisPg->user = 0;           /* Set the priv flag to kernel */
-        pgRefCountInc(thisPg);
+        pgRefCountInc(thisPg, false);
         subLevelPgType = PG_L1;
         numSubLevelPgEntries = NPDEPG; // numPgEntries;
       }
@@ -400,12 +400,12 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
         if (page_desc[index].type == PG_UNUSED)
           page_desc[index].type = PG_TKDATA;
         page_desc[index].user = 0;           /* Set the priv flag to kernel */
-        pgRefCountInc(&page_desc[index]);
+        pgRefCountInc(&page_desc[index], pageMapping & PG_RW);
         return;
       } else {
         thisPg->type = PG_L1;       /* Set the page type to L1 */
         thisPg->user = 0;           /* Set the priv flag to kernel */
-        pgRefCountInc(thisPg);
+        pgRefCountInc(thisPg, false);
         subLevelPgType = PG_TKDATA;
         numSubLevelPgEntries = NPTEPG;//      numPgEntries;
       }
@@ -541,7 +541,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
 
     /* Set the type of the frame */
     getPageDescPtr(paddr)->type = PG_L3;
-    pgRefCountInc(getPageDescPtr(paddr));
+    pgRefCountInc(getPageDescPtr(paddr), false);
 
     /* Zero the contents of the frame */
 #ifdef SVA_DMAP
@@ -564,7 +564,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
 
     /* Set the type of the frame */
     getPageDescPtr(pdpte_paddr)->type = PG_L2;
-    pgRefCountInc(getPageDescPtr(pdpte_paddr));
+    pgRefCountInc(getPageDescPtr(pdpte_paddr), false);
 
     /* Zero the contents of the frame */
 #ifdef SVA_DMAP
@@ -602,7 +602,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
      */
     for (uintptr_t p = pde_paddr; p < *firstpaddr; p += X86_PAGE_SIZE) {
       getPageDescPtr(p)->type = PG_L1;
-      pgRefCountInc(getPageDescPtr(p));
+      pgRefCountInc(getPageDescPtr(p), false);
     }
 
     /*
@@ -726,8 +726,8 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
    */
   for (unsigned long i = 0; i < numPageDescEntries; i++) {
     // page_desc[i].count += 2;
-    pgRefCountInc(&page_desc[i]);
-    pgRefCountInc(&page_desc[i]);
+    pgRefCountInc(&page_desc[i], true);
+    pgRefCountInc(&page_desc[i], true);
   }
 
   /* Identify kernel code pages and intialize the descriptors */
@@ -762,7 +762,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
   page_desc_t *pml4Desc = getPageDescPtr(initial_cr3);
   SVA_ASSERT(pgRefCount(pml4Desc) < ((1u << 13) - 1),
       "SVA: MMU: integer overflow in page refcount");
-  pgRefCountInc(pml4Desc);
+  pgRefCountInc(pml4Desc, false);
 
   /* Now load the initial value of CR3 to complete kernel init. */
   write_cr3(initial_cr3);
@@ -1008,15 +1008,29 @@ static page_entry_t lower_permissions(page_entry_t entry,
     }
 
     if (perms & PG_V) {
+      if ((entry & PG_RW) && !(perms & PG_RW)) {
+        /*
+         * We removed the writable mapping to these frames, decrement their
+         * writable reference count.
+         */
+        for (size_t i = 0; i < count; ++i) {
+          pgRefCountDecWr(&desc[i]);
+        }
+      }
+
       entry = (entry & ~(PG_V | PG_RW)) | (entry & (perms & ~PG_NX));
       // Turn the "no-execute" bit *on* if the permission is disabled.
       entry |= (PG_NX ^ (perms & PG_NX));
     } else {
-      entry = 0;
-      // We removed the mapping to these frames, decrement their reference count
+      /*
+       * We removed the mapping to these frames, decrement their reference
+       * count.
+       */
       for (size_t i = 0; i < count; ++i) {
-        pgRefCountDec(&desc[i]);
+        pgRefCountDec(&desc[i], entry & PG_RW);
       }
+
+      entry = 0;
     }
     sva_dbg("Entry changed to 0x%016lx\n", entry);
   } else {
@@ -1139,7 +1153,14 @@ import_existing_mappings(page_entry_t entry,
       }
 
       desc[i].user = false;
-      pgRefCountInc(&desc[i]);
+      /*
+       * NB: We use `entry` here, not `perms`, to determine whether or not to
+       * increment the writable reference count. This is because tracking this
+       * based on the leaf entry simplifies the logic greatly and doesn't cause
+       * any problems beyond certain safety checks being slightly stricter than
+       * absolutely necessary.
+       */
+      pgRefCountInc(&desc[i], entry & PG_RW);
     }
   } else {
     // This is a page table page.
@@ -1172,7 +1193,7 @@ import_existing_mappings(page_entry_t entry,
 
     desc->type = level;
     desc->user = false;
-    pgRefCountInc(desc);
+    pgRefCountInc(desc, false);
 
     page_entry_t* entries = (page_entry_t*)getVirtual(entry & PG_FRAME);
     for (size_t i = 0; i < PG_ENTRIES; ++i) {

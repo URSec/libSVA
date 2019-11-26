@@ -535,7 +535,7 @@ load_eptable_internal(
    *
    * Check that we aren't overflowing the counter.
    */
-  pgRefCountInc(ptpDesc);
+  pgRefCountInc(ptpDesc, false);
 
   /*
    * Decrement the reference count for the old PTP.
@@ -551,7 +551,7 @@ load_eptable_internal(
      * underflow). If so, our frame metadata has become inconsistent (as a
      * reference clearly exists).
      */
-    pgRefCountDec(old_ptpDesc);
+    pgRefCountDec(old_ptpDesc, false);
   }
 
   /*

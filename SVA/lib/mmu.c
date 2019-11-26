@@ -573,7 +573,7 @@ updateNewPageData(page_entry_t mapping, unsigned char isEPT) {
      * Update the reference count for the new page frame. Check that we aren't
      * overflowing the counter.
      */
-    pgRefCountInc(newPG);
+    pgRefCountInc(newPG, mapping & PG_RW);
   }
 
   return;
@@ -617,7 +617,7 @@ updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
       "refcount = %d\n",
       pgRefCount(origPG));
 
-    pgRefCountDec(origPG);
+    pgRefCountDec(origPG, mapping & PG_RW);
   }
 
   return;
@@ -662,6 +662,24 @@ __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
   if (newPA != origPA) {
     updateOrigPageData(*pteptr, isEPT);
     updateNewPageData(mapping, isEPT);
+  } else if (isPresent_maybeEPT(pteptr, isEPT)
+      && isPresent_maybeEPT(&mapping, isEPT)) {
+    /*
+     * If both the old and new mappings are marked valid, then check if we
+     * changed the write permissions on the page. If so, update its writable
+     * reference count.
+     */
+    page_desc_t* pgDesc = getPageDescPtr(origPA);
+    SVA_ASSERT(pgDesc != NULL,
+      "SVA: FATAL: Mapped non-existant frame 0x%lx\n", origPA / PAGE_SIZE);
+
+    if ((*pteptr & PG_RW) && !(mapping & PG_RW)) {
+      // We removed write permission
+      pgRefCountDecWr(pgDesc);
+    } else if (!(*pteptr & PG_RW) && (mapping & PG_RW)) {
+      // We added write permission
+      pgRefCountIncWr(pgDesc);
+    }
   } else if (isPresent_maybeEPT(pteptr, isEPT)
       && !isPresent_maybeEPT(&mapping, isEPT)) {
     /*
@@ -1427,7 +1445,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    *
    * Check that we don't overflow the counter.
    */
-  pgRefCountInc(pgDesc);
+  pgRefCountInc(pgDesc, true);
 
   /*
    * Mark the physical page frames used to map the entry as Ghost Page Table
@@ -1517,7 +1535,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
     "SVA: MMU: frame metadata inconsistency detected "
     "(attempted to remove ghost mapping with refcount < 2). "
     "refcount = %d\n", pgRefCount(pageDesc));
-  pgRefCountDec(pageDesc);
+  pgRefCountDec(pageDesc, *pte & PG_RW);
 
   /*
    * If we have removed the last ghost mapping to this frame, mark its type
@@ -1711,8 +1729,13 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
         *src_pte &= ~PTE_CANWRITE;
         *pte = *src_pte;
         updateUses(pte);
-        /* Check that we aren't overflowing the counter. */
-        pgRefCountInc(pgDesc);
+        /*
+         * We are taking a writable page, and making a new mapping to it while
+         * making both mappings unwritable, so we need to decrement the writable
+         * reference count and increment the total reference count.
+         */
+        pgRefCountDecWr(pgDesc);
+        pgRefCountInc(pgDesc, false);
       }
     }
   }
@@ -1797,7 +1820,7 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
 
   SVA_ASSERT(newpml4Desc != NULL,
     "SVA: FATAL: Using non-existant frame as root page table\n");
-  pgRefCountInc(newpml4Desc);
+  pgRefCountInc(newpml4Desc, false);
 
   /*
    * Check that the refcount isn't already below 2, which would mean that it
@@ -1810,7 +1833,7 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
     "(attempted to decrement refcount below 1)\n"
     "[old CR3 being replaced] "
     "refcount = %d\n", pgRefCount(oldpml4Desc));
-  pgRefCountDec(oldpml4Desc);
+  pgRefCountDec(oldpml4Desc, false);
 
 #ifdef SVA_ASID_PG
   /*
@@ -1821,7 +1844,7 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
     page_desc_t *kernel_newpml4Desc =
       getPageDescPtr(newpml4Desc->other_pgPaddr);
 
-    pgRefCountInc(kernel_newpml4Desc);
+    pgRefCountInc(kernel_newpml4Desc, false);
   }
 
   if (oldpml4Desc->other_pgPaddr) {
@@ -1833,7 +1856,7 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
       "(attempted to decrement refcount below 1)\n"
       "[old kernel PML4 being replaced] "
       "refcount = %d\n", pgRefCount(oldpml4Desc));
-    pgRefCountDec(kernel_oldpml4Desc);
+    pgRefCountDec(kernel_oldpml4Desc, false);
   }
 
   /*
@@ -3173,7 +3196,7 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
    * was loaded).
    */
   if (orig_phys == (read_cr3() & PG_FRAME)) {
-    pgRefCountInc(kernel_ptDesc);
+    pgRefCountInc(kernel_ptDesc, false);
   }
 
   /* 
