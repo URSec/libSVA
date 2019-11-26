@@ -157,9 +157,6 @@ typedef struct page_desc_t {
     /* Flag to denote whether the page is a Ghost page table page */
     unsigned ghostPTP : 1;
 
-    /* Flag denoting whether or not this frame is a stack frame */
-    unsigned stack : 1;
-
 #define PG_REF_COUNT_BITS 12
 #define PG_REF_COUNT_MAX ((1U << PG_REF_COUNT_BITS) - 1)
 
@@ -949,10 +946,6 @@ static inline int isGhostPTP (page_desc_t *page) { return page->ghostPTP; }
 
 static inline int isGhostPG (page_desc_t *page) { 
     return page->type == PG_GHOST; 
-}
-
-static inline int isKernelStackPG(page_desc_t *page) { 
-    return !page->user && page->stack; 
 }
 
 static inline int isPTP (page_desc_t *pg) { 
