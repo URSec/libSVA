@@ -129,17 +129,16 @@ enum page_type_t {
 /* Mask to get the address bits out of a PTE, PDE, etc. */
 static const uintptr_t addrmask = 0x000ffffffffff000u;
 
-/*
- * Struct: page_desc_t
+/**
+ * Frame descriptor metadata.
  *
- * Description:
- *  There is one element of this structure for each physical page of memory
- *  in the system.  It records information about the physical memory (and the
- *  data stored within it) that SVA needs to perform its MMU safety checks.
+ * There is one element of this structure for each physical frame of memory in
+ * the system.  It records information about the physical memory (and the data
+ * stored within it) that SVA needs to perform its MMU safety checks.
  */
 typedef struct page_desc_t {
 #if 0 // The value stored in this field is never actually used
-    /*
+    /**
      * If the page is a page table page, mark the virtual address to which it is
      * mapped.
      */
@@ -147,26 +146,39 @@ typedef struct page_desc_t {
 #endif
 
 #ifdef SVA_ASID_PG
-    /* the physical adddress of the other (kernel or user/SVA) version pml4 page table page*/
+    /**
+     * The physical adddress of the other (kernel or user/SVA) version pml4 page
+     * table page.
+     */
     uintptr_t other_pgPaddr;
 #endif
 
-    /* Type of frame */
+    /**
+     * The type of this frame.
+     */
     enum page_type_t type : 5;
 
-    /* Flag to denote whether the page is a Ghost page table page */
+    /**
+     * Whether this frame is a Ghost page table page.
+     */
     unsigned ghostPTP : 1;
 
-    /* Is this page for SVA direct mapping? */
+    /**
+     * Whether this frame is a page table for the SVA direct map.
+     */
     unsigned dmap : 1;
 
-    /* Is this page a user page? */
+    /**
+     * Whether this frame is mapped in user space.
+     */
     unsigned user : 1;
 
 #define PG_REF_COUNT_BITS 12
 #define PG_REF_COUNT_MAX ((1U << PG_REF_COUNT_BITS) - 1)
 
-    /* Number of times a page is mapped */
+    /**
+     * Number of times this frame is mapped.
+     */
     unsigned count : PG_REF_COUNT_BITS;
 } page_desc_t;
 
