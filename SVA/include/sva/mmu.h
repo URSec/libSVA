@@ -152,22 +152,22 @@ typedef struct page_desc_t {
 #endif
 
     /* Type of frame */
-    enum page_type_t type : 6;
+    enum page_type_t type : 5;
 
     /* Flag to denote whether the page is a Ghost page table page */
     unsigned ghostPTP : 1;
+
+    /* Is this page for SVA direct mapping? */
+    unsigned dmap : 1;
+
+    /* Is this page a user page? */
+    unsigned user : 1;
 
 #define PG_REF_COUNT_BITS 12
 #define PG_REF_COUNT_MAX ((1U << PG_REF_COUNT_BITS) - 1)
 
     /* Number of times a page is mapped */
     unsigned count : PG_REF_COUNT_BITS;
-
-    /* Is this page a user page? */
-    unsigned user : 1;
-
-    /* Is this page for SVA direct mapping? */
-    unsigned dmap : 1;   
 } page_desc_t;
 
 /* Array describing the physical pages. Used by SVA's MMU and EPT intrinsics.
