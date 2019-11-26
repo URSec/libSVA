@@ -924,7 +924,7 @@ static inline unsigned int pgRefCount(page_desc_t* page) {
  * @param page  The page for which to get the writable reference count
  * @return      The writable reference count for the page
  */
-static inline unsigned int pgWrRefCount(page_desc_t* page) {
+static inline unsigned int pgRefCountWr(page_desc_t* page) {
   return page->wr_count;
 }
 

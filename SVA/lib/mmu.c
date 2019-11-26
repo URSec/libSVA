@@ -2078,10 +2078,14 @@ sva_declare_l1_page (uintptr_t frameAddr) {
   }
 
 #ifdef SVA_DMAP
-  /* A page can only be declared as a page table page if its reference count is 2 or less.*/
-  SVA_ASSERT(pgRefCount(pgDesc) <= 2,
-    "sva_declare_l1_page: "
-    "more than one virtual addresses are still using this page!\n");
+  /*
+   * A page can only be declared as a page table page if its writable reference
+   * count is 2 or less.
+   */
+  SVA_ASSERT(pgRefCountWr(pgDesc) <= 2,
+    "SVA: FATAL: Cannot declare L1 page: "
+    "There are still %u writable mappings to frame 0x%ld!\n",
+    pgRefCountWr(pgDesc), frameAddr / PAGE_SIZE);
 #else
   /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
   //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l1_page: more than one virtual addresses are still using this page!");
@@ -2169,10 +2173,14 @@ sva_declare_l2_page (uintptr_t frameAddr) {
   }
 
 #ifdef SVA_DMAP
- /* A page can only be declared as a page table page if its reference count is 2 or less.*/
-  SVA_ASSERT(pgRefCount(pgDesc) <= 2,
-    "sva_declare_l2_page: "
-    "more than one virtual addresses are still using this page!\n");
+  /*
+   * A page can only be declared as a page table page if its writable reference
+   * count is 2 or less.
+   */
+  SVA_ASSERT(pgRefCountWr(pgDesc) <= 2,
+    "SVA: FATAL: Cannot declare L2 page: "
+    "There are still %u writable mappings to frame 0x%ld!\n",
+    pgRefCountWr(pgDesc), frameAddr / PAGE_SIZE);
 #else
   /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
   //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l2_page: more than one virtual addresses are still using this page!");
@@ -2257,10 +2265,14 @@ sva_declare_l3_page (uintptr_t frameAddr) {
   }
 
 #ifdef SVA_DMAP
- /* A page can only be declared as a page table page if its reference count is 2 or less.*/
-  SVA_ASSERT(pgRefCount(pgDesc) <= 2,
-    "sva_declare_l3_page: "
-    "more than one virtual addresses are still using this page!\n");
+  /*
+   * A page can only be declared as a page table page if its writable reference
+   * count is 2 or less.
+   */
+  SVA_ASSERT(pgRefCountWr(pgDesc) <= 2,
+    "SVA: FATAL: Cannot declare L3 page: "
+    "There are still %u writable mappings to frame 0x%ld!\n",
+    pgRefCountWr(pgDesc), frameAddr / PAGE_SIZE);
 #else
    /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
   //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l3_page: more than one virtual addresses are still using this page!");
@@ -2354,10 +2366,14 @@ sva_declare_l4_page (uintptr_t frameAddr) {
   }
 
 #ifdef SVA_DMAP
- /* A page can only be declared as a page table page if its reference count is 2 or less.*/
-  SVA_ASSERT(pgRefCount(pgDesc) <= 2,
-    "sva_declare_l4_page: "
-    "more than one virtual addresses are still using this page!\n");
+  /*
+   * A page can only be declared as a page table page if its writable reference
+   * count is 2 or less.
+   */
+  SVA_ASSERT(pgRefCountWr(pgDesc) <= 2,
+    "SVA: FATAL: Cannot declare L4 page: "
+    "There are still %u writable mappings to frame 0x%ld!\n",
+    pgRefCountWr(pgDesc), frameAddr / PAGE_SIZE);
 #else
  /* A page can only be declared as a page table page if its reference count is less than 2.*/
   //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l4_page: more than one virtual addresses are still using this page!");
