@@ -180,6 +180,11 @@ typedef struct page_desc_t {
      * Number of times this frame is mapped.
      */
     unsigned count : PG_REF_COUNT_BITS;
+
+    /**
+     * Number of times this frame is mapped writable.
+     */
+    unsigned wr_count : PG_REF_COUNT_BITS;
 } page_desc_t;
 
 /* Array describing the physical pages. Used by SVA's MMU and EPT intrinsics.
@@ -904,13 +909,23 @@ static inline bool isDirectMap(uintptr_t address) {
 }
 
 /**
- * Get the number of active references to the page.
+ * Get the number of active references to a page.
  *
  * @param page  The page for which to get the reference count
  * @return      The reference count for the page
  */
 static inline unsigned int pgRefCount(page_desc_t* page) {
   return page->count;
+}
+
+/**
+ * Get the number of writable references to a page.
+ *
+ * @param page  The page for which to get the writable reference count
+ * @return      The writable reference count for the page
+ */
+static inline unsigned int pgWrRefCount(page_desc_t* page) {
+  return page->wr_count;
 }
 
 /**
@@ -921,9 +936,22 @@ static inline unsigned int pgRefCount(page_desc_t* page) {
  */
 static inline unsigned int pgRefCountInc(page_desc_t* page) {
   unsigned int count = page->count;
+  unsigned int wr_count = page->wr_count;
+
+  SVA_ASSERT(wr_count <= count,
+    "SVA: FATAL: Frame metadata inconsistency: "
+    "writable count is greater than total count: frame 0x%lx\n",
+    (page - page_desc));
   SVA_ASSERT(count < PG_REF_COUNT_MAX,
-    "Overflow in page reference count: frame %lx\n", (page - page_desc));
+    "SVA: FATAL: Overflow in frame reference count: frame %lx\n",
+    (page - page_desc));
+  SVA_ASSERT(wr_count < PG_REF_COUNT_MAX,
+    "SVA: FATAL: Overflow in frame writable reference count: frame %lx\n",
+    (page - page_desc));
+
   page->count = count + 1;
+  page->wr_count = wr_count + 1;
+
   return count;
 }
 
@@ -935,11 +963,24 @@ static inline unsigned int pgRefCountInc(page_desc_t* page) {
  */
 static inline unsigned int pgRefCountDec(page_desc_t* page) {
   unsigned int count = page->count;
+  unsigned int wr_count = page->wr_count;
+
+  SVA_ASSERT(wr_count <= count,
+    "SVA: FATAL: Frame metadata inconsistency: "
+    "writable count is greater than total count: frame 0x%lx\n",
+    (page - page_desc));
   SVA_ASSERT(count > 0,
-    "Frame metadata inconsistency: "
+    "SVA: FATAL: Frame metadata inconsistency: "
     "attempt to decrement reference count below 0: "
     "frame %lx\n", (page - page_desc));
+  SVA_ASSERT(wr_count > 0,
+    "SVA: FATAL: Frame metadata inconsistency: "
+    "attempt to decrement writable reference count below 0: "
+    "frame %lx\n", (page - page_desc));
+
   page->count = count - 1;
+  page->wr_count = wr_count - 1;
+
   return count;
 }
 
