@@ -2499,7 +2499,8 @@ sva_remove_page (uintptr_t paddr) {
    * Get the last-level page table entry in the kernel's direct map that
    * references this PTP.
    */
-  page_entry_t *pte_kdmap = get_pgeVaddr((uintptr_t) getVirtual(paddr));
+  page_entry_t *pte_kdmap =
+    get_pgeVaddr((uintptr_t)getVirtualKernelDMAP(paddr));
 
   /* Get the descriptor for the physical frame where this PTP resides. */
   page_desc_t *pgDesc = getPageDescPtr(paddr);
@@ -2637,8 +2638,8 @@ sva_remove_page (uintptr_t paddr) {
          * to flush entries pointing to it in the TLBs so that the change
          * takes effect right away.
          */
-        page_entry_t *other_pte =
-          get_pgeVaddr((uintptr_t) getVirtual(other_cr3));
+        page_entry_t* other_pte =
+          get_pgeVaddr((uintptr_t)getVirtualKernelDMAP(other_cr3));
         page_entry_store(other_pte, setMappingReadWrite(*other_pte));
         sva_mm_flush_tlb(getVirtual(other_cr3));
 
