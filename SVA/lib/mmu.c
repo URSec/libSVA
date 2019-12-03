@@ -728,13 +728,6 @@ initDeclaredPage (unsigned long frameAddr) {
   unsigned char * vaddr = getVirtual (frameAddr);
 
   /*
-   * Initialize the contents of the page to zero.  This will ensure that no
-   * existing page translations which have not been vetted exist within the
-   * page.
-   */
-  memset (vaddr, 0, X86_PAGE_SIZE);
-
-  /*
    * Get a pointer to the page table entry that maps the physical page into the
    * direct map.
    */
@@ -2028,6 +2021,130 @@ void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val)
   sva_update_l4_mapping(&(((pdpte_t *)pml4pg)[DMPML4I + index]), val);
 }
 
+/**
+ * Validate that a leaf mapping is safe.
+ *
+ * @param entry   The leaf entry
+ * @param frames  The number of frames mapped by `entry`
+ */
+static void validate_existing_leaf(page_entry_t entry, size_t frames) {
+  SVA_ASSERT_UNREACHABLE("TODO\n");
+}
+
+/**
+ * Validate that any existing L1 entries in a new page table conform to SVA's
+ * security policy.
+ *
+ * This function will also update reference counts and remove the frame from the
+ * kernel's direct map.
+ *
+ * @param frame The new page table frame
+ */
+static void validate_existing_l1_entries(uintptr_t frameAddr) {
+  pte_t* l1_entries = (pte_t*)getVirtual(frameAddr);
+
+  for (size_t i = 0; i < PG_ENTRIES; ++i) {
+    if (isPresent(&l1_entries[i])) {
+      validate_existing_leaf(l1_entries[i], 1);
+    }
+  }
+}
+
+/**
+ * Validate that any existing L2 entries in a new page table conform to SVA's
+ * security policy.
+ *
+ * This function will also update reference counts and remove the frame from the
+ * kernel's direct map.
+ *
+ * @param frame The new page table frame
+ */
+static void validate_existing_l2_entries(uintptr_t frameAddr) {
+  pde_t* l2_entries = (pde_t*)getVirtual(frameAddr);
+
+  for (size_t i = 0; i < PG_ENTRIES; ++i) {
+    if (isPresent(&l2_entries[i])) {
+      if (isHugePage(&l2_entries[i])) {
+        validate_existing_leaf(l2_entries[i], PG_L2_SIZE / PG_L1_SIZE);
+      } else {
+        uintptr_t entryFrame = l2_entries[i] & PG_FRAME;
+        page_desc_t* pgDesc = getPageDescPtr(entryFrame);
+        SVA_ASSERT(pgDesc != NULL,
+          "SVA: FATAL: New L2 table at 0x%lx contains mapping to non-existant "
+          "frame 0x%lx\n", frameAddr / PAGE_SIZE, entryFrame / PAGE_SIZE);
+
+        if (pgDesc->type != PG_L1) {
+          SVA_ASSERT_UNREACHABLE(
+            "SVA: FATAL: Recursive page validation not yet supported\n");
+        }
+        pgRefCountInc(pgDesc, false);
+      }
+    }
+  }
+}
+
+/**
+ * Validate that any existing L3 entries in a new page table conform to SVA's
+ * security policy.
+ *
+ * This function will also update reference counts and remove the frame from the
+ * kernel's direct map.
+ *
+ * @param frame The new page table frame
+ */
+static void validate_existing_l3_entries(uintptr_t frameAddr) {
+  pdpte_t* l3_entries = (pdpte_t*)getVirtual(frameAddr);
+
+  for (size_t i = 0; i < PG_ENTRIES; ++i) {
+    if (isPresent(&l3_entries[i])) {
+      if (isHugePage(&l3_entries[i])) {
+        validate_existing_leaf(l3_entries[i], PG_L3_SIZE / PG_L1_SIZE);
+      } else {
+        uintptr_t entryFrame = l3_entries[i] & PG_FRAME;
+        page_desc_t* pgDesc = getPageDescPtr(entryFrame);
+        SVA_ASSERT(pgDesc != NULL,
+          "SVA: FATAL: New L3 table at 0x%lx contains mapping to non-existant "
+          "frame 0x%lx\n", frameAddr / PAGE_SIZE, entryFrame / PAGE_SIZE);
+
+        if (pgDesc->type != PG_L2) {
+          SVA_ASSERT_UNREACHABLE(
+            "SVA: FATAL: Recursive page validation not yet supported\n");
+        }
+        pgRefCountInc(pgDesc, false);
+      }
+    }
+  }
+}
+
+/**
+ * Validate that any existing L4 entries in a new page table conform to SVA's
+ * security policy.
+ *
+ * This function will also update reference counts and remove the frame from the
+ * kernel's direct map.
+ *
+ * @param frame The new page table frame
+ */
+static void validate_existing_l4_entries(uintptr_t frameAddr) {
+  pml4e_t* l4_entries = (pml4e_t*)getVirtual(frameAddr);
+
+  for (size_t i = 0; i < PG_ENTRIES; ++i) {
+    if (isPresent(&l4_entries[i])) {
+      uintptr_t entryFrame = l4_entries[i] & PG_FRAME;
+      page_desc_t* pgDesc = getPageDescPtr(entryFrame);
+      SVA_ASSERT(pgDesc != NULL,
+        "SVA: FATAL: New L4 table at 0x%lx contains mapping to non-existant "
+        "frame 0x%lx\n", frameAddr / PAGE_SIZE, entryFrame / PAGE_SIZE);
+
+      if (pgDesc->type != PG_L3) {
+        SVA_ASSERT_UNREACHABLE(
+          "SVA: FATAL: Recursive page validation not yet supported\n");
+      }
+      pgRefCountInc(pgDesc, false);
+    }
+  }
+}
+
 /*
  * Intrinsic: sva_declare_l1_page()
  *
@@ -2043,7 +2160,6 @@ void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val)
 void
 sva_declare_l1_page (uintptr_t frameAddr) {
   if (!mmuIsInitialized) {
-    memset(getVirtualKernelDMAP(frameAddr), 0, PAGE_SIZE);
     return;
   }
 
@@ -2115,6 +2231,11 @@ sva_declare_l1_page (uintptr_t frameAddr) {
    */
   initDeclaredPage(frameAddr);
 
+  /*
+   * Validate any existing entries in the new page table.
+   */
+  validate_existing_l1_entries(frameAddr);
+
   /* Restore interrupts */
   sva_exit_critical (rflags);
   usersva_to_kernel_pcid();
@@ -2137,7 +2258,6 @@ sva_declare_l1_page (uintptr_t frameAddr) {
 void
 sva_declare_l2_page (uintptr_t frameAddr) {
   if (!mmuIsInitialized) {
-    memset(getVirtualKernelDMAP(frameAddr), 0, PAGE_SIZE);
     return;
   }
 
@@ -2206,6 +2326,11 @@ sva_declare_l2_page (uintptr_t frameAddr) {
      * entry declaration functions. 
      */
     initDeclaredPage(frameAddr);
+
+    /*
+     * Validate any existing entries in the new page table.
+     */
+    validate_existing_l2_entries(frameAddr);
   }
 
   /* Restore interrupts */
@@ -2230,7 +2355,6 @@ sva_declare_l2_page (uintptr_t frameAddr) {
 void
 sva_declare_l3_page (uintptr_t frameAddr) {
   if (!mmuIsInitialized) {
-    memset(getVirtualKernelDMAP(frameAddr), 0, PAGE_SIZE);
     return;
   }
 
@@ -2298,6 +2422,11 @@ sva_declare_l3_page (uintptr_t frameAddr) {
      * entry declaration functions. 
      */
     initDeclaredPage(frameAddr);
+
+    /*
+     * Validate any existing entries in the new page table.
+     */
+    validate_existing_l3_entries(frameAddr);
   }
 
   /* Restore interrupts */
@@ -2322,7 +2451,6 @@ sva_declare_l3_page (uintptr_t frameAddr) {
 void
 sva_declare_l4_page (uintptr_t frameAddr) {
   if (!mmuIsInitialized) {
-    memset(getVirtualKernelDMAP(frameAddr), 0, PAGE_SIZE);
     return;
   }
 
@@ -2398,6 +2526,11 @@ sva_declare_l4_page (uintptr_t frameAddr) {
      * entry declaration functions. 
      */
     initDeclaredPage(frameAddr);
+
+    /*
+     * Validate any existing entries in the new page table.
+     */
+    validate_existing_l4_entries(frameAddr);
   }
 
   /* Restore interrupts */
