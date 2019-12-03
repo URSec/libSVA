@@ -2592,8 +2592,16 @@ sva_remove_page (uintptr_t paddr) {
         freePTPage(ptindex);
         ptp_vaddr[i] = 0;
       } else {
-        /* Normal case */
-        __update_mapping(&ptp_vaddr[i], ZERO_MAPPING);
+        /*
+         * Normal case
+         *
+         * NB: We don't want to actually change the data in the page table, as
+         * the kernel may be relying on being able to access it for its own
+         * bookkeeping.  Instead, just update our metadata to reflect that the
+         * reference has been dropped.  Since this page is about to become a
+         * data page, there is no safety concern with leaving the entry intact.
+         */
+        updateOrigPageData(ptp_vaddr[i], isEPT);
       }
     }
   }
