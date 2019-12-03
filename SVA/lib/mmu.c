@@ -2545,113 +2545,126 @@ sva_remove_page (uintptr_t paddr) {
    * Check that there are no references to this page (i.e., there is no page
    * table entry that refers to this physical page frame).  If there is a
    * mapping, then someone is still using it as a page table page.  In that
-   * case, ignore the request.
+   * case, raise an error.
    *
    * Note that we check for a reference count of 2 because all pages are
    * always mapped into SVA's direct map, and PTPs in particular remain
    * mapped in the kernel's direct map (albeit read-only, which we'll be
    * un-setting below).
    */
-  if (pgRefCount(pgDesc) <= 2) {
+  if (pgRefCount(pgDesc) >= 2) {
+#ifdef XEN
     /*
-     * If any valid mappings remain within the PTP, explicitly remove them to
-     * ensure consistency of SVA's page metadata.
-     *
-     * (Note: NPTEPG = # of entries in a PTP. We assume this is the same at
-     * all levels of the paging hierarchy.)
+     * Xen PV guests have read-only mappings of page tables, which raises their
+     * reference count above 2. Ignore the error until we set up proper per-type
+     * reference counts.
      */
-    page_entry_t *ptp_vaddr = (page_entry_t *) getVirtualSVADMAP(paddr);
-    for (unsigned long i = 0; i < NPTEPG; i++) {
-      if (isPresent_maybeEPT(&ptp_vaddr[i], isEPT)) {
-        /* Remove the mapping */
-        page_desc_t *mappedPg = getPageDescPtr(ptp_vaddr[i]);
-        if (mappedPg->ghostPTP) {
-          /*
-           * The method of removal for ghost PTP mappings is slightly
-           * different than for ordinary mappings created by the OS (SVA has
-           * a separate refcount system to keep track of them).
-           */
-          unsigned int ptindex = releaseUse(&ptp_vaddr[i]);
-          freePTPage(ptindex);
-          ptp_vaddr[i] = 0;
-        } else {
-          /* Normal case */
-          __update_mapping(&ptp_vaddr[i], ZERO_MAPPING);
-        }
+    printf("SVA: WARNING: undeclare page with outstanding references: "
+        "type=%d count=%d\n", pgDesc->type, pgRefCount(pgDesc));
+    printf("SVA: This should be fatal, but is allowed as a hack to support "
+           "PV guests.\n");
+#else
+    SVA_ASSERT_UNREACHABLE(
+      "SVA: FATAL: undeclare page with outstanding references: "
+      "type=%d count=%d\n", pgDesc->type, pgRefCount(pgDesc));
+#endif
+  }
+
+  /*
+   * If any valid mappings remain within the PTP, explicitly remove them to
+   * ensure consistency of SVA's page metadata.
+   *
+   * (Note: NPTEPG = # of entries in a PTP. We assume this is the same at
+   * all levels of the paging hierarchy.)
+   */
+  page_entry_t *ptp_vaddr = (page_entry_t *) getVirtualSVADMAP(paddr);
+  for (unsigned long i = 0; i < NPTEPG; i++) {
+    if (isPresent_maybeEPT(&ptp_vaddr[i], isEPT)) {
+      /* Remove the mapping */
+      page_desc_t *mappedPg = getPageDescPtr(ptp_vaddr[i]);
+      if (mappedPg->ghostPTP) {
+        /*
+         * The method of removal for ghost PTP mappings is slightly
+         * different than for ordinary mappings created by the OS (SVA has
+         * a separate refcount system to keep track of them).
+         */
+        unsigned int ptindex = releaseUse(&ptp_vaddr[i]);
+        freePTPage(ptindex);
+        ptp_vaddr[i] = 0;
+      } else {
+        /* Normal case */
+        __update_mapping(&ptp_vaddr[i], ZERO_MAPPING);
       }
     }
+  }
 
-    /* Mark the page frame as an unused page. */
-    pgDesc->type = PG_UNUSED;
-   
-    /*
-     * Make the page writeable again in the kernel's direct map. Be sure to
-     * flush entries pointing to it in the TLBs so that the change takes
-     * effect right away.
-     */
-    page_entry_store(pte_kdmap, setMappingReadWrite(*pte_kdmap));
-    sva_mm_flush_tlb(getVirtual(paddr));
+  /* Mark the page frame as an unused page. */
+  pgDesc->type = PG_UNUSED;
+
+  /*
+   * Make the page writeable again in the kernel's direct map. Be sure to
+   * flush entries pointing to it in the TLBs so that the change takes
+   * effect right away.
+   */
+  page_entry_store(pte_kdmap, setMappingReadWrite(*pte_kdmap));
+  sva_mm_flush_tlb(getVirtual(paddr));
 
 #ifdef SVA_ASID_PG
+  /*
+   * If the PTP being undeclared is a level-4 PTP (non-EPT), undeclare the
+   * kernel's copy of it in addition to the SVA/userspace copy.
+   *
+   * (It doesn't matter which one of the two copies we were given as the
+   * parameter to this intrinsic - whichever one we were given, we'll
+   * undeclare the other one here.)
+   */
+  if (pgDesc->type == PG_L4) {
+    uintptr_t other_cr3 = pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
+
     /*
-     * If the PTP being undeclared is a level-4 PTP (non-EPT), undeclare the
-     * kernel's copy of it in addition to the SVA/userspace copy.
-     *
-     * (It doesn't matter which one of the two copies we were given as the
-     * parameter to this intrinsic - whichever one we were given, we'll
-     * undeclare the other one here.)
+     * Only proceed if there actually *is* an alternate PML4 associated
+     * with this one. In general the kernel will set these up together but
+     * SVA doesn't *force* it to do so. (In particular, the alternate PML4
+     * may not exist for the initial set of page tables loaded during
+     * boot.)
      */
-    if (pgDesc->type == PG_L4) {
-      uintptr_t other_cr3 = pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
+    if (other_cr3) {
+      page_desc_t *other_pgDesc = getPageDescPtr(other_cr3);
+      SVA_ASSERT(pgRefCount(other_pgDesc) <= 2,
+          "the kernel version pml4 page table page "
+          "still has reference.\n" );
 
       /*
-       * Only proceed if there actually *is* an alternate PML4 associated
-       * with this one. In general the kernel will set these up together but
-       * SVA doesn't *force* it to do so. (In particular, the alternate PML4
-       * may not exist for the initial set of page tables loaded during
-       * boot.)
+       * If any valid mappings remain within the PTP, explicitly remove
+       * them to ensure consistency of SVA's page metadata.
        */
-      if (other_cr3) {
-        page_desc_t *other_pgDesc = getPageDescPtr(other_cr3);
-        SVA_ASSERT(pgRefCount(other_pgDesc) <= 2,
-            "the kernel version pml4 page table page "
-            "still has reference.\n" );
-
-        /*
-         * If any valid mappings remain within the PTP, explicitly remove
-         * them to ensure consistency of SVA's page metadata.
-         */
-        page_entry_t *other_pml4_vaddr =
-          (page_entry_t *) getVirtualSVADMAP(other_cr3);
-        for (int i = 0; i < NPTEPG; i++) {
-          if (isPresent_maybeEPT(&other_pml4_vaddr[i], isEPT)) {
-            /* Remove the mapping */
-            __update_mapping(&other_pml4_vaddr[i], ZERO_MAPPING);
-          }
+      page_entry_t *other_pml4_vaddr =
+        (page_entry_t *) getVirtualSVADMAP(other_cr3);
+      for (int i = 0; i < NPTEPG; i++) {
+        if (isPresent_maybeEPT(&other_pml4_vaddr[i], isEPT)) {
+          /* Remove the mapping */
+          __update_mapping(&other_pml4_vaddr[i], ZERO_MAPPING);
         }
-
-        /* Mark the page frame as an unused page. */
-        other_pgDesc->type = PG_UNUSED;
-
-        /*
-         * Make the page writable again in the kernel's direct map. Be sure
-         * to flush entries pointing to it in the TLBs so that the change
-         * takes effect right away.
-         */
-        page_entry_t* other_pte =
-          get_pgeVaddr((uintptr_t)getVirtualKernelDMAP(other_cr3));
-        page_entry_store(other_pte, setMappingReadWrite(*other_pte));
-        sva_mm_flush_tlb(getVirtual(other_cr3));
-
-        other_pgDesc->other_pgPaddr = 0;
-        pgDesc->other_pgPaddr = 0;
       }
+
+      /* Mark the page frame as an unused page. */
+      other_pgDesc->type = PG_UNUSED;
+
+      /*
+       * Make the page writable again in the kernel's direct map. Be sure
+       * to flush entries pointing to it in the TLBs so that the change
+       * takes effect right away.
+       */
+      page_entry_t* other_pte =
+        get_pgeVaddr((uintptr_t)getVirtualKernelDMAP(other_cr3));
+      page_entry_store(other_pte, setMappingReadWrite(*other_pte));
+      sva_mm_flush_tlb(getVirtual(other_cr3));
+
+      other_pgDesc->other_pgPaddr = 0;
+      pgDesc->other_pgPaddr = 0;
     }
-#endif
-  } else {
-    printf("SVA: undeclare page with outstanding references: "
-        "type=%d count=%d\n", pgDesc->type, pgRefCount(pgDesc));
   }
+#endif
 
   /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
