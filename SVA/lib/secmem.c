@@ -169,13 +169,13 @@ get_frame_from_os(void) {
   /* Verify that the frame is unmapped in the kernel's direct map. */
   uintptr_t kerndmap_vaddr = (uintptr_t)getVirtual(paddr);
   pml4e_t * pml4e_ptr = get_pml4eVaddr(get_pagetable(), kerndmap_vaddr);
-  if (isPresent(pml4e_ptr)) {
+  if (isPresent(*pml4e_ptr)) {
     pdpte_t * pdpte_ptr = get_pdpteVaddr(pml4e_ptr, kerndmap_vaddr);
-    if (isPresent(pdpte_ptr)) {
+    if (isPresent(*pdpte_ptr)) {
       pde_t * pde_ptr = get_pdeVaddr(pdpte_ptr, kerndmap_vaddr);
-      if (isPresent(pde_ptr)) {
+      if (isPresent(*pde_ptr)) {
         pte_t * pte_ptr = get_pteVaddr(pde_ptr, kerndmap_vaddr);
-        if (isPresent(pte_ptr)) {
+        if (isPresent(*pte_ptr)) {
           /* The frame is still present in the kernel's direct map. */
 #if 0
           panic("SVA: OS gave us a frame for secure memory which it didn't "
@@ -734,15 +734,15 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
   if ((code & PGEX_P) && (code & PGEX_W)) {
     /* The address of the PML4e page table */
     pml4e_t *pml4e = get_pml4eVaddr(get_pagetable(), vaddr);
-    if (!isPresent(pml4e))
+    if (!isPresent(*pml4e))
       panic("sva_ghost_fault: cow pgfault pml4e %p does not exist\n", pml4e);
 
     pdpte_t *pdpte = get_pdpteVaddr(pml4e, vaddr);
-    if (!isPresent(pdpte))
+    if (!isPresent(*pdpte))
       panic("sva_ghost_fault: cow pgfault pdpte %p does not exist\n", pdpte);
 
     pde_t *pde = get_pdeVaddr(pdpte, vaddr);
-    if (!isPresent(pde))
+    if (!isPresent(*pde))
       panic("sva_ghost_fault: cow pgfault pde %p does not exist\n", pde);
 
     pte_t *pte = get_pteVaddr(pde, vaddr);

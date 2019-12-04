@@ -231,14 +231,14 @@ static bool mappingIsSafe(page_entry_t entry, enum page_type_t type) {
   case PG_EPTL1 ... PG_EPTL4:
   case PG_DML1 ... PG_DML4:
     /* Safe if neither writable or executable. */
-    return (entry & PG_NX) && !(entry & PG_RW);
+    return !isExecutable(entry) && !isWritable(entry);
   case PG_TKDATA:
   case PG_TUDATA:
     /* Safe if only executable by user. */
-    return entry & PG_NX || entry & PG_U; // Assume SMEP
+    return !isExecutable(entry) || isUserMapping(entry); // Assume SMEP
   case PG_CODE:
     /* Safe if not writable. */
-    return !(entry & PG_RW);
+    return !isWritable(entry);
   case PG_SVA:
   case PG_GHOST:
     /* Never safe. */
@@ -338,7 +338,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
    * If we aren't mapping a new page then we can skip several checks, and in
    * some cases we must, otherwise the checks will fail.
    */
-  if (isPresent_maybeEPT(&newVal, isEPT)) {
+  if (isPresent_maybeEPT(newVal, isEPT)) {
     SVA_ASSERT(newPG != NULL,
       "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
 
@@ -541,8 +541,9 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
     /* Don't allow existing kernel code mappings to be changed/removed. */
     if (origPA != newPA) {
       if (origPG != NULL && isCodePg(origPG)) {
-        SVA_ASSERT((*page_entry & PG_U), "SVA: MMU: Kernel attempted to "
-            "modify a kernel-space code page mapping!");
+        SVA_ASSERT(isUserMapping(*page_entry),
+          "SVA: MMU: Kernel attempted to modify "
+          "a kernel-space code page mapping!");
       }
     }
 
@@ -588,7 +589,7 @@ updateNewPageData(page_entry_t mapping, bool isLeaf,
   /*
    * If the new mapping is valid, update the counts for it.
    */
-  if (isPresent_maybeEPT(&mapping, isEPT)) {
+  if (isPresent_maybeEPT(mapping, isEPT)) {
     for (size_t i = 0; i < count; ++i) {
       uintptr_t newPA = (mapping & PG_FRAME) + i * PAGE_SIZE;
       page_desc_t *newPG = getPageDescPtr(newPA);
@@ -613,7 +614,7 @@ updateNewPageData(page_entry_t mapping, bool isLeaf,
        * Update the reference count for the new page frame. Check that we aren't
        * overflowing the counter.
        */
-      pgRefCountInc(newPG, isLeaf ? mapping & PG_RW : false);
+      pgRefCountInc(newPG, isLeaf ? isWritable(mapping) : false);
     }
   }
 
@@ -637,7 +638,7 @@ updateOrigPageData(page_entry_t mapping, bool isLeaf,
    * Only decrement the reference count if the page has an existing valid
    * mapping.
    */
-  if (isPresent_maybeEPT(&mapping, isEPT)) {
+  if (isPresent_maybeEPT(mapping, isEPT)) {
     for (size_t i = 0; i < count; ++i) {
       uintptr_t origPA = (mapping & PG_FRAME) + i * PAGE_SIZE;
       page_desc_t *origPG = getPageDescPtr(origPA);
@@ -658,7 +659,7 @@ updateOrigPageData(page_entry_t mapping, bool isLeaf,
         "refcount = %d\n",
         pgRefCount(origPG));
 
-      pgRefCountDec(origPG, isLeaf ? mapping & PG_RW : false);
+      pgRefCountDec(origPG, isLeaf ? isWritable(mapping) : false);
     }
   }
 }
@@ -688,10 +689,8 @@ __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
   /* Is this an extended page table update? */
   uintptr_t ptePaddr = getPhysicalAddr(pteptr);
   page_desc_t *ptePG = getPageDescPtr(ptePaddr);
-  bool oldIsLeaf = ptePG->type == PG_L1 ||
-    ((ptePG->type == PG_L2 || ptePG->type == PG_L3) && isHugePage(pteptr));
-  bool newIsLeaf = ptePG->type == PG_L1 ||
-    ((ptePG->type == PG_L2 || ptePG->type == PG_L3) && isHugePage(&mapping));
+  bool oldIsLeaf = ptePG->type == PG_L1 || isHugePage(*pteptr, ptePG->type);
+  bool newIsLeaf = ptePG->type == PG_L1 || isHugePage(mapping, ptePG->type);
   size_t oldCount = oldIsLeaf ? getMappedSize(ptePG->type) / PAGE_SIZE : 1;
   size_t newCount = newIsLeaf ? getMappedSize(ptePG->type) / PAGE_SIZE : 1;
   unsigned char isEPT = (ptePG->type >= PG_EPTL1) && (ptePG->type <= PG_EPTL4);
@@ -1337,7 +1336,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    * table, add one.
    */
   pml4e_t *pml4e = get_pml4eVaddr(get_pagetable(), vaddr);
-  if (!isPresent(pml4e)) {
+  if (!isPresent(*pml4e)) {
     /* Page table page index */
     unsigned int ptindex;
 
@@ -1365,7 +1364,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    * Get the PDPTE entry (or add it if it is not present).
    */
   pdpte_t *pdpte = get_pdpteVaddr(pml4e, vaddr);
-  if (!isPresent(pdpte)) {
+  if (!isPresent(*pdpte)) {
     /* Page table page index */
     unsigned int ptindex;
 
@@ -1393,7 +1392,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    * Get the PDE entry (or add it if it is not present).
    */
   pde_t *pde = get_pdeVaddr(pdpte, vaddr);
-  if (!isPresent(pde)) {
+  if (!isPresent(*pde)) {
     /* Page table page index */
     unsigned int ptindex;
 
@@ -1422,7 +1421,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    */
   pte_t *pte = get_pteVaddr(pde, vaddr);
 #if 0
-  SVA_ASSERT(!isPresent(pte),
+  SVA_ASSERT(!isPresent(*pte),
     "SVA: mapSecurePage: PTE is present: %p!\n", pte);
 #endif
 
@@ -1495,7 +1494,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
   uintptr_t vaddr = (uintptr_t) v;
   uintptr_t paddr = 0;
   pdpte_t *pdpte = get_pdpteVaddr(&(threadp->secmemPML4e), vaddr);
-  if (!isPresent(pdpte)) {
+  if (!isPresent(*pdpte)) {
     return 0;
   }
 
@@ -1507,7 +1506,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
    * Get the PDE entry (or add it if it is not present).
    */
   pde_t *pde = get_pdeVaddr(pdpte, vaddr);
-  if (!isPresent(pde)) {
+  if (!isPresent(*pde)) {
     return 0;
   }
 
@@ -1519,7 +1518,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
    * Get the PTE entry (or add it if it is not present).
    */
   pte_t *pte = get_pteVaddr(pde, vaddr);
-  if (!isPresent(pte)) {
+  if (!isPresent(*pte)) {
     return 0;
   }
 
@@ -1537,7 +1536,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
     "SVA: MMU: frame metadata inconsistency detected "
     "(attempted to remove ghost mapping with refcount < 2). "
     "refcount = %d\n", pgRefCount(pageDesc));
-  pgRefCountDec(pageDesc, *pte & PG_RW);
+  pgRefCountDec(pageDesc, isWritable(*pte));
 
   /*
    * If we have removed the last ghost mapping to this frame, mark its type
@@ -1649,9 +1648,9 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
       vaddr_pdp < vaddr_end;
       vaddr_pdp += NBPDP, src_pdpte++, pdpte++) {
 
-    if (!isPresent(src_pdpte))
+    if (!isPresent(*src_pdpte))
       continue;
-    if (!isPresent(pdpte)) {
+    if (!isPresent(*pdpte)) {
       /* Page table page index */
       unsigned int ptindex;
 
@@ -1684,10 +1683,10 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
       /*
        * Get the PDE entry (or add it if it is not present).
        */
-      if (!isPresent(src_pde))
+      if (!isPresent(*src_pde))
         continue;
 
-      if (!isPresent(pde)) {
+      if (!isPresent(*pde)) {
         /* Page table page index */
         unsigned int ptindex;
 
@@ -1717,7 +1716,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
           vaddr_pte < vaddr_pde + NBPDR;
           vaddr_pte += PAGE_SIZE, src_pte++, pte++) {
 
-        if (!isPresent(src_pte))
+        if (!isPresent(*src_pte))
           continue;
 
         page_desc_t *pgDesc = getPageDescPtr(*src_pte & PG_FRAME);
@@ -2051,7 +2050,7 @@ static void validate_existing_leaf(page_entry_t entry, size_t frames) {
       "SVA: FATAL: New page table contains unsafe mapping to frame 0x%lx "
       "with type %d (entry is 0x%016lx)\n",
       frame, pgDesc->type, entry);
-    pgRefCountInc(pgDesc, entry & PG_RW);
+    pgRefCountInc(pgDesc, isWritable(entry));
   }
 }
 
@@ -2068,7 +2067,7 @@ static void validate_existing_l1_entries(uintptr_t frameAddr) {
   pte_t* l1_entries = (pte_t*)getVirtual(frameAddr);
 
   for (size_t i = 0; i < PG_ENTRIES; ++i) {
-    if (isPresent(&l1_entries[i])) {
+    if (isPresent(l1_entries[i])) {
       validate_existing_leaf(l1_entries[i], 1);
     }
   }
@@ -2087,8 +2086,8 @@ static void validate_existing_l2_entries(uintptr_t frameAddr) {
   pde_t* l2_entries = (pde_t*)getVirtual(frameAddr);
 
   for (size_t i = 0; i < PG_ENTRIES; ++i) {
-    if (isPresent(&l2_entries[i])) {
-      if (isHugePage(&l2_entries[i])) {
+    if (isPresent(l2_entries[i])) {
+      if (isHugePage(l2_entries[i], PG_L2)) {
         validate_existing_leaf(l2_entries[i], PG_L2_SIZE / PG_L1_SIZE);
       } else {
         uintptr_t entryFrame = l2_entries[i] & PG_FRAME;
@@ -2120,8 +2119,8 @@ static void validate_existing_l3_entries(uintptr_t frameAddr) {
   pdpte_t* l3_entries = (pdpte_t*)getVirtual(frameAddr);
 
   for (size_t i = 0; i < PG_ENTRIES; ++i) {
-    if (isPresent(&l3_entries[i])) {
-      if (isHugePage(&l3_entries[i])) {
+    if (isPresent(l3_entries[i])) {
+      if (isHugePage(l3_entries[i], PG_L3)) {
         validate_existing_leaf(l3_entries[i], PG_L3_SIZE / PG_L1_SIZE);
       } else {
         uintptr_t entryFrame = l3_entries[i] & PG_FRAME;
@@ -2153,7 +2152,7 @@ static void validate_existing_l4_entries(uintptr_t frameAddr) {
   pml4e_t* l4_entries = (pml4e_t*)getVirtual(frameAddr);
 
   for (size_t i = 0; i < PG_ENTRIES; ++i) {
-    if (isPresent(&l4_entries[i])) {
+    if (isPresent(l4_entries[i])) {
       uintptr_t entryFrame = l4_entries[i] & PG_FRAME;
       page_desc_t* pgDesc = getPageDescPtr(entryFrame);
       SVA_ASSERT(pgDesc != NULL,
@@ -2736,7 +2735,7 @@ sva_remove_page (uintptr_t paddr) {
    */
   page_entry_t *ptp_vaddr = (page_entry_t *) getVirtualSVADMAP(paddr);
   for (unsigned long i = 0; i < NPTEPG; i++) {
-    if (isPresent_maybeEPT(&ptp_vaddr[i], isEPT)) {
+    if (isPresent_maybeEPT(ptp_vaddr[i], isEPT)) {
       /* Remove the mapping */
       page_desc_t *mappedPg = getPageDescPtr(ptp_vaddr[i]);
       if (mappedPg->ghostPTP) {
@@ -2750,8 +2749,7 @@ sva_remove_page (uintptr_t paddr) {
         ptp_vaddr[i] = 0;
       } else {
         bool isLeaf = pgDesc->type == PG_L1 ||
-          ((pgDesc->type == PG_L2 || pgDesc->type == PG_L3)
-           && isHugePage(&ptp_vaddr[i]));
+                      isHugePage(ptp_vaddr[i], pgDesc->type);
         size_t count = isLeaf ? getMappedSize(pgDesc->type) / PAGE_SIZE : 1;
         /*
          * NB: We don't want to actually change the data in the page table, as
@@ -2808,7 +2806,7 @@ sva_remove_page (uintptr_t paddr) {
       page_entry_t *other_pml4_vaddr =
         (page_entry_t *) getVirtualSVADMAP(other_cr3);
       for (int i = 0; i < NPTEPG; i++) {
-        if (isPresent_maybeEPT(&other_pml4_vaddr[i], isEPT)) {
+        if (isPresent_maybeEPT(other_pml4_vaddr[i], isEPT)) {
           /* Remove the mapping */
           __update_mapping(&other_pml4_vaddr[i], ZERO_MAPPING);
         }
@@ -3203,19 +3201,19 @@ static void protect_code_page(uintptr_t vaddr, page_entry_t perms) {
   // Get a pointer to the page table entry
   page_entry_t* leaf_entry;
   pdpte_t* l3e = sva_get_l3_entry(vaddr);
-  SVA_ASSERT(l3e != NULL && isPresent(l3e),
+  SVA_ASSERT(l3e != NULL && isPresent(*l3e),
     "SVA: FATAL: Attempt to change permissions on unmapped page\n");
-  if (isHugePage(l3e)) {
+  if (isHugePage(*l3e, PG_L3)) {
     leaf_entry = l3e;
   } else {
     pde_t* l2e = get_pdeVaddr(l3e, vaddr);
-    SVA_ASSERT(l2e != NULL && isPresent(l2e),
+    SVA_ASSERT(l2e != NULL && isPresent(*l2e),
       "SVA: FATAL: Attempt to change permissions on unmapped page\n");
-    if (isHugePage(l2e)) {
+    if (isHugePage(*l2e, PG_L2)) {
       leaf_entry = l2e;
     } else {
       pte_t* l1e = get_pteVaddr(l2e, vaddr);
-      SVA_ASSERT(l1e != NULL && isPresent(l1e),
+      SVA_ASSERT(l1e != NULL && isPresent(*l1e),
         "SVA: FATAL: Attempt to change permissions on unmapped page\n");
       leaf_entry = l1e;
     }
@@ -3413,7 +3411,7 @@ uintptr_t sva_get_physical_address(uintptr_t vaddr) {
 
 pte_t* sva_get_l1_entry(uintptr_t vaddr) {
   pde_t* pde = sva_get_l2_entry(vaddr);
-  if (pde != NULL && isPresent(pde) && !isHugePage(pde)) {
+  if (pde != NULL && isPresent(*pde) && !isHugePage(*pde, PG_L2)) {
     return get_pteVaddr(pde, vaddr);
   } else {
     return NULL;
@@ -3422,7 +3420,7 @@ pte_t* sva_get_l1_entry(uintptr_t vaddr) {
 
 pde_t* sva_get_l2_entry(uintptr_t vaddr) {
   pdpte_t* pdpte = sva_get_l3_entry(vaddr);
-  if (pdpte != NULL && isPresent(pdpte) && !isHugePage(pdpte)) {
+  if (pdpte != NULL && isPresent(*pdpte) && !isHugePage(*pdpte, PG_L3)) {
     return get_pdeVaddr(pdpte, vaddr);
   } else {
     return NULL;
@@ -3431,7 +3429,7 @@ pde_t* sva_get_l2_entry(uintptr_t vaddr) {
 
 pdpte_t* sva_get_l3_entry(uintptr_t vaddr) {
   pml4e_t* pml4e = sva_get_l4_entry(vaddr);
-  if (isPresent(pml4e)) {
+  if (isPresent(*pml4e)) {
     return get_pdpteVaddr(pml4e, vaddr);
   } else {
     return NULL;

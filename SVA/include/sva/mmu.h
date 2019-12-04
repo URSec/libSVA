@@ -492,21 +492,35 @@ get_ptePaddr (pde_t * pde, uintptr_t vaddr) {
 }
 
 /* Functions for querying information about a page table entry */
-static inline unsigned char
-isPresent (page_entry_t * pte) {
-  return (*pte & PG_V) ? 1u : 0u;
+
+/**
+ * Determine if a page table entry is present.
+ *
+ * @param pte The entry to test
+ * @return    True if the entry is present, otherwise false
+ */
+static inline bool isPresent(page_entry_t pte) {
+  return pte & PG_V;
 }
-static inline unsigned char
-isPresentEPT (page_entry_t * epte) {
+
+/**
+ * Determine if a extended page table entry is present.
+ *
+ * Note that, unlike regular page tables, extended page tables don't have a
+ * present bit. Instead, an entry is considered present if any of the read,
+ * write, or execute permissions are enabled for it.
+ *
+ * @param pte The entry to test
+ * @return    True if the entry is present, otherwise false
+ */
+static inline bool isPresentEPT(page_entry_t epte) {
   /*
    * EPT page table entries don't have a "valid" flag. Instead, a mapping is
    * considered present if and only if any of the read, write, or execute
    * flags are set to 1.
    */
-  if ((*epte & PG_EPT_R) || (*epte & PG_EPT_W) || (*epte & PG_EPT_X))
-    return 1;
-  else
-    return 0;
+  return epte & PG_EPT_R || epte & PG_EPT_W || epte & PG_EPT_X;
+
   /*
    * NOTE: if the "mode-based execute control for EPT" VM-execution control
    * is enabled, the X bit only controls supervisor-mode accesses, and a
@@ -527,15 +541,21 @@ isPresentEPT (page_entry_t * epte) {
    * will need to change this function to behave as follows *ONLY* when
    * mode-based execute control is enabled:
    *
-   *  if ((*epte & PG_EPT_R) || (*epte & PG_EPT_W) || (*epte & PG_EPT_X)
-   *      || (*epte & PG_EPT_XU))
-   *    return 1;
-   *  else
-   *    return 0;
+   *  return epte & PG_EPT_R || epte & PG_EPT_W || epte & PG_EPT_X ||
+   *         epte & PG_EPT_XU;
    */
 }
-static inline unsigned char
-isPresent_maybeEPT (page_entry_t * pte, unsigned char isEPT) {
+
+/**
+ * Determine if a (possibly extended) page table entry is present.
+ *
+ * This is a convienient wrapper for `isPresent()` and `isPresentEPT()`.
+ *
+ * @param pte   The entry to test
+ * @param isEPT Whether or not this is an EPT entry
+ * @return      True if the entry is present, otherwise false
+ */
+static inline bool isPresent_maybeEPT(page_entry_t pte, unsigned char isEPT) {
   /*
    * Calls the right isPresent() function depending on whether this is an EPT
    * mapping.
@@ -547,16 +567,66 @@ isPresent_maybeEPT (page_entry_t * pte, unsigned char isEPT) {
 }
 
 /**
+ * Determine if a page table entry maps a writable page.
+ *
+ * Note that this only tests the entry itself. Pages mapped by it may still not
+ * be writable due to write permission being disabled somewhere else in the
+ * paging hierarchy.
+ *
+ * @param pte The entry to test
+ * @return    True if `entry` maps a writable page, otherwise false
+ */
+static inline bool isWritable(page_entry_t pte) {
+  return pte & PG_RW;
+}
+
+/**
+ * Determine if a page table entry maps an executable page.
+ *
+ * Note that this only tests the entry itself. Pages mapped by it may still not
+ * be executable due to execute permission being disabled somewhere else in the
+ * paging hierarchy.
+ *
+ * @param pte The entry to test
+ * @return    True if `entry` maps an executable page, otherwise false
+ */
+static inline bool isExecutable(page_entry_t pte) {
+  return !(pte & PG_NX);
+}
+
+/**
+ * Determine if a page table entry maps a user-accessible page.
+ *
+ * Note that this only tests the entry itself. Pages mapped by it may still not
+ * be accessible to user space due to write permission being disabled somewhere
+ * else in the paging hierarchy.
+ *
+ * @param pte The entry to test
+ * @return    True if `entry` maps a user-accessible page, otherwise false
+ */
+static inline bool isUserMapping(page_entry_t pte) {
+  return pte & PG_U;
+}
+
+/**
  * Determine if a page table entry maps a "huge" page.
  *
- * Note: Behavior is undefined if this is called on a page table entry that is
- * not from an l2 or l3 table.
- *
  * @param entry The page table entry that may map a huge page
- * @return      True if `entry` maps a huge page, otherwise false.
+ * @param level The level of the page table which contains `entry`
+ * @return      True if `entry` maps a huge page, otherwise false
  */
-static inline bool isHugePage(page_entry_t* pte) {
-  return *pte & PG_PS;
+static inline bool isHugePage(page_entry_t pte, enum page_type_t level) {
+  switch (level) {
+  case PG_L1:
+  case PG_L4:
+    return false;
+  case PG_L2:
+  case PG_L3:
+    return pte & PG_PS;
+  default:
+    // TODO: Other page table types
+    SVA_ASSERT_UNREACHABLE("SVA: FATAL: Not a page table type %d\n", level);
+  }
 }
 
 /*
@@ -1047,7 +1117,6 @@ static inline int isPTP (page_desc_t *pg) {
             ;
 }
 
-static inline int isUserMapping (page_entry_t mapping) { return (mapping & PG_U);}
 static inline int isUserPTP (page_desc_t *page) { return isPTP(page) && page->user;}
 static inline int isUserPG (page_desc_t *page){ return page->user; }
 static inline int isCodePG (page_desc_t *page){ return page->type == PG_CODE; }

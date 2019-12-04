@@ -373,7 +373,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
         if (page_desc[index].type == PG_UNUSED)
           page_desc[index].type = PG_TKDATA;
         page_desc[index].user = 0;           /* Set the priv flag to kernel */
-        pgRefCountInc(&page_desc[index], pageMapping & PG_RW);
+        pgRefCountInc(&page_desc[index], isWritable(pageMapping));
         return;
       } else {
         thisPg->type = PG_L2;       /* Set the page type to L2 */
@@ -400,7 +400,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
         if (page_desc[index].type == PG_UNUSED)
           page_desc[index].type = PG_TKDATA;
         page_desc[index].user = 0;           /* Set the priv flag to kernel */
-        pgRefCountInc(&page_desc[index], pageMapping & PG_RW);
+        pgRefCountInc(&page_desc[index], isWritable(pageMapping));
         return;
       } else {
         thisPg->type = PG_L1;       /* Set the page type to L1 */
@@ -534,7 +534,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
    */
   uintptr_t vaddr = 0xffffff8000000000u;
   pml4e_t * pml4e = get_pml4eVaddr (get_pagetable(), vaddr);
-  if (!isPresent (pml4e)) {
+  if (!isPresent(*pml4e)) {
     /* Allocate a new frame */
     uintptr_t paddr = *(firstpaddr);
     (*firstpaddr) += X86_PAGE_SIZE;
@@ -557,7 +557,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
    * Get the PDPTE entry (or add it if it is not present).
    */
   pdpte_t * pdpte = get_pdpteVaddr (pml4e, vaddr);
-  if (!isPresent (pdpte)) {
+  if (!isPresent(*pdpte)) {
     /* Allocate a new frame */
     uintptr_t pdpte_paddr = *(firstpaddr);
     (*firstpaddr) += X86_PAGE_SIZE;
@@ -926,7 +926,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
 
   print_entry(entry, level, vaddr);
 
-  if (level == PG_LEAF || isHugePage(&entry)) {
+  if (level == PG_LEAF || (level != PG_L4 && isHugePage(entry, level + 1))) {
     // This is a leaf (super)page.
 
     /// The number of 4KB frames mapped by this entry.
@@ -965,7 +965,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
     }
 
     if (perms & PG_V) {
-      if ((entry & PG_RW) && !(perms & PG_RW)) {
+      if (isWritable(entry) && !(perms & PG_RW)) {
         /*
          * We removed the writable mapping to these frames, decrement their
          * writable reference count.
@@ -984,7 +984,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
        * count.
        */
       for (size_t i = 0; i < count; ++i) {
-        pgRefCountDec(&desc[i], entry & PG_RW);
+        pgRefCountDec(&desc[i], isWritable(entry));
       }
 
       entry = 0;
@@ -1047,7 +1047,7 @@ import_existing_mappings(page_entry_t entry,
       max_perms :
       intersect_perms(max_perms, entry);
 
-  if (level == PG_LEAF || isHugePage(&entry)) {
+  if (level == PG_LEAF || (level != PG_L4 && isHugePage(entry, level + 1))) {
     // This is a leaf (super)page.
 
     /// The number of 4KB frames mapped by this entry.
@@ -1117,7 +1117,7 @@ import_existing_mappings(page_entry_t entry,
        * any problems beyond certain safety checks being slightly stricter than
        * absolutely necessary.
        */
-      pgRefCountInc(&desc[i], entry & PG_RW);
+      pgRefCountInc(&desc[i], isWritable(entry));
     }
   } else {
     // This is a page table page.
