@@ -359,7 +359,9 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
      * NOTE: PG_PS and PG_EPT_PS are the same bit (#7), so we can use the
      * same check for both regular and extended page tables.
      */
-    if (ptePG->type == PG_L1 || ptePG->type == PG_EPTL1 || (newVal & PG_PS)) {
+    if (ptePG->type == PG_L1 || ptePG->type == PG_EPTL1 ||
+        isHugePage(newVal, ptePG->type))
+    {
       /*
        * The OS is only allowed to create mappings to certain types of frames
        * (e.g., unused, kernel data, or user data frames). Some frame types
@@ -851,33 +853,33 @@ page_entry_t *get_pgeVaddr(uintptr_t vaddr) {
 
   /* Get the base of the pml4 to traverse */
   uintptr_t cr3 = (uintptr_t) get_pagetable();
-  if ((cr3 & 0xfffffffffffff000u) == 0)
-    return 0;
+  if ((cr3 & PG_FRAME) == 0)
+    return NULL;
 
   /* Get the VA of the pml4e for this vaddr */
   pml4e_t *pml4e = get_pml4eVaddr ((unsigned char *)cr3, vaddr);
 
-  if (*pml4e & PG_V) {
+  if (isPresent(*pml4e)) {
     /* Get the VA of the pdpte for this vaddr */
     pdpte_t *pdpte = get_pdpteVaddr (pml4e, vaddr);
-    if (*pdpte & PG_V) {
+    if (isPresent(*pdpte)) {
       /* 
        * The PDPE can be configurd in large page mode. If it is then we have the
        * entry corresponding to the given vaddr If not then we go deeper in the
        * page walk.
        */
-      if (*pdpte & PG_PS) {
+      if (isHugePage(*pdpte, PG_L3)) {
         pge = pdpte;
       } else {
         /* Get the pde associated with this vaddr */
         pde_t *pde = get_pdeVaddr (pdpte, vaddr);
-        if (*pde & PG_V) {
+        if (isPresent(*pde)) {
           /* 
            * As is the case with the pdpte, if the pde is configured for large
            * page size then we have the corresponding entry. Otherwise we need
            * to traverse one more level, which is the last. 
            */
-          if (*pde & PG_PS) {
+          if (isHugePage(*pde, PG_L2)) {
             pge = pde;
           } else {
             pge = get_pteVaddr (pde, vaddr);
@@ -942,7 +944,7 @@ getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
   /*
    * Determine if the PML4E is present.  If not, stop the page table walk.
    */
-  if (((*pml4e) & PG_V) == 0) {
+  if (!isPresent(*pml4e)) {
     return 0;
   }
 
@@ -954,7 +956,7 @@ getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
   /*
    * Determine if the PDPTE is present.  If not, stop the page table walk.
    */
-  if (((*pdpte) & PG_V) == 0) {
+  if (!isPresent(*pdpte)) {
     return 0;
   }
 
@@ -962,7 +964,7 @@ getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
    * Determine if the PDPTE has the PS flag set.  If so, then it's pointing to
    * a 1 GB page; return the physical address of that page.
    */
-  if ((*pdpte) & PTE_PS) {
+  if (isHugePage(*pdpte, PG_L3)) {
     *paddr = (*pdpte & 0x000fffffc0000000u) + (vaddr & 0x3fffffffu);
     return 1;
   }
@@ -975,7 +977,7 @@ getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
   /*
    * Determine if the PDE is present.  If not, stop the page table walk.
    */
-  if (((*pde) & PG_V) == 0) {
+  if (!isPresent(*pde)) {
     return 0;
   }
 
@@ -983,7 +985,7 @@ getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
    * Determine if the PDE has the PS flag set.  If so, then it's pointing to a
    * 2 MB page; return the physical address of that page.
    */
-  if ((*pde) & PTE_PS) {
+  if (isHugePage(*pde, PG_L2)) {
     *paddr = ((*pde & 0x000fffffffe00000u) + (vaddr & 0x1fffffu));
     return 1;
   }
@@ -996,7 +998,7 @@ getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
   /*
    * Compute the physical address.
    */
-  if ((*pte) & PG_V) {
+  if (isPresent(*pte)) {
     offset = vaddr & vmask;
     *paddr = ((*pte & 0x000ffffffffff000u) + offset);
     return 1;
@@ -1095,7 +1097,7 @@ removeOSDirectMap (void * v) {
    * Determine if the PDPTE has the PS flag set.  If so, then it's pointing to
    * a 1 GB page; return the physical address of that page.
    */
-  if ((*pdpte) & PTE_PS) {
+  if (isHugePage(*pdpte, PG_L3)) {
     *pdpte = 0;
     return; 
   }
@@ -1109,7 +1111,7 @@ removeOSDirectMap (void * v) {
    * Determine if the PDE has the PS flag set.  If so, then it's pointing to a
    * 2 MB page; return the physical address of that page.
    */
-  if ((*pde) & PTE_PS) {
+  if (isHugePage(*pde, PG_L2)) {
     *pde = 0;
     return;
   }
@@ -1384,7 +1386,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
   }
   *pdpte |= PTE_CANUSER;
 
-  if ((*pdpte) & PTE_PS) {
+  if (isHugePage(*pdpte, PG_L3)) {
     printf("mapSecurePage: PDPTE has PS BIT\n");
   }
 
@@ -1412,7 +1414,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
   }
   *pde |= PTE_CANUSER;
 
-  if ((*pde) & PTE_PS) {
+  if (isHugePage(*pde, PG_L2)) {
     printf("mapSecurePage: PDE has PS BIT\n");
   }
 
@@ -1498,7 +1500,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
     return 0;
   }
 
-  if ((*pdpte) & PTE_PS) {
+  if (isHugePage(*pdpte, PG_L3)) {
     return 0;
   }
 
@@ -1510,7 +1512,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
     return 0;
   }
 
-  if ((*pde) & PTE_PS) {
+  if (isHugePage(*pde, PG_L2)) {
     return 0;
   }
 
@@ -1670,7 +1672,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
      */
     updateUses(pdpte);
 
-    if ((*pdpte) & PTE_PS) {
+    if (isHugePage(*pdpte, PG_L3)) {
       printf("ghostmemCOW: PDPTE has PS BIT\n");
     }
 
@@ -1706,7 +1708,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
        */
       updateUses(pde);
 
-      if ((*pde) & PTE_PS) {
+      if (isHugePage(*pde, PG_L2)) {
         printf("ghostmemCOW: PDE has PS BIT\n");
       }
 
@@ -2585,33 +2587,33 @@ printPTES (uintptr_t vaddr) {
 
   /* Get the base of the pml4 to traverse */
   unsigned char * cr3 = get_pagetable();
-  if ((((uintptr_t)(cr3)) & 0xfffffffffffff000u) == 0)
-    return 0;
+  if ((cr3 & PG_FRAME) == 0)
+    return NULL;
 
   /* Get the VA of the pml4e for this vaddr */
   pml4e_t *pml4e = get_pml4eVaddr (cr3, vaddr);
 
-  if (*pml4e & PG_V) {
+  if (isPresent(*pml4e)) {
     /* Get the VA of the pdpte for this vaddr */
     pdpte_t *pdpte = get_pdpteVaddr (pml4e, vaddr);
-    if (*pdpte & PG_V) {
+    if (isPresent(*pdpte)) {
       /* 
        * The PDPE can be configurd in large page mode. If it is then we have the
        * entry corresponding to the given vaddr If not then we go deeper in the
        * page walk.
        */
-      if (*pdpte & PG_PS) {
+      if (isHugePage(*pdpte, PG_L3)) {
         pge = pdpte;
       } else {
         /* Get the pde associated with this vaddr */
         pde_t *pde = get_pdeVaddr (pdpte, vaddr);
-        if (*pde & PG_V) {
+        if (isPresent(*pde)) {
           /* 
            * As is the case with the pdpte, if the pde is configured for large
            * page size then we have the corresponding entry. Otherwise we need
            * to traverse one more level, which is the last. 
            */
-          if (*pde & PG_PS) {
+          if (isHugePage(*pde, PG_L2)) {
             pge = pde;
           } else {
             pge = get_pteVaddr (pde, vaddr);

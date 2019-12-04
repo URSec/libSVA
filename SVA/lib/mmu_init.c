@@ -365,7 +365,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
        * for a L3 page entry and initialize the page_desc for this entry.
        * Then return as we don't need to traverse frame pages.
        */
-      if ((pageMapping & PG_PS) != 0) {
+      if (isHugePage(pageMapping, PG_L3)) {
 #if DEBUG_INIT >= 1
         printf("\tIdentified 1GB page...\n");
 #endif
@@ -391,7 +391,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
        * for a L2 page entry and initialize the page_desc for this entry.
        * Then return as we don't need to traverse frame pages.
        */
-      if ((pageMapping & PG_PS) != 0){
+      if (isHugePage(pageMapping, PG_L2)) {
 #if DEBUG_INIT >= 1
         printf("\tIdentified 2MB page...\n");
 #endif
@@ -462,7 +462,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
      * If this entry is valid then recurse the page pointed to by this page
      * table entry.
      */
-    if (*nextEntry & PG_V) {
+    if (isPresent(*nextEntry)) {
 #if DEBUG_INIT >= 1
       nValPgs++;
 #endif
@@ -1000,7 +1000,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
 
     page_entry_t* entries = (page_entry_t*)getVirtual(entry & PG_FRAME);
     for (size_t i = 0; i < PG_ENTRIES; ++i) {
-      if (entries[i] & PG_V) {
+      if (isPresent(entries[i])) {
         entries[i] = lower_permissions(entries[i], sublevel,
                                        canonicalize(vaddr + span * i));
       }
@@ -1154,7 +1154,7 @@ import_existing_mappings(page_entry_t entry,
 
     page_entry_t* entries = (page_entry_t*)getVirtual(entry & PG_FRAME);
     for (size_t i = 0; i < PG_ENTRIES; ++i) {
-      if (entries[i] & PG_V) {
+      if (isPresent(entries[i])) {
         import_existing_mappings(entries[i], sublevel, perms,
                                  canonicalize(vaddr + span * i));
       }

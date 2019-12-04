@@ -1233,7 +1233,7 @@ mapPageReadOnly(page_desc_t * ptePG, page_entry_t mapping) {
     /* 
      * L2 and L3 pages should be mapped read-only unless they are data pages.
      */
-    if ((isL2Pg(ptePG) || isL3Pg(ptePG) ) && (!(mapping & PG_PS)))
+    if ((isL2Pg(ptePG) || isL3Pg(ptePG)) && !isHugePage(mapping, ptePG->type))
       return 1;
   }
 
