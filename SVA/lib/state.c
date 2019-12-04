@@ -454,7 +454,8 @@ flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
     /*
      * Get a pointer into the page tables for the secure memory region.
      */
-    pml4e_t* secmemp = (pml4e_t*)getVirtual((uintptr_t)(get_pagetable() + secmemOffset));
+    pml4e_t* secmemp =
+      (pml4e_t*)getVirtual((uintptr_t)(get_root_pagetable() + secmemOffset));
 
     /*
      * Mark the secure memory is unmapped in the page tables.
@@ -632,7 +633,8 @@ static bool loadThread(struct SVAThread* newThread) {
       /*
        * Get a pointer into the page tables for the secure memory region.
        */
-      pml4e_t* secmemp = (pml4e_t*)getVirtual((uintptr_t)(get_pagetable() + secmemOffset));
+      pml4e_t* secmemp =
+        (pml4e_t*)getVirtual((uintptr_t)(get_root_pagetable() + secmemOffset));
 
       /*
        * Restore the PML4E entry for the secure memory region.

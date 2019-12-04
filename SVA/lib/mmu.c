@@ -852,16 +852,16 @@ page_entry_t *get_pgeVaddr(uintptr_t vaddr) {
   page_entry_t *pge = NULL;
 
   /* Get the base of the pml4 to traverse */
-  uintptr_t cr3 = (uintptr_t) get_pagetable();
+  cr3_t cr3 = get_root_pagetable();
   if ((cr3 & PG_FRAME) == 0)
     return NULL;
 
   /* Get the VA of the pml4e for this vaddr */
-  pml4e_t *pml4e = get_pml4eVaddr ((unsigned char *)cr3, vaddr);
+  pml4e_t *pml4e = get_pml4eVaddr(cr3, vaddr);
 
   if (isPresent(*pml4e)) {
     /* Get the VA of the pdpte for this vaddr */
-    pdpte_t *pdpte = get_pdpteVaddr (pml4e, vaddr);
+    pdpte_t *pdpte = get_pdpteVaddr(*pml4e, vaddr);
     if (isPresent(*pdpte)) {
       /* 
        * The PDPE can be configurd in large page mode. If it is then we have the
@@ -872,7 +872,7 @@ page_entry_t *get_pgeVaddr(uintptr_t vaddr) {
         pge = pdpte;
       } else {
         /* Get the pde associated with this vaddr */
-        pde_t *pde = get_pdeVaddr (pdpte, vaddr);
+        pde_t *pde = get_pdeVaddr(*pdpte, vaddr);
         if (isPresent(*pde)) {
           /* 
            * As is the case with the pdpte, if the pde is configured for large
@@ -882,7 +882,7 @@ page_entry_t *get_pgeVaddr(uintptr_t vaddr) {
           if (isHugePage(*pde, PG_L2)) {
             pge = pde;
           } else {
-            pge = get_pteVaddr (pde, vaddr);
+            pge = get_pteVaddr(*pde, vaddr);
           }
         }
       }
@@ -938,9 +938,6 @@ getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
   /* Virtual address to convert */
   uintptr_t vaddr  = ((uintptr_t) v);
 
-  /* Offset into the page table */
-  uintptr_t offset = 0;
-
   /*
    * Determine if the PML4E is present.  If not, stop the page table walk.
    */
@@ -951,7 +948,7 @@ getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
   /*
    * Use the PML4E to get the address of the PDPTE.
    */
-  pdpte_t * pdpte = get_pdpteVaddr (pml4e, vaddr);
+  pdpte_t* pdpte = get_pdpteVaddr(*pml4e, vaddr);
 
   /*
    * Determine if the PDPTE is present.  If not, stop the page table walk.
@@ -965,14 +962,15 @@ getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
    * a 1 GB page; return the physical address of that page.
    */
   if (isHugePage(*pdpte, PG_L3)) {
-    *paddr = (*pdpte & 0x000fffffc0000000u) + (vaddr & 0x3fffffffu);
+    *paddr = (*pdpte & PG_FRAME & ~(PG_L3_SIZE - 1)) +
+             (vaddr & (PG_L3_SIZE - 1));
     return 1;
   }
 
   /*
    * Find the page directory entry table from the PDPTE value.
    */
-  pde_t * pde = get_pdeVaddr (pdpte, vaddr);
+  pde_t* pde = get_pdeVaddr(*pdpte, vaddr);
 
   /*
    * Determine if the PDE is present.  If not, stop the page table walk.
@@ -986,21 +984,21 @@ getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
    * 2 MB page; return the physical address of that page.
    */
   if (isHugePage(*pde, PG_L2)) {
-    *paddr = ((*pde & 0x000fffffffe00000u) + (vaddr & 0x1fffffu));
+    *paddr = (*pde & PG_FRAME & ~(PG_L2_SIZE - 1)) +
+             (vaddr & (PG_L2_SIZE - 1));
     return 1;
   }
 
   /*
    * Find the PTE pointed to by this PDE.
    */
-  pte_t * pte = get_pteVaddr (pde, vaddr);
+  pte_t* pte = get_pteVaddr(*pde, vaddr);
 
   /*
    * Compute the physical address.
    */
   if (isPresent(*pte)) {
-    offset = vaddr & vmask;
-    *paddr = ((*pte & 0x000ffffffffff000u) + offset);
+    *paddr = (*pte & PG_FRAME) + (vaddr & (PG_L1_SIZE - 1));
     return 1;
   }
 
@@ -1043,12 +1041,12 @@ getPhysicalAddr (void * v) {
   /*
    * Get the currently active page table.
    */
-  unsigned char * cr3 = get_pagetable();
+  cr3_t cr3 = get_root_pagetable();
 
   /*
    * Get the address of the PML4e.
    */
-  pml4e_t * pml4e = get_pml4eVaddr (cr3, vaddr);
+  pml4e_t* pml4e = get_pml4eVaddr(cr3, vaddr);
 
   /*
    * Perform the rest of the page table walk.
@@ -1081,17 +1079,17 @@ removeOSDirectMap (void * v) {
   /*
    * Get the currently active page table.
    */
-  unsigned char * cr3 = get_pagetable();
+  cr3_t cr3 = get_root_pagetable();
 
   /*
    * Get the address of the PML4e.
    */
-  pml4e_t * pml4e = get_pml4eVaddr (cr3, vaddr);
+  pml4e_t* pml4e = get_pml4eVaddr(cr3, vaddr);
 
   /*
    * Use the PML4E to get the address of the PDPTE.
    */
-  pdpte_t * pdpte = get_pdpteVaddr (pml4e, vaddr);
+  pdpte_t* pdpte = get_pdpteVaddr(*pml4e, vaddr);
 
   /*
    * Determine if the PDPTE has the PS flag set.  If so, then it's pointing to
@@ -1105,7 +1103,7 @@ removeOSDirectMap (void * v) {
   /*
    * Find the page directory entry table from the PDPTE value.
    */
-  pde_t * pde = get_pdeVaddr (pdpte, vaddr);
+  pde_t* pde = get_pdeVaddr(*pdpte, vaddr);
 
   /*
    * Determine if the PDE has the PS flag set.  If so, then it's pointing to a
@@ -1119,7 +1117,7 @@ removeOSDirectMap (void * v) {
   /*
    * Find the PTE pointed to by this PDE.
    */
-  pte_t * pte = get_pteVaddr (pde, vaddr);
+  pte_t* pte = get_pteVaddr(*pde, vaddr);
 
   SVA_ASSERT(*pte != 0,
     "The direct mapping PTE of the SVA PTP does not exist\n");
@@ -1337,7 +1335,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    * Get the PML4E of the current page table.  If there isn't one in the
    * table, add one.
    */
-  pml4e_t *pml4e = get_pml4eVaddr(get_pagetable(), vaddr);
+  pml4e_t *pml4e = get_pml4eVaddr(get_root_pagetable(), vaddr);
   if (!isPresent(*pml4e)) {
     /* Page table page index */
     unsigned int ptindex;
@@ -1365,7 +1363,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
   /*
    * Get the PDPTE entry (or add it if it is not present).
    */
-  pdpte_t *pdpte = get_pdpteVaddr(pml4e, vaddr);
+  pdpte_t *pdpte = get_pdpteVaddr(*pml4e, vaddr);
   if (!isPresent(*pdpte)) {
     /* Page table page index */
     unsigned int ptindex;
@@ -1393,7 +1391,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
   /*
    * Get the PDE entry (or add it if it is not present).
    */
-  pde_t *pde = get_pdeVaddr(pdpte, vaddr);
+  pde_t *pde = get_pdeVaddr(*pdpte, vaddr);
   if (!isPresent(*pde)) {
     /* Page table page index */
     unsigned int ptindex;
@@ -1421,7 +1419,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
   /*
    * Get the PTE entry (or add it if it is not present).
    */
-  pte_t *pte = get_pteVaddr(pde, vaddr);
+  pte_t *pte = get_pteVaddr(*pde, vaddr);
 #if 0
   SVA_ASSERT(!isPresent(*pte),
     "SVA: mapSecurePage: PTE is present: %p!\n", pte);
@@ -1456,9 +1454,9 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    * because it is also used to map traditional memory pages (it is a top-most
    * level page table page).
    */
-  getPageDescPtr(get_pdptePaddr(pml4e, vaddr))->ghostPTP = 1;
-  getPageDescPtr(get_pdePaddr(pdpte, vaddr))->ghostPTP = 1;
-  getPageDescPtr(get_ptePaddr(pde, vaddr))->ghostPTP = 1;
+  getPageDescPtr(get_pdptePaddr(*pml4e, vaddr))->ghostPTP = 1;
+  getPageDescPtr(get_pdePaddr(*pdpte, vaddr))->ghostPTP = 1;
+  getPageDescPtr(get_ptePaddr(*pde, vaddr))->ghostPTP = 1;
 
   /*
    * Re-enable page protections.
@@ -1495,7 +1493,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
    */
   uintptr_t vaddr = (uintptr_t) v;
   uintptr_t paddr = 0;
-  pdpte_t *pdpte = get_pdpteVaddr(&(threadp->secmemPML4e), vaddr);
+  pdpte_t* pdpte = get_pdpteVaddr(threadp->secmemPML4e, vaddr);
   if (!isPresent(*pdpte)) {
     return 0;
   }
@@ -1507,7 +1505,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
   /*
    * Get the PDE entry (or add it if it is not present).
    */
-  pde_t *pde = get_pdeVaddr(pdpte, vaddr);
+  pde_t* pde = get_pdeVaddr(*pdpte, vaddr);
   if (!isPresent(*pde)) {
     return 0;
   }
@@ -1519,7 +1517,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
   /*
    * Get the PTE entry (or add it if it is not present).
    */
-  pte_t *pte = get_pteVaddr(pde, vaddr);
+  pte_t* pte = get_pteVaddr(*pde, vaddr);
   if (!isPresent(*pte)) {
     return 0;
   }
@@ -1643,8 +1641,8 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
 
   newThread->secmemPML4e = pml4e_val;
 
-  pdpte_t *src_pdpte = (pdpte_t *) get_pdpteVaddr(&(oldThread->secmemPML4e), vaddr_start);
-  pdpte_t *pdpte = get_pdpteVaddr(&pml4e_val, vaddr_start);
+  pdpte_t* src_pdpte = (pdpte_t *)get_pdpteVaddr(oldThread->secmemPML4e, vaddr_start);
+  pdpte_t* pdpte = get_pdpteVaddr(pml4e_val, vaddr_start);
 
   for (uintptr_t vaddr_pdp = vaddr_start;
       vaddr_pdp < vaddr_end;
@@ -1676,8 +1674,8 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
       printf("ghostmemCOW: PDPTE has PS BIT\n");
     }
 
-    pde_t *src_pde = get_pdeVaddr(src_pdpte, vaddr_pdp);
-    pde_t *pde = get_pdeVaddr(pdpte, vaddr_pdp);
+    pde_t* src_pde = get_pdeVaddr(*src_pdpte, vaddr_pdp);
+    pde_t* pde = get_pdeVaddr(*pdpte, vaddr_pdp);
     for (uintptr_t vaddr_pde = vaddr_pdp;
         vaddr_pde < vaddr_pdp + NBPDP;
         vaddr_pde += NBPDR, src_pde++, pde++) {
@@ -1712,8 +1710,8 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
         printf("ghostmemCOW: PDE has PS BIT\n");
       }
 
-      pte_t *src_pte = get_pteVaddr(src_pde, vaddr_pde);
-      pte_t *pte = get_pteVaddr(pde, vaddr_pde);
+      pte_t* src_pte = get_pteVaddr(*src_pde, vaddr_pde);
+      pte_t* pte = get_pteVaddr(*pde, vaddr_pde);
       for (uintptr_t vaddr_pte = vaddr_pde;
           vaddr_pte < vaddr_pde + NBPDR;
           vaddr_pte += PAGE_SIZE, src_pte++, pte++) {
@@ -2586,16 +2584,16 @@ printPTES (uintptr_t vaddr) {
   page_entry_t *pge = 0;
 
   /* Get the base of the pml4 to traverse */
-  unsigned char * cr3 = get_pagetable();
+  cr3_t cr3 = get_root_pagetable();
   if ((cr3 & PG_FRAME) == 0)
     return NULL;
 
   /* Get the VA of the pml4e for this vaddr */
-  pml4e_t *pml4e = get_pml4eVaddr (cr3, vaddr);
+  pml4e_t* pml4e = get_pml4eVaddr(cr3, vaddr);
 
   if (isPresent(*pml4e)) {
     /* Get the VA of the pdpte for this vaddr */
-    pdpte_t *pdpte = get_pdpteVaddr (pml4e, vaddr);
+    pdpte_t* pdpte = get_pdpteVaddr(*pml4e, vaddr);
     if (isPresent(*pdpte)) {
       /* 
        * The PDPE can be configurd in large page mode. If it is then we have the
@@ -2606,7 +2604,7 @@ printPTES (uintptr_t vaddr) {
         pge = pdpte;
       } else {
         /* Get the pde associated with this vaddr */
-        pde_t *pde = get_pdeVaddr (pdpte, vaddr);
+        pde_t* pde = get_pdeVaddr(*pdpte, vaddr);
         if (isPresent(*pde)) {
           /* 
            * As is the case with the pdpte, if the pde is configured for large
@@ -2616,8 +2614,8 @@ printPTES (uintptr_t vaddr) {
           if (isHugePage(*pde, PG_L2)) {
             pge = pde;
           } else {
-            pge = get_pteVaddr (pde, vaddr);
-            printf ("SVA: PTE: %lx %lx %lx %lx\n", *pml4e, *pdpte, *pde, *pge);
+            pge = get_pteVaddr(*pde, vaddr);
+            printf("SVA: PTE: %lx %lx %lx %lx\n", *pml4e, *pdpte, *pde, *pge);
           }
         }
       }
@@ -3208,13 +3206,13 @@ static void protect_code_page(uintptr_t vaddr, page_entry_t perms) {
   if (isHugePage(*l3e, PG_L3)) {
     leaf_entry = l3e;
   } else {
-    pde_t* l2e = get_pdeVaddr(l3e, vaddr);
+    pde_t* l2e = get_pdeVaddr(*l3e, vaddr);
     SVA_ASSERT(l2e != NULL && isPresent(*l2e),
       "SVA: FATAL: Attempt to change permissions on unmapped page\n");
     if (isHugePage(*l2e, PG_L2)) {
       leaf_entry = l2e;
     } else {
-      pte_t* l1e = get_pteVaddr(l2e, vaddr);
+      pte_t* l1e = get_pteVaddr(*l2e, vaddr);
       SVA_ASSERT(l1e != NULL && isPresent(*l1e),
         "SVA: FATAL: Attempt to change permissions on unmapped page\n");
       leaf_entry = l1e;
@@ -3414,7 +3412,7 @@ uintptr_t sva_get_physical_address(uintptr_t vaddr) {
 pte_t* sva_get_l1_entry(uintptr_t vaddr) {
   pde_t* pde = sva_get_l2_entry(vaddr);
   if (pde != NULL && isPresent(*pde) && !isHugePage(*pde, PG_L2)) {
-    return get_pteVaddr(pde, vaddr);
+    return get_pteVaddr(*pde, vaddr);
   } else {
     return NULL;
   }
@@ -3423,7 +3421,7 @@ pte_t* sva_get_l1_entry(uintptr_t vaddr) {
 pde_t* sva_get_l2_entry(uintptr_t vaddr) {
   pdpte_t* pdpte = sva_get_l3_entry(vaddr);
   if (pdpte != NULL && isPresent(*pdpte) && !isHugePage(*pdpte, PG_L3)) {
-    return get_pdeVaddr(pdpte, vaddr);
+    return get_pdeVaddr(*pdpte, vaddr);
   } else {
     return NULL;
   }
@@ -3432,14 +3430,14 @@ pde_t* sva_get_l2_entry(uintptr_t vaddr) {
 pdpte_t* sva_get_l3_entry(uintptr_t vaddr) {
   pml4e_t* pml4e = sva_get_l4_entry(vaddr);
   if (isPresent(*pml4e)) {
-    return get_pdpteVaddr(pml4e, vaddr);
+    return get_pdpteVaddr(*pml4e, vaddr);
   } else {
     return NULL;
   }
 }
 
 pml4e_t* sva_get_l4_entry(uintptr_t vaddr) {
-  return get_pml4eVaddr(get_pagetable(), vaddr);
+  return get_pml4eVaddr(get_root_pagetable(), vaddr);
 }
 
 #ifdef SVA_ASID_PG

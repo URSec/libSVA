@@ -414,81 +414,124 @@ getVirtual (uintptr_t physical) {
 #endif
 }
 
-/* 
+/**
+ * Get the currently active root page table pointer.
+ *
+ * @return  The physical address of the current root page table
+ */
+static inline uintptr_t get_root_pagetable(void) {
+  /* Get the page table value out of CR3 */
+  uintptr_t cr3 = read_cr3();
+
+  /*
+   * Mask off the flag bits in CR3, leaving just the 4 kB-aligned physical
+   * address of the top-level page table.
+   */
+  return cr3 & PG_FRAME;
+}
+
+/*
+ * Functions for returing the physical address of page table pages.
+ */
+
+/**
+ * Get the physical address of the L4 page table entry that maps a virtual
+ * address.
+ *
+ * @param cr3   The root page table pointer
+ * @param vaddr A virtual address
+ * @return      The physical address of the L4 page table entry that maps
+ *              `vaddr`
+ */
+static inline uintptr_t get_pml4ePaddr(cr3_t cr3, uintptr_t vaddr) {
+  return (uintptr_t)&((pml4e_t*)(cr3 & PG_FRAME))[PG_L4_ENTRY(vaddr)];
+}
+
+/**
+ * Get the physical address of the L3 page table entry that maps a virtual
+ * address.
+ *
+ * @param pml4e The L4 page table entry that mapps `vaddr`
+ * @param vaddr A virtual address
+ * @return      The physical address of the L3 page table entry that maps
+ *              `vaddr`
+ */
+static inline uintptr_t get_pdptePaddr(pml4e_t pml4e, uintptr_t vaddr) {
+  return (uintptr_t)&((pdpte_t*)(pml4e & PG_FRAME))[PG_L3_ENTRY(vaddr)];
+}
+
+/**
+ * Get the physical address of the L2 page table entry that maps a virtual
+ * address.
+ *
+ * @param pdpte The L3 page table entry that mapps `vaddr`
+ * @param vaddr A virtual address
+ * @return      The physical address of the L2 page table entry that maps
+ *              `vaddr`
+ */
+static inline uintptr_t get_pdePaddr(pdpte_t pdpte, uintptr_t vaddr) {
+  return (uintptr_t)&((pde_t*)(pdpte & PG_FRAME))[PG_L2_ENTRY(vaddr)];
+}
+
+/**
+ * Get the physical address of the L1 page table entry that maps a virtual
+ * address.
+ *
+ * @param pde   The L2 page table entry that mapps `vaddr`
+ * @param vaddr A virtual address
+ * @return      The physical address of the L1 page table entry that maps
+ *              `vaddr`
+ */
+static inline uintptr_t get_ptePaddr(pde_t pde, uintptr_t vaddr) {
+  return (uintptr_t)&((pte_t*)(pde & PG_FRAME))[PG_L1_ENTRY(vaddr)];
+}
+
+/*
  * Function prototypes for finding the virtual address of page table components
  */
 
-static inline pml4e_t *
-get_pml4eVaddr (unsigned char * cr3, uintptr_t vaddr) {
-  /* Offset into the page table */
-  uintptr_t offset = (vaddr >> (39 - 3)) & vmask;
-#ifdef SVA_DMAP
-  return (pml4e_t *) getVirtualSVADMAP (((uintptr_t)cr3) | offset);
-#else
-  return (pml4e_t *) getVirtual (((uintptr_t)cr3) | offset);
-#endif
-}
- 
-static inline pdpte_t *
-get_pdpteVaddr (pml4e_t * pml4e, uintptr_t vaddr) {
-  uintptr_t base   = (*pml4e) & 0x000ffffffffff000u;
-  uintptr_t offset = (vaddr >> (30 - 3)) & vmask;
-#ifdef SVA_DMAP
-  return (pdpte_t *) getVirtualSVADMAP (base | offset);
-#else
-  return (pdpte_t *) getVirtual (base | offset);
-#endif
+/**
+ * Get a pointer to the L4 page table entry that maps a virtual address.
+ *
+ * @param cr3   The root page table pointer
+ * @param vaddr A virtual address
+ * @return      A pointer to the L4 page table entry that maps `vaddr`
+ */
+static inline pml4e_t* get_pml4eVaddr(cr3_t cr3, uintptr_t vaddr) {
+  return (pml4e_t*)getVirtual(get_pml4ePaddr(cr3, vaddr));
 }
 
-static inline pde_t *
-get_pdeVaddr (pdpte_t * pdpte, uintptr_t vaddr) {
-  uintptr_t base   = (*pdpte) & 0x000ffffffffff000u;
-  uintptr_t offset = (vaddr >> (21 - 3)) & vmask;
-#ifdef SVA_DMAP
-  return (pde_t *) getVirtualSVADMAP (base | offset);
-#else
-  return (pde_t *) getVirtual (base | offset);
-#endif
+/**
+ * Get a pointer to the L3 page table entry that maps a virtual address.
+ *
+ * @param pml4e The L4 page table entry that mapps `vaddr`
+ * @param vaddr A virtual address
+ * @return      A pointer to the L3 page table entry that maps `vaddr`
+ */
+static inline pdpte_t* get_pdpteVaddr(pml4e_t pml4e, uintptr_t vaddr) {
+  return (pdpte_t*)getVirtual(get_pdptePaddr(pml4e, vaddr));
 }
 
-static inline pte_t *
-get_pteVaddr (pde_t * pde, uintptr_t vaddr) {
-  uintptr_t base   = (*pde) & 0x000ffffffffff000u;
-  uintptr_t offset = (vaddr >> (12 - 3)) & vmask;
-#ifdef SVA_DMAP  
-  return (pte_t *) getVirtualSVADMAP (base | offset);
-#else
-  return (pte_t *) getVirtual (base | offset);
-#endif
+/**
+ * Get a pointer to the L2 page table entry that maps a virtual address.
+ *
+ * @param pml4e The L3 page table entry that mapps `vaddr`
+ * @param vaddr A virtual address
+ * @return      A pointer to the L2 page table entry that maps `vaddr`
+ */
+static inline pde_t* get_pdeVaddr(pdpte_t pdpte, uintptr_t vaddr) {
+  return (pde_t*)getVirtual(get_pdePaddr(pdpte, vaddr));
 }
 
-
- /*
-  * Functions for returing the physical address of page table pages.
-  */
-static inline uintptr_t
-get_pml4ePaddr (unsigned char * cr3, uintptr_t vaddr) {
-  /* Offset into the page table */
-  uintptr_t offset = ((vaddr >> 39) << 3) & vmask;
-  return (((uintptr_t)cr3) | offset);
-}
- 
-static inline uintptr_t
-get_pdptePaddr (pml4e_t * pml4e, uintptr_t vaddr) {
-  uintptr_t offset = ((vaddr  >> 30) << 3) & vmask;
-  return ((*pml4e & 0x000ffffffffff000u) | offset);
-}
-
-static inline uintptr_t
-get_pdePaddr (pdpte_t * pdpte, uintptr_t vaddr) {
-  uintptr_t offset = ((vaddr  >> 21) << 3) & vmask;
-  return ((*pdpte & 0x000ffffffffff000u) | offset);
-}
-
-static inline uintptr_t
-get_ptePaddr (pde_t * pde, uintptr_t vaddr) {
-  uintptr_t offset = ((vaddr >> 12) << 3) & vmask;
-  return ((*pde & 0x000ffffffffff000u) | offset);
+/**
+ * Get a pointer to the L1 page table entry that maps a virtual address.
+ *
+ * @param pml4e The L2 page table entry that mapps `vaddr`
+ * @param vaddr A virtual address
+ * @return      A pointer to the L1 page table entry that maps `vaddr`
+ */
+static inline pte_t* get_pteVaddr(pde_t pde, uintptr_t vaddr) {
+  return (pte_t*)getVirtual(get_ptePaddr(pde, vaddr));
 }
 
 /* Functions for querying information about a page table entry */
@@ -627,25 +670,6 @@ static inline bool isHugePage(page_entry_t pte, enum page_type_t level) {
     // TODO: Other page table types
     SVA_ASSERT_UNREACHABLE("SVA: FATAL: Not a page table type %d\n", level);
   }
-}
-
-/*
- * Function: get_pagetable()
- *
- * Description:
- *  Return a physical address that can be used to access the current
- *  top-level page table.
- */
-static inline unsigned char *
-get_pagetable (void) {
-  /* Get the page table value out of CR3 */
-  uintptr_t cr3 = read_cr3();
-
-  /*
-   * Mask off the flag bits in CR3, leaving just the 4 kB-aligned physical
-   * address of the top-level page table.
-   */
-  return (unsigned char *)(cr3 & PG_FRAME);
 }
 
 /*  
