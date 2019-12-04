@@ -2037,7 +2037,22 @@ void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val)
  * @param frames  The number of frames mapped by `entry`
  */
 static void validate_existing_leaf(page_entry_t entry, size_t frames) {
-  SVA_ASSERT_UNREACHABLE("TODO\n");
+  for (size_t i = 0; i < frames; ++i) {
+    uintptr_t frame = (entry & PG_FRAME) + i * PAGE_SIZE;
+    page_desc_t* pgDesc = getPageDescPtr(frame);
+    SVA_ASSERT(pgDesc != NULL,
+      "SVA: FATAL: New page table contains mapping to non-existant "
+      "frame 0x%lx\n", frame / PAGE_SIZE);
+
+    if (pgDesc->type == PG_UNUSED) {
+      pgDesc->type = PG_TKDATA;
+    }
+    SVA_ASSERT(mappingIsSafe(entry, pgDesc->type),
+      "SVA: FATAL: New page table contains unsafe mapping to frame 0x%lx "
+      "with type %d (entry is 0x%016lx)\n",
+      frame, pgDesc->type, entry);
+    pgRefCountInc(pgDesc, entry & PG_RW);
+  }
 }
 
 /**
