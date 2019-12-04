@@ -211,6 +211,43 @@ page_entry_store (unsigned long *page_entry, page_entry_t newVal) {
  *****************************************************************************
  */
 
+/**
+ * Check if the permissions on a page table entry are safe for a frame.
+ *
+ * NB: This assumes that the entry maps a normal virtual address (i.e. not one
+ * in secure memory).
+ *
+ * @param entry The page table entry to check
+ * @param type  The type of the frame being mapped
+ * @return      True if the permissions on `entry` are safe for a `type` frame,
+ *              otherwise false.
+ */
+static bool mappingIsSafe(page_entry_t entry, enum page_type_t type) {
+  switch (type) {
+  case PG_UNUSED:
+  case PG_LEAF:
+    return false;
+  case PG_L1 ... PG_L4:
+  case PG_EPTL1 ... PG_EPTL4:
+  case PG_DML1 ... PG_DML4:
+    /* Safe if neither writable or executable. */
+    return (entry & PG_NX) && !(entry & PG_RW);
+  case PG_TKDATA:
+  case PG_TUDATA:
+    /* Safe if only executable by user. */
+    return entry & PG_NX || entry & PG_U; // Assume SMEP
+  case PG_CODE:
+    /* Safe if not writable. */
+    return !(entry & PG_RW);
+  case PG_SVA:
+  case PG_GHOST:
+    /* Never safe. */
+    return false;
+  default:
+    SVA_ASSERT_UNREACHABLE("SVA: Invalid page type %d\n", type);
+  }
+}
+
 /*
  * Function: pt_update_is_valid()
  *
@@ -532,95 +569,98 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
 }
 
 /*
- * Function: updateNewPageData
+ * Update the metadata for a page that is having a new mapping created to it.
  *
- * Description: 
- *  This function is called whenever we are inserting a new mapping into a page
- *  entry. The goal is to manage any SVA page data that needs to be set for
- *  tracking the new mapping with the existing page data. This is essential to
- *  enable the MMU verification checks.
+ * The goal is to manage any SVA page data that needs to be set for tracking
+ * the new mapping with the existing page data. This is essential to enable the
+ * MMU verification checks.
  *
- * Inputs:
- *  mapping - The new mapping to be inserted in x86_64 page table format.
- *  isEPT - Whether we are updating a mapping in an extended page table.
+ * @param mapping An x86_64 page table entry describing the new mapping of the
+ *                page
+ * @param isLeaf  True if the entry is a leaf mapping (L1 entry or PS bit set),
+ *                otherwise false
+ * @param count   The number of frames mapped by `mapping`
+ * @param isEPT   Whether we are updating a mapping in an extended page table
  */
 static inline void
-updateNewPageData(page_entry_t mapping, unsigned char isEPT) {
-  page_desc_t *newPG = getPageDescPtr(mapping);
-
+updateNewPageData(page_entry_t mapping, bool isLeaf,
+                  size_t count, unsigned char isEPT) {
   /*
    * If the new mapping is valid, update the counts for it.
    */
   if (isPresent_maybeEPT(&mapping, isEPT)) {
-    SVA_ASSERT(newPG != NULL,
-      "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
+    for (size_t i = 0; i < count; ++i) {
+      uintptr_t newPA = (mapping & PG_FRAME) + i * PAGE_SIZE;
+      page_desc_t *newPG = getPageDescPtr(newPA);
+      SVA_ASSERT(newPG != NULL,
+        "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
 
 #if 0
-    /*
-     * If the new page is to a page table page and this is the first reference
-     * to the page, we need to set the VA mapping this page so that the
-     * verification routine can enforce that this page is only mapped
-     * to a single VA. Note that if we have gotten here, we know that
-     * we currently do not have a mapping to this page already, which
-     * means this is the first mapping to the page. 
-     */
-    if (isPTP(newPG)) {
-      newPG->pgVaddr = newVA;
-    }
+      /*
+       * If the new page is to a page table page and this is the first reference
+       * to the page, we need to set the VA mapping this page so that the
+       * verification routine can enforce that this page is only mapped
+       * to a single VA. Note that if we have gotten here, we know that
+       * we currently do not have a mapping to this page already, which
+       * means this is the first mapping to the page.
+       */
+      if (isPTP(newPG)) {
+        newPG->pgVaddr = newVA;
+      }
 #endif
 
-    /* 
-     * Update the reference count for the new page frame. Check that we aren't
-     * overflowing the counter.
-     */
-    pgRefCountInc(newPG, mapping & PG_RW);
+      /*
+       * Update the reference count for the new page frame. Check that we aren't
+       * overflowing the counter.
+       */
+      pgRefCountInc(newPG, isLeaf ? mapping & PG_RW : false);
+    }
   }
 
   return;
 }
 
 /*
- * Function: updateOrigPageData
+ * Update the metadata for a page that is having its mapping removed.
  *
- * Description:
- *  This function updates the metadata for a page that is being removed from
- *  the mapping. 
- * 
- * Inputs:
- *  mapping - An x86_64 page table entry describing the old mapping of the page.
- *  isEPT - Whether we are updating a mapping in an extended page table.
+ * @param mapping An x86_64 page table entry describing the old mapping of the
+ *                page
+ * @param isLeaf  True if the entry is a leaf mapping (L1 entry or PS bit set),
+ *                otherwise false
+ * @param count   The number of frames mapped by `mapping`
+ * @param isEPT   Whether we are updating a mapping in an extended page table
  */
 static inline void
-updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
-  uintptr_t origPA = mapping & PG_FRAME; 
-  page_desc_t *origPG = getPageDescPtr(origPA);
-
-  /* 
-   * Only decrement the mapping count if the page has an existing valid
+updateOrigPageData(page_entry_t mapping, bool isLeaf,
+                   size_t count, unsigned char isEPT) {
+  /*
+   * Only decrement the reference count if the page has an existing valid
    * mapping.
    */
   if (isPresent_maybeEPT(&mapping, isEPT)) {
-    SVA_ASSERT(origPG != NULL,
-      "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
+    for (size_t i = 0; i < count; ++i) {
+      uintptr_t origPA = (mapping & PG_FRAME) + i * PAGE_SIZE;
+      page_desc_t *origPG = getPageDescPtr(origPA);
+      SVA_ASSERT(origPG != NULL,
+        "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
 
-    /*
-     * Check that the refcount isn't already below 2, which would mean it
-     * isn't mapped anywhere besides SVA's direct map. That shouldn't be the
-     * case for any present mapping that the OS is allowed to remove with an
-     * intrinsic that calls this code. If it is, SVA's frame metadata has
-     * somehow become inconsistent.
-     */
-    SVA_ASSERT(pgRefCount(origPG) >= 2,
-      "SVA: MMU: frame metadata inconsistency detected "
-      "(attempted to decrement refcount below 1)\n"
-      "[updateOrigPageData()] "
-      "refcount = %d\n",
-      pgRefCount(origPG));
+      /*
+       * Check that the refcount isn't already below 2, which would mean it
+       * isn't mapped anywhere besides SVA's direct map. That shouldn't be the
+       * case for any present mapping that the OS is allowed to remove with an
+       * intrinsic that calls this code. If it is, SVA's frame metadata has
+       * somehow become inconsistent.
+       */
+      SVA_ASSERT(pgRefCount(origPG) >= 2,
+        "SVA: MMU: frame metadata inconsistency detected "
+        "(attempted to decrement refcount below 1)\n"
+        "[updateOrigPageData()] "
+        "refcount = %d\n",
+        pgRefCount(origPG));
 
-    pgRefCountDec(origPG, mapping & PG_RW);
+      pgRefCountDec(origPG, isLeaf ? mapping & PG_RW : false);
+    }
   }
-
-  return;
 }
 
 /*
@@ -628,7 +668,7 @@ updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
  *
  * Description:
  *  This function manages metadata by updating the internal SVA reference
- *  counts for pages and then performs the actual update. 
+ *  counts for pages and then performs the actual update.
  *
  *  Also works for extended page table (EPT) updates. Whether a regular or
  *  extended page table is being updated is inferred from the SVA frame type
@@ -639,18 +679,21 @@ updateOrigPageData(page_entry_t mapping, unsigned char isEPT) {
  *  to ensure it is safe (e.g. by pt_update_is_valid()). This is the case in
  *  the function's only current caller, __update_mapping().
  *
- * Inputs: 
- *  *page_entry  - VA pointer to the page entry being modified 
+ * Inputs:
+ *  *page_entry  - VA pointer to the page entry being modified
  *  mapping      - The new mapping to insert into page_entry
  */
 static inline void
 __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
-  uintptr_t origPA = *pteptr & PG_FRAME;
-  uintptr_t newPA = mapping & PG_FRAME;
-
   /* Is this an extended page table update? */
   uintptr_t ptePaddr = getPhysicalAddr(pteptr);
   page_desc_t *ptePG = getPageDescPtr(ptePaddr);
+  bool oldIsLeaf = ptePG->type == PG_L1 ||
+    ((ptePG->type == PG_L2 || ptePG->type == PG_L3) && isHugePage(pteptr));
+  bool newIsLeaf = ptePG->type == PG_L1 ||
+    ((ptePG->type == PG_L2 || ptePG->type == PG_L3) && isHugePage(&mapping));
+  size_t oldCount = oldIsLeaf ? getMappedSize(ptePG->type) / PAGE_SIZE : 1;
+  size_t newCount = newIsLeaf ? getMappedSize(ptePG->type) / PAGE_SIZE : 1;
   unsigned char isEPT = (ptePG->type >= PG_EPTL1) && (ptePG->type <= PG_EPTL4);
 
   /*
@@ -659,42 +702,8 @@ __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
    * that we have passed the validation checks so these updates have been
    * vetted.
    */
-  if (newPA != origPA) {
-    updateOrigPageData(*pteptr, isEPT);
-    updateNewPageData(mapping, isEPT);
-  } else if (isPresent_maybeEPT(pteptr, isEPT)
-      && isPresent_maybeEPT(&mapping, isEPT)) {
-    /*
-     * If both the old and new mappings are marked valid, then check if we
-     * changed the write permissions on the page. If so, update its writable
-     * reference count.
-     */
-    page_desc_t* pgDesc = getPageDescPtr(origPA);
-    SVA_ASSERT(pgDesc != NULL,
-      "SVA: FATAL: Mapped non-existant frame 0x%lx\n", origPA / PAGE_SIZE);
-
-    if ((*pteptr & PG_RW) && !(mapping & PG_RW)) {
-      // We removed write permission
-      pgRefCountDecWr(pgDesc);
-    } else if (!(*pteptr & PG_RW) && (mapping & PG_RW)) {
-      // We added write permission
-      pgRefCountIncWr(pgDesc);
-    }
-  } else if (isPresent_maybeEPT(pteptr, isEPT)
-      && !isPresent_maybeEPT(&mapping, isEPT)) {
-    /*
-     * If the old mapping is marked valid but the new mapping is not, then
-     * decrement the reference count of the old page.
-     */
-    updateOrigPageData(*pteptr, isEPT);
-  } else if (!isPresent_maybeEPT(pteptr, isEPT)
-      && isPresent_maybeEPT(&mapping, isEPT)) {
-    /*
-     * Contrariwise, if the old mapping is invalid but the new mapping is valid,
-     * then increment the reference count of the new page.
-     */
-    updateNewPageData(mapping, isEPT);
-  }
+  updateOrigPageData(*pteptr, oldIsLeaf, oldCount, isEPT);
+  updateNewPageData(mapping, newIsLeaf, newCount, isEPT);
 
   /* Perform the actual write to into the page table entry */
   page_entry_store((page_entry_t *) pteptr, mapping);
@@ -740,7 +749,7 @@ initDeclaredPage (unsigned long frameAddr) {
      *
      * This change will take effect when we do a global TLB flush below.
      */
-    page_entry_store(page_entry, setMappingReadOnly(*page_entry));
+    __do_mmu_update(page_entry, setMappingReadOnly(*page_entry));
   }
 
   /*
@@ -2725,16 +2734,18 @@ sva_remove_page (uintptr_t paddr) {
         freePTPage(ptindex);
         ptp_vaddr[i] = 0;
       } else {
+        bool isLeaf = pgDesc->type == PG_L1 ||
+          ((pgDesc->type == PG_L2 || pgDesc->type == PG_L3)
+           && isHugePage(&ptp_vaddr[i]));
+        size_t count = isLeaf ? getMappedSize(pgDesc->type) / PAGE_SIZE : 1;
         /*
-         * Normal case
-         *
          * NB: We don't want to actually change the data in the page table, as
          * the kernel may be relying on being able to access it for its own
          * bookkeeping.  Instead, just update our metadata to reflect that the
          * reference has been dropped.  Since this page is about to become a
          * data page, there is no safety concern with leaving the entry intact.
          */
-        updateOrigPageData(ptp_vaddr[i], isEPT);
+        updateOrigPageData(ptp_vaddr[i], isLeaf, count, isEPT);
       }
     }
   }
@@ -2747,8 +2758,8 @@ sva_remove_page (uintptr_t paddr) {
    * flush entries pointing to it in the TLBs so that the change takes
    * effect right away.
    */
-  page_entry_store(pte_kdmap, setMappingReadWrite(*pte_kdmap));
-  sva_mm_flush_tlb(getVirtual(paddr));
+  __do_mmu_update(pte_kdmap, setMappingReadWrite(*pte_kdmap));
+  sva_mm_flush_tlb(getVirtualKernelDMAP(paddr));
 
 #ifdef SVA_ASID_PG
   /*
@@ -2798,7 +2809,7 @@ sva_remove_page (uintptr_t paddr) {
        */
       page_entry_t* other_pte =
         get_pgeVaddr((uintptr_t)getVirtualKernelDMAP(other_cr3));
-      page_entry_store(other_pte, setMappingReadWrite(*other_pte));
+      __do_mmu_update(other_pte, setMappingReadWrite(*other_pte));
       sva_mm_flush_tlb(getVirtual(other_cr3));
 
       other_pgDesc->other_pgPaddr = 0;

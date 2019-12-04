@@ -887,49 +887,6 @@ static void print_entry(page_entry_t entry, enum page_type_t level,
 }
 
 /**
- * Get the type of page mapped by the entries in a page table.
- *
- * @param level The level of page table
- * @return      The type of page mapped by entries in a page table at `level`
- */
-static inline enum page_type_t getSublevelType(enum page_type_t level) {
-  switch (level) {
-  case PG_L4:
-    return PG_L3;
-  case PG_L3:
-    return PG_L2;
-  case PG_L2:
-    return PG_L1;
-  case PG_L1:
-    return PG_LEAF;
-  default:
-    SVA_ASSERT_UNREACHABLE("SVA: FATAL: Not a page table frame type\n");
-  }
-}
-
-/**
- * Get the number of bytes mapped by a page table entry.
- *
- * @param level The level of the page table entry
- * @return      The number of bytes mapped by a page table entry at a given
- *              level page table
- */
-static inline size_t getMappedSize(enum page_type_t level) {
-  switch (level) {
-  case PG_L4:
-    return PG_L4_SIZE;
-  case PG_L3:
-    return PG_L3_SIZE;
-  case PG_L2:
-    return PG_L2_SIZE;
-  case PG_L1:
-    return PG_L1_SIZE;
-  default:
-    SVA_ASSERT_UNREACHABLE("SVA: FATAL: Not a page table frame type\n");
-  }
-}
-
-/**
  * Get the number of bytes in a superpage.
  *
  * @param level The level of page table that would be mapped by this entry if it
