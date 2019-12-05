@@ -893,6 +893,134 @@ page_entry_t *get_pgeVaddr(uintptr_t vaddr) {
   return pge;
 }
 
+int walk_page_table(cr3_t cr3, uintptr_t vaddr, pml4e_t** pml4e,
+                    pdpte_t** pdpte, pde_t** pde, pte_t** pte, uintptr_t* paddr)
+{
+  pml4e_t* l4e;
+  pdpte_t* l3e;
+  pde_t* l2e;
+  pte_t* l1e;
+
+  /*
+   * Bail out early if we are given a non-canonical address
+   */
+  if (!isCanonical(vaddr)) {
+    return 0;
+  }
+
+  if (pte == NULL || *pte == NULL) {
+    if (pde == NULL || *pde == NULL) {
+      if (pdpte == NULL || *pdpte == NULL) {
+        if (pml4e == NULL || *pml4e == NULL) {
+          /*
+           * Make sure we've been given a reasonable root page table pointer.
+           *
+           * FIXME: Theoretically, there's no reason we couldn't use frame 0 as a page
+           * table.
+           */
+          if ((cr3 & PG_FRAME) == 0) {
+            return -5;
+          }
+
+          /*
+           * Get the L4 entry mapping this virtual address.
+           */
+          l4e = get_pml4eVaddr(cr3, vaddr);
+          if (pml4e != NULL) {
+            *pml4e = l4e;
+          }
+        } else {
+          /*
+           * Caller gave us L4 entry.
+           */
+          l4e = *pml4e;
+        }
+
+        if (!isPresent(*l4e)) {
+          return -4;
+        }
+
+        /*
+         * Get the L3 entry mapping this virtual address.
+         */
+        l3e = get_pdpteVaddr(*l4e, vaddr);
+        if (pdpte != NULL) {
+          *pdpte = l3e;
+        }
+      } else {
+        /*
+         * Caller gave us L3 entry.
+         */
+        l3e = *pdpte;
+      }
+
+      if (!isPresent(*l3e)) {
+        return -3;
+      }
+      /*
+       * The L3 entry can be configured in large page mode. If it is then we have
+       * the entry corresponding to the given virtual address. If not then we go
+       * deeper in the page walk.
+       */
+      if (isHugePage(*l3e, PG_L3)) {
+        if (paddr != NULL) {
+          *paddr = PG_L3_FRAME(*l3e) + PG_L3_OFFSET(vaddr);
+        }
+        return 3;
+      }
+
+      /*
+       * Get the L2 entry mapping this virtual address.
+       */
+      l2e = get_pdeVaddr(*l3e, vaddr);
+      if (pde != NULL) {
+        *pde = l2e;
+      }
+    } else {
+      /*
+       * Caller gave us L3 entry.
+       */
+      l2e = *pde;
+    }
+
+    if (!isPresent(*l2e)) {
+      return -2;
+    }
+    /*
+     * As is the case with the L3 entry, if the L2 entry is configured for large
+     * page size then we have the corresponding entry. Otherwise we need to
+     * traverse one more level, which is the last.
+     */
+    if (isHugePage(*l2e, PG_L2)) {
+      if (paddr != NULL) {
+        *paddr = PG_L2_FRAME(*l2e) + PG_L2_OFFSET(vaddr);
+      }
+      return 2;
+    }
+
+    /*
+     * Get the L1 entry mapping this virtual address.
+     */
+    l1e = get_pteVaddr(*l2e, vaddr);
+    if (pte != NULL) {
+      *pte = l1e;
+    }
+  } else {
+    /*
+     * Caller gave us L1 entry.
+     */
+    l1e = *pte;
+  }
+
+  if (!isPresent(*l1e)) {
+    return -1;
+  }
+  if (paddr != NULL) {
+    *paddr = PG_L1_FRAME(*l1e) + PG_L1_OFFSET(vaddr);
+  }
+  return 1;
+}
+
 /*
  * Function: getPhysicalAddrDMAP()
  *
