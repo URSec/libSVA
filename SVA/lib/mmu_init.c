@@ -75,6 +75,35 @@ init_mmu () {
 
 #ifdef FreeBSD
 /*
+ * Function: removeOSDirectMap
+ *
+ * Description:
+ *  This function removes the OS's direct mapping page table entry
+ *  translating the virtual address of the newly allocated SVA page
+ *  table page for ghost memory.
+ *
+ * Inputs:
+ *  v    -   Virtual address of the page table page of ghost memory*
+ *  val  -   The translation to insert into the direct mapping
+ */
+void removeOSDirectMap(void* v) {
+  /* Virtual address to convert */
+  uintptr_t vaddr = (uintptr_t)v;
+
+  /*
+   * Get the terminal entry which maps the virtual address.
+   */
+  page_entry_t* pte = get_pgeVaddr(vaddr);
+
+  SVA_ASSERT(pte != NULL && isPresent(*pte),
+    "The direct mapping PTE of the SVA PTP does not exist\n");
+
+  *pte = ZERO_MAPPING;
+
+  return;
+}
+
+/*
  * Function: declare_kernel_code_pages()
  *
  * Description:
