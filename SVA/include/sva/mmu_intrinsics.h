@@ -74,10 +74,53 @@ extern void sva_declare_l3_page (uintptr_t frame);
 extern void sva_declare_l4_page (uintptr_t frame);
 extern void sva_declare_dmap_page(uintptr_t frame);
 extern void sva_remove_page     (uintptr_t frame);
-extern void sva_update_l1_mapping (pte_t * ptePtr, page_entry_t val);
-extern void sva_update_l2_mapping (pde_t * pdePtr, page_entry_t val);
-extern void sva_update_l3_mapping (pdpte_t * pdptePtr, page_entry_t val);
-extern void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val);
+
+/*
+ *****************************************************************************
+ * Intrinsics to update page table entries
+ *****************************************************************************
+ */
+
+/**
+ * Update an L1 page table entry.
+ *
+ * Performs all necessary security checks to ensure the update is safe.
+ *
+ * @param l1e     The L1 entry to update
+ * @param new_l1e The new value to set in `*l1e`
+ */
+extern void sva_update_l1_mapping(pte_t* l1e, pte_t new_l1e);
+
+/**
+ * Update an L2 page table entry.
+ *
+ * Performs all necessary security checks to ensure the update is safe.
+ *
+ * @param l2e     The L2 entry to update
+ * @param new_l2e The new value to set in `*l2e`
+ */
+extern void sva_update_l2_mapping(pde_t* l2e, pde_t new_l2e);
+
+/**
+ * Update an L3 page table entry.
+ *
+ * Performs all necessary security checks to ensure the update is safe.
+ *
+ * @param l3e     The L3 entry to update
+ * @param new_l3e The new value to set in `*l3e`
+ */
+extern void sva_update_l3_mapping(pdpte_t* l3e, pdpte_t new_l3e);
+
+/**
+ * Update an L4 page table entry.
+ *
+ * Performs all necessary security checks to ensure the update is safe.
+ *
+ * @param l4e     The L4 entry to update
+ * @param new_l4e The new value to set in `*l4e`
+ */
+extern void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e);
+
 extern void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val);
 extern void sva_unprotect_code_page(void* vaddr);
 extern void sva_protect_code_page(void* vaddr);

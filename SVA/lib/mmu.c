@@ -2908,37 +2908,29 @@ sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned lon
   return;
 }
 
-/* 
- * Function: sva_update_l1_mapping()
+/**
+ * Update a page table entry.
  *
- * Description:
- *  This function updates a Level-1 Mapping.  In other words, it adds a
- *  a direct translation from a virtual page to a physical page.
+ * Performs all necessary security checks to ensure the update is safe.
  *
- *  This function makes different checks to ensure the mapping
- *  does not bypass the type safety proven by the compiler.
- *
- * Inputs:
- *  pteptr - The location within the L1 page in which the new translation
- *           should be placed.
- *  val    - The new translation to insert into the page table.
+ * @param pte     The page table entry to update
+ * @param new_pte The new value to set in `*pte`
+ * @param level   The level of page table which contains `pte`
  */
-void
-sva_update_l1_mapping(pte_t * pteptr, page_entry_t val) {
+void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
+                        enum page_type_t level)
+{
   if (!mmuIsInitialized) {
     /*
      * MMU initialization has not been performed, so don't perform any safety
      * checks.
      */
-    *pteptr = val;
+    *pte = new_pte;
     return;
   }
 
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
-
   kernel_to_usersva_pcid();
+
   /*
    * Disable interrupts so that we appear to execute as a single instruction.
    */
@@ -2948,179 +2940,90 @@ sva_update_l1_mapping(pte_t * pteptr, page_entry_t val) {
    * Ensure that the PTE pointer points to an L1 page table.  If it does not,
    * then report an error.
    */
-  page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pteptr));
+  page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pte));
   SVA_ASSERT(ptDesc != NULL,
-    "SVA: FATAL: L1 page table frame doesn't exist\n");
-  SVA_ASSERT(disableMMUChecks || ptDesc->type == PG_L1,
-    "SVA: MMU: update_l1 not an L1: %p %lx: %x\n", pteptr, val, ptDesc->type);
+    "SVA: FATAL: L%d page table frame doesn't exist\n", level);
+  SVA_ASSERT(disableMMUChecks || ptDesc->type == level,
+    "SVA: MMU: update_l%d bad type: %p %lx: %x\n",
+    level, pte, new_pte, ptDesc->type);
 
   /*
    * Update the page table with the new mapping.
    */
-  __update_mapping(pteptr, val);
+  __update_mapping(pte, new_pte);
 
   /* Restore interrupts */
   sva_exit_critical(rflags);
 
   usersva_to_kernel_pcid();
-
-  record_tsc(sva_update_l1_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
 }
 
-/*
- * Updates a level2 mapping (a mapping to a l1 page).
- *
- * This function checks that the pages involved in the mapping
- * are correct, ie pmdptr is a level2, and val corresponds to
- * a level1.
- */
-void
-sva_update_l2_mapping(pde_t * pdePtr, page_entry_t val) {
-  if (!mmuIsInitialized) {
-    /*
-     * MMU initialization has not been performed, so don't perform any safety
-     * checks.
-     */
-    *pdePtr = val;
-    return;
-  }
-
+void sva_update_l1_mapping(pte_t* l1e, pte_t new_l1e) {
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
-  kernel_to_usersva_pcid();
+  sva_update_mapping(l1e, new_l1e, PG_L1);
+
+  record_tsc(sva_update_l1_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+}
+
+void sva_update_l2_mapping(pde_t* l2e, pde_t new_l2e) {
+  uint64_t tsc_tmp = 0;
+  if(tsc_read_enable_sva)
+     tsc_tmp = sva_read_tsc();
+
+  sva_update_mapping(l2e, new_l2e, PG_L2);
+
+  record_tsc(sva_update_l2_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+}
+
+void sva_update_l3_mapping(pdpte_t* l3e, pdpte_t new_l3e) {
+  uint64_t tsc_tmp = 0;
+  if(tsc_read_enable_sva)
+     tsc_tmp = sva_read_tsc();
+
+  sva_update_mapping(l3e, new_l3e, PG_L3);
+
+  record_tsc(sva_update_l3_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+}
+
+void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e) {
+  uint64_t tsc_tmp = 0;
+  if(tsc_read_enable_sva)
+     tsc_tmp = sva_read_tsc();
+
   /*
    * Disable interrupts so that we appear to execute as a single instruction.
    */
   unsigned long rflags = sva_enter_critical();
 
-  /*
-   * Ensure that the PTE pointer points to an L1 page table.  If it does not,
-   * then report an error.
-   */
-  page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pdePtr));
-  SVA_ASSERT(ptDesc != NULL,
-    "SVA: FATAL: L2 page table frame doesn't exist\n");
-  SVA_ASSERT(disableMMUChecks || ptDesc->type == PG_L2,
-    "SVA: MMU: update_l2 not an L2: %p %lx: type=%x count=%x\n",
-    pdePtr, val, ptDesc->type, pgRefCount(ptDesc));
-
-  /*
-   * Update the page mapping.
-   */
-  __update_mapping(pdePtr, val);
-
-  /* Restore interrupts */
-  sva_exit_critical(rflags);
-  usersva_to_kernel_pcid();
-  record_tsc(sva_update_l2_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
-}
-
-/*
- * Updates a level3 mapping 
- */
-void sva_update_l3_mapping(pdpte_t * pdptePtr, page_entry_t val) {
-  if (!mmuIsInitialized) {
-    /*
-     * MMU initialization has not been performed, so don't perform any safety
-     * checks.
-     */
-    *pdptePtr = val;
-    return;
-  }
-
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
-
-  kernel_to_usersva_pcid();
-  /*
-   * Disable interrupts so that we appear to execute as a single instruction.
-   */
-  unsigned long rflags = sva_enter_critical();
-
-  /*
-   * Ensure that the PTE pointer points to an L1 page table.  If it does not,
-   * then report an error.
-   */
-  page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pdptePtr));
-  SVA_ASSERT(ptDesc != NULL,
-    "SVA: FATAL: L3 page table frame doesn't exist\n");
-  SVA_ASSERT(disableMMUChecks || ptDesc->type == PG_L3,
-    "SVA: MMU: update_l3 not an L3: %p %lx: %x\n", pdptePtr, val, ptDesc->type);
-
-  __update_mapping(pdptePtr, val);
-
-  /* Restore interrupts */
-  sva_exit_critical(rflags);
-
-  usersva_to_kernel_pcid();
-  record_tsc(sva_update_l3_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
-}
-
-/*
- * updates a level4 mapping 
- */
-void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
-  if (!mmuIsInitialized) {
-    /*
-     * MMU initialization has not been performed, so don't perform any safety
-     * checks.
-     */
-    *pml4ePtr = val;
-    return;
-  }
-
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
-
-  kernel_to_usersva_pcid();
-  /*
-   * Disable interrupts so that we appear to execute as a single instruction.
-   */
-  unsigned long rflags = sva_enter_critical();
-
-  /*
-   * Ensure that the PTE pointer points to an L1 page table.  If it does not,
-   * then report an error.
-   */
-  page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pml4ePtr));
-  SVA_ASSERT(ptDesc != NULL,
-    "SVA: FATAL: L4 page table frame doesn't exist\n");
-  SVA_ASSERT(disableMMUChecks || ptDesc->type == PG_L4,
-    "SVA: MMU: update_l4 not an L4: %p %lx: %x\n", pml4ePtr, val, ptDesc->type);
-
-  __update_mapping(pml4ePtr, val);
+  sva_update_mapping(l4e, new_l4e, PG_L4);
 
 #ifdef SVA_ASID_PG 
   uintptr_t other_cr3 = ptDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
-  if(other_cr3)
-  {
-    uintptr_t index = (uintptr_t)pml4ePtr & vmask;
-    pml4e_t * kernel_pml4ePtr = (pml4e_t *)((uintptr_t) getVirtual(other_cr3) | index); 
-    page_desc_t * kernel_ptDesc = getPageDescPtr(other_cr3);
+  if (other_cr3) {
+    uintptr_t index = (uintptr_t)l4e & vmask;
+    pml4e_t* kernel_pml4ePtr =
+      (pml4e_t*)((uintptr_t)getVirtual(other_cr3) | index);
+    page_desc_t* kernel_ptDesc = getPageDescPtr(other_cr3);
     SVA_ASSERT(disableMMUChecks || kernel_ptDesc->type == PG_L4,
       "SVA: MMU: update_l4 kernel or sva version pte not an L4: %lx %lx: %x\n",
-      kernel_pml4ePtr, val, kernel_ptDesc->type);
+      kernel_pml4ePtr, new_l4e, kernel_ptDesc->type);
 
-    if(((index >> 3) == PML4PML4I) && ((val & PG_FRAME) == (getPhysicalAddr(pml4ePtr) & PG_FRAME)))
-        val = other_cr3 | (val & 0xfff);
-    __update_mapping(kernel_pml4ePtr, val);
+    if (((index >> 3) == PML4PML4I) &&
+        ((new_l4e & PG_FRAME) == (getPhysicalAddr(l4e) & PG_FRAME)))
+    {
+        new_l4e = other_cr3 | (new_l4e & 0xfff);
+    }
+    __update_mapping(kernel_pml4ePtr, new_l4e);
   }
 #endif
 
   /* Restore interrupts */
   sva_exit_critical(rflags);
 
-  usersva_to_kernel_pcid();
-
-  record_tsc(sva_update_l4_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  record_tsc(sva_update_l4_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
 /**
