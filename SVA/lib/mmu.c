@@ -2103,35 +2103,29 @@ static void validate_existing_l4_entries(uintptr_t frameAddr) {
   }
 }
 
-/*
- * Intrinsic: sva_declare_l1_page()
+/**
+ * Mark the specified frame as a page table.
  *
- * Description:
- *  This intrinsic marks the specified physical frame as a Level 1 page table
- *  frame.  It will zero out the contents of the page frame so that stale
- *  mappings within the frame are not used by the MMU.
+ * Validates than any existing entries are safe, and will also remove write
+ * access to the page from the kernel's direct map.
  *
- * Inputs:
- *  frameAddr - The address of the physical page frame that will be used as a
- *              Level 1 page frame.
+ * @param frame The physical address of the frame that will become a page table
+ * @param level The level of page table that `frame` will become
  */
-void
-sva_declare_l1_page (uintptr_t frameAddr) {
+void sva_declare_page(uintptr_t frame, enum page_type_t level) {
   if (!mmuIsInitialized) {
     return;
   }
 
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
   kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
-  /* Get the page_desc for the newly declared l4 page frame */
-  page_desc_t *pgDesc = getPageDescPtr(frameAddr);
+  /* Get the page_desc for the newly declared page table */
+  page_desc_t *pgDesc = getPageDescPtr(frame);
   SVA_ASSERT(pgDesc != NULL,
-    "SVA: FATAL: Attempt to use non-existant frame as l1 page table\n");
+    "SVA: FATAL: Attempt to use non-existant frame %lx as L%d page table\n",
+    frame / PAGE_SIZE, level);
 
   /*
    * Make sure that this is already an L1 page, an unused page, or a kernel
@@ -2139,16 +2133,13 @@ sva_declare_l1_page (uintptr_t frameAddr) {
    */
   switch (pgDesc->type) {
     case PG_UNUSED:
-    case PG_L1:
     case PG_TKDATA:
       break;
-
     default:
-      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
       SVA_ASSERT_UNREACHABLE(
-        "SVA: Declaring L1 for wrong page: "
-        "frameAddr = %lx, pgDesc=%p, type=%x\n",
-        frameAddr, pgDesc, pgDesc->type);
+        "SVA: FATAL: Declaring L%d page table for frame %lx "
+        "with invalid type %d\n",
+        level, frame / PAGE_SIZE, pgDesc->type);
   }
 
 #ifdef SVA_DMAP
@@ -2157,23 +2148,22 @@ sva_declare_l1_page (uintptr_t frameAddr) {
    * count is 2 or less.
    */
   SVA_ASSERT(pgRefCountWr(pgDesc) <= 2,
-    "SVA: FATAL: Cannot declare L1 page: "
+    "SVA: FATAL: Cannot declare L%d page: "
     "There are still %u writable mappings to frame 0x%ld!\n",
-    pgRefCountWr(pgDesc), frameAddr / PAGE_SIZE);
+    level, pgRefCountWr(pgDesc), frame / PAGE_SIZE);
 #else
+#if 0
   /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
-  //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l1_page: more than one virtual addresses are still using this page!");
+  SVA_ASSERT((pgRefCount(pgDesc) <= 1),
+    "sva_declare_page: more than one virtual addresses "
+    "are still using this page!");
+#endif
 #endif
 
-  /* 
-   * Declare the page as an L1 page (unless it is already an L1 page).
-   */
-  SVA_ASSERT(pgDesc->type != PG_L1,
-    "SVA: declare L1: type = %x\n", pgDesc->type);
   /*
-   * Mark this page frame as an L1 page frame.
+   * Mark this page frame as a page table.
    */
-  pgDesc->type = PG_L1;
+  pgDesc->type = level;
 
 #if 0
   /*
@@ -2187,314 +2177,72 @@ sva_declare_l1_page (uintptr_t frameAddr) {
    * page_entry_t to the function as it enables reuse of code for each of the
    * entry declaration functions.
    */
-  initDeclaredPage(frameAddr);
+  initDeclaredPage(frame);
 
   /*
    * Validate any existing entries in the new page table.
    */
-  validate_existing_l1_entries(frameAddr);
-
-  /* Restore interrupts */
-  sva_exit_critical (rflags);
-  usersva_to_kernel_pcid();
-  record_tsc(sva_declare_l1_page_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
-}
-
-/*
- * Intrinsic: sva_declare_l2_page()
- *
- * Description:
- *  This intrinsic marks the specified physical frame as a Level 2 page table
- *  frame.  It will zero out the contents of the page frame so that stale
- *  mappings within the frame are not used by the MMU.
- *
- * Inputs:
- *  frameAddr - The address of the physical page frame that will be used as a
- *              Level 2 page frame.
- */
-void
-sva_declare_l2_page (uintptr_t frameAddr) {
-  if (!mmuIsInitialized) {
-    return;
+  switch (level) {
+  case PG_L1:
+    validate_existing_l1_entries(frame);
+    break;
+  case PG_L2:
+    validate_existing_l2_entries(frame);
+    break;
+  case PG_L3:
+    validate_existing_l3_entries(frame);
+    break;
+  case PG_L4:
+    validate_existing_l4_entries(frame);
+    break;
+  default:
+    /* Caller passed a bad page type */
+    BUG();
   }
 
+  /* Restore interrupts */
+  sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
+}
+
+void sva_declare_l1_page(uintptr_t frame) {
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
-  kernel_to_usersva_pcid();
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
+  sva_declare_page(frame, PG_L1);
 
-  /* Get the page_desc for the newly declared l4 page frame */
-  page_desc_t *pgDesc = getPageDescPtr(frameAddr);
-  SVA_ASSERT(pgDesc != NULL,
-    "SVA: FATAL: Attempt to use non-existant frame as l2 page table\n");
-
-  /*
-   * Make sure that this is already an L2 page, an unused page, or a kernel
-   * data page.
-   */
-  switch (pgDesc->type) {
-    case PG_UNUSED:
-    case PG_L2:
-    case PG_TKDATA:
-      break;
-
-    default:
-      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
-      SVA_ASSERT_UNREACHABLE(
-        "SVA: Declaring L2 for wrong page: "
-        "frameAddr = %lx, pgDesc=%p, type=%x count=%x\n",
-        frameAddr, pgDesc, pgDesc->type, pgRefCount(pgDesc));
-  }
-
-#ifdef SVA_DMAP
-  /*
-   * A page can only be declared as a page table page if its writable reference
-   * count is 2 or less.
-   */
-  SVA_ASSERT(pgRefCountWr(pgDesc) <= 2,
-    "SVA: FATAL: Cannot declare L2 page: "
-    "There are still %u writable mappings to frame 0x%ld!\n",
-    pgRefCountWr(pgDesc), frameAddr / PAGE_SIZE);
-#else
-  /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
-  //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l2_page: more than one virtual addresses are still using this page!");
-#endif
-
-  /* 
-   * Declare the page as an L2 page (unless it is already an L2 page).
-   */
-  if (pgDesc->type != PG_L2) {
-    /* Setup metadata tracking for this new page */
-    pgDesc->type = PG_L2;
-
-#if 0
-    /*
-     * Reset the virtual address which can point to this page table page.
-     */
-    pgDesc->pgVaddr = 0;
-#endif
-
-    /* 
-     * Initialize the page data and page entry. Note that we pass a general
-     * page_entry_t to the function as it enables reuse of code for each of the
-     * entry declaration functions. 
-     */
-    initDeclaredPage(frameAddr);
-
-    /*
-     * Validate any existing entries in the new page table.
-     */
-    validate_existing_l2_entries(frameAddr);
-  }
-
-  /* Restore interrupts */
-  sva_exit_critical (rflags);
-  usersva_to_kernel_pcid();
-  record_tsc(sva_declare_l2_page_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  record_tsc(sva_declare_l1_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
-/*
- * Intrinsic: sva_declare_l3_page()
- *
- * Description:
- *  This intrinsic marks the specified physical frame as a Level 3 page table
- *  frame.  It will zero out the contents of the page frame so that stale
- *  mappings within the frame are not used by the MMU.
- *
- * Inputs:
- *  frameAddr - The address of the physical page frame that will be used as a
- *              Level 3 page frame.
- */
-void
-sva_declare_l3_page (uintptr_t frameAddr) {
-  if (!mmuIsInitialized) {
-    return;
-  }
-
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
-  kernel_to_usersva_pcid();
-  /* Disable interrupts so that we appear to execute as a single instruction */
-  unsigned long rflags = sva_enter_critical();
-
-  /* Get the page_desc for the newly declared l4 page frame */
-  page_desc_t *pgDesc = getPageDescPtr(frameAddr);
-  SVA_ASSERT(pgDesc != NULL,
-    "SVA: FATAL: Attempt to use non-existant frame as l3 page table\n");
-
-  /*
-   * Make sure that this is already an L3 page, an unused page, or a kernel
-   * data page.
-   */
-  switch (pgDesc->type) {
-    case PG_UNUSED:
-    case PG_L3:
-    case PG_TKDATA:
-      break;
-
-    default:
-      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
-      SVA_ASSERT_UNREACHABLE(
-        "SVA: Declaring L3 for wrong page: "
-        "frameAddr = %lx, pgDesc=%p, type=%x count=%x\n",
-        frameAddr, pgDesc, pgDesc->type, pgRefCount(pgDesc));
-  }
-
-#ifdef SVA_DMAP
-  /*
-   * A page can only be declared as a page table page if its writable reference
-   * count is 2 or less.
-   */
-  SVA_ASSERT(pgRefCountWr(pgDesc) <= 2,
-    "SVA: FATAL: Cannot declare L3 page: "
-    "There are still %u writable mappings to frame 0x%ld!\n",
-    pgRefCountWr(pgDesc), frameAddr / PAGE_SIZE);
-#else
-   /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
-  //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l3_page: more than one virtual addresses are still using this page!");
-#endif
-
-  /* 
-   * Declare the page as an L3 page (unless it is already an L3 page).
-   */
-  if (pgDesc->type != PG_L3) {
-    /* Mark this page frame as an L3 page frame */
-    pgDesc->type = PG_L3;
-
-#if 0
-    /*
-     * Reset the virtual address which can point to this page table page.
-     */
-    pgDesc->pgVaddr = 0;
-#endif
-
-    /* 
-     * Initialize the page data and page entry. Note that we pass a general
-     * page_entry_t to the function as it enables reuse of code for each of the
-     * entry declaration functions. 
-     */
-    initDeclaredPage(frameAddr);
-
-    /*
-     * Validate any existing entries in the new page table.
-     */
-    validate_existing_l3_entries(frameAddr);
-  }
-
-  /* Restore interrupts */
-  sva_exit_critical (rflags);
-  usersva_to_kernel_pcid();
-  record_tsc(sva_declare_l3_page_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
-}
-
-/*
- * Intrinsic: sva_declare_l4_page()
- *
- * Description:
- *  This intrinsic marks the specified physical frame as a Level 4 page table
- *  frame.  It will zero out the contents of the page frame so that stale
- *  mappings within the frame are not used by the MMU.
- *
- * Inputs:
- *  frameAddr - The address of the physical page frame that will be used as a
- *              Level 4 page frame.
- */
-void
-sva_declare_l4_page (uintptr_t frameAddr) {
-  if (!mmuIsInitialized) {
-    return;
-  }
-
+void sva_declare_l2_page(uintptr_t frame) {
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
-  kernel_to_usersva_pcid();
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
+  sva_declare_page(frame, PG_L2);
 
-  /* Get the page_desc for the newly declared l4 page frame */
-  page_desc_t *pgDesc = getPageDescPtr(frameAddr);
-  SVA_ASSERT(pgDesc != NULL,
-    "SVA: FATAL: Attempt to use non-existant frame as l4 page table\n");
+  record_tsc(sva_declare_l2_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+}
 
-  /* 
-   * Assert that this is a new L4. We don't want to declare an L4 with and
-   * existing mapping
-   */
-#if 0
-  SVA_ASSERT(pgRefCount(pgDesc) == 0, "MMU: L4 reference count non-zero.");
-#endif
+void sva_declare_l3_page(uintptr_t frame) {
+  uint64_t tsc_tmp = 0;
+  if(tsc_read_enable_sva)
+     tsc_tmp = sva_read_tsc();
 
-  /*
-   * Make sure that this is already an L4 page, an unused page, or a kernel
-   * data page.
-   */
-  switch (pgDesc->type) {
-    case PG_UNUSED:
-    case PG_L4:
-    case PG_TKDATA:
-      break;
+  sva_declare_page(frame, PG_L3);
 
-    default:
-      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
-      SVA_ASSERT_UNREACHABLE(
-        "SVA: Declaring L4 for wrong page: "
-        "frameAddr = %lx, pgDesc=%p, type=%x\n",
-        frameAddr, pgDesc, pgDesc->type);
-  }
+  record_tsc(sva_declare_l3_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+}
 
-#ifdef SVA_DMAP
-  /*
-   * A page can only be declared as a page table page if its writable reference
-   * count is 2 or less.
-   */
-  SVA_ASSERT(pgRefCountWr(pgDesc) <= 2,
-    "SVA: FATAL: Cannot declare L4 page: "
-    "There are still %u writable mappings to frame 0x%ld!\n",
-    pgRefCountWr(pgDesc), frameAddr / PAGE_SIZE);
-#else
- /* A page can only be declared as a page table page if its reference count is less than 2.*/
-  //SVA_ASSERT((pgRefCount(pgDesc) <= 1), "sva_declare_l4_page: more than one virtual addresses are still using this page!");
-#endif
-  /* 
-   * Declare the page as an L4 page (unless it is already an L4 page).
-   */
-  if (pgDesc->type != PG_L4) {
-    /* Mark this page frame as an L4 page frame */
-    pgDesc->type = PG_L4;
+void sva_declare_l4_page(uintptr_t frame) {
+  uint64_t tsc_tmp = 0;
+  if(tsc_read_enable_sva)
+     tsc_tmp = sva_read_tsc();
 
-#if 0
-    /*
-     * Reset the virtual address which can point to this page table page.
-     */
-    pgDesc->pgVaddr = 0;
-#endif
+  sva_declare_page(frame, PG_L4);
 
-    /* 
-     * Initialize the page data and page entry. Note that we pass a general
-     * page_entry_t to the function as it enables reuse of code for each of the
-     * entry declaration functions. 
-     */
-    initDeclaredPage(frameAddr);
-
-    /*
-     * Validate any existing entries in the new page table.
-     */
-    validate_existing_l4_entries(frameAddr);
-  }
-
-  /* Restore interrupts */
-  sva_exit_critical (rflags);
-  usersva_to_kernel_pcid();
-  record_tsc(sva_declare_l4_page_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  record_tsc(sva_declare_l4_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
 /*

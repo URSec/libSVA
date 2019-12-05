@@ -68,12 +68,67 @@
  */
 extern void sva_mm_load_pgtable (cr3_t pg);
 extern void sva_load_cr0 (unsigned long val);
-extern void sva_declare_l1_page (uintptr_t frame);
-extern void sva_declare_l2_page (uintptr_t frame);
-extern void sva_declare_l3_page (uintptr_t frame);
-extern void sva_declare_l4_page (uintptr_t frame);
+
+/*
+ *****************************************************************************
+ * Intrinsics to declare page table pages
+ *****************************************************************************
+ */
+
+/**
+ * Mark the specified frame as an L1 page table.
+ *
+ * Validates than any existing entries are safe, and will also remove write
+ * access to the page from the kernel's direct map.
+ *
+ * @param frame The physical address of the frame that will become an L1 page
+ *              table
+ */
+extern void sva_declare_l1_page(uintptr_t frame);
+
+/**
+ * Mark the specified frame as an L2 page table.
+ *
+ * Validates than any existing entries are safe, and will also remove write
+ * access to the page from the kernel's direct map.
+ *
+ * @param frame The physical address of the frame that will become an L2 page
+ *              table
+ */
+extern void sva_declare_l2_page(uintptr_t frame);
+
+/**
+ * Mark the specified frame as an L3 page table.
+ *
+ * Validates than any existing entries are safe, and will also remove write
+ * access to the page from the kernel's direct map.
+ *
+ * @param frame The physical address of the frame that will become an L3 page
+ *              table
+ */
+extern void sva_declare_l3_page(uintptr_t frame);
+
+/**
+ * Mark the specified frame as an L4 page table.
+ *
+ * Validates than any existing entries are safe, and will also remove write
+ * access to the page from the kernel's direct map.
+ *
+ * @param frame The physical address of the frame that will become an L4 page
+ *              table
+ */
+extern void sva_declare_l4_page(uintptr_t frame);
+
 extern void sva_declare_dmap_page(uintptr_t frame);
-extern void sva_remove_page     (uintptr_t frame);
+
+/**
+ * Unmark the specified frame as a page table.
+ *
+ * Restores write access to the page in the kernel's direct map.
+ *
+ * @param frame The frame that will no longer be a page table.
+ */
+extern void sva_remove_page(uintptr_t frame);
 
 /*
  *****************************************************************************
