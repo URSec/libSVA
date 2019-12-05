@@ -3204,25 +3204,10 @@ void sva_update_l4_mapping (pml4e_t * pml4ePtr, page_entry_t val) {
  */
 static void protect_code_page(uintptr_t vaddr, page_entry_t perms) {
   // Get a pointer to the page table entry
-  page_entry_t* leaf_entry;
-  pdpte_t* l3e = sva_get_l3_entry(vaddr);
-  SVA_ASSERT(l3e != NULL && isPresent(*l3e),
-    "SVA: FATAL: Attempt to change permissions on unmapped page\n");
-  if (isHugePage(*l3e, PG_L3)) {
-    leaf_entry = l3e;
-  } else {
-    pde_t* l2e = get_pdeVaddr(*l3e, vaddr);
-    SVA_ASSERT(l2e != NULL && isPresent(*l2e),
-      "SVA: FATAL: Attempt to change permissions on unmapped page\n");
-    if (isHugePage(*l2e, PG_L2)) {
-      leaf_entry = l2e;
-    } else {
-      pte_t* l1e = get_pteVaddr(*l2e, vaddr);
-      SVA_ASSERT(l1e != NULL && isPresent(*l1e),
-        "SVA: FATAL: Attempt to change permissions on unmapped page\n");
-      leaf_entry = l1e;
-    }
-  }
+  page_entry_t* leaf_entry = get_pgeVaddr(vaddr);
+  SVA_ASSERT(leaf_entry != NULL && isPresent(*leaf_entry),
+    "SVA: FATAL: Attempt to change permissions on unmapped page 0x%016lx\n",
+    vaddr);
 
   page_desc_t* pgDesc = getPageDescPtr(*leaf_entry & PG_FRAME);
   SVA_ASSERT(pgDesc != NULL,
