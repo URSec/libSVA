@@ -999,7 +999,20 @@ page_desc_t * getPageDescPtr(unsigned long mapping);
 static inline page_entry_t * va_to_pte (uintptr_t va, enum page_type_t level);
 static inline int isValidMappingOrder (page_desc_t *pgDesc, uintptr_t newVA);
 void initDeclaredPage (unsigned long frameAddr);
-page_entry_t *get_pgeVaddr(uintptr_t vaddr);
+
+/**
+ * Get the terminal page table entry mapping the specified virtual address.
+ *
+ * This could be the leaf entry that actually maps the virtual address to a
+ * physical address, or it could be the first entry that doesn't have is not
+ * present (valid bit unset).
+ *
+ * @param vaddr The virtual address for which to find the terminal entry
+ * @return      A pointer to the terminal page table entry mapping `vaddr`, or
+ *              `NULL` if an error was encountered during the page table walk
+ */
+page_entry_t* get_pgeVaddr(uintptr_t vaddr);
+
 void page_entry_store(unsigned long *page_entry, page_entry_t newVal);
 
 #if 0

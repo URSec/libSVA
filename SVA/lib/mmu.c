@@ -743,7 +743,7 @@ initDeclaredPage (unsigned long frameAddr) {
    */
   vaddr = getVirtualKernelDMAP(frameAddr);
   page_entry_t* page_entry = get_pgeVaddr((uintptr_t)vaddr);
-  if (page_entry != NULL) {
+  if (page_entry != NULL && isPresent(*page_entry)) {
     /*
      * Make the direct map entry for the page read-only to ensure that the OS
      * goes through SVA to make page table changes.
@@ -831,66 +831,42 @@ __update_mapping (pte_t * pageEntryPtr, page_entry_t val) {
 
 /* Functions for finding the virtual address of page table components */
 
-/* 
- * Function: get_pgeVaddr
- *
- * Description:
- *  This function does page walk to find the entry controlling access to the
- *  specified address. The function takes into consideration the potential use
- *  of larger page sizes.
- * 
- * Inputs:
- *  vaddr - Virtual Address to find entry for
- *
- * Return value:
- *  0 - There is no mapping for this virtual address.
- *  Otherwise, a pointer to the PTE that controls the mapping of this virtual
- *  address is returned.
- */
-page_entry_t *get_pgeVaddr(uintptr_t vaddr) {
-  /* Pointer to the page table entry for the virtual address */
-  page_entry_t *pge = NULL;
+page_entry_t* get_pgeVaddr(uintptr_t vaddr) {
+  /* Pointers to the page table entries for the virtual address */
+  pml4e_t* l4e = NULL;
+  pdpte_t* l3e = NULL;
+  pde_t* l2e = NULL;
+  pte_t* l1e = NULL;
 
   /* Get the base of the pml4 to traverse */
   cr3_t cr3 = get_root_pagetable();
-  if ((cr3 & PG_FRAME) == 0)
+
+  switch(walk_page_table(cr3, vaddr, &l4e, &l3e, &l2e, &l1e, NULL)) {
+  case 0:
+    /* Walk failed: address isn't canonical */
+  case -5:
+    /* Walk failed: bad root page table */
     return NULL;
-
-  /* Get the VA of the pml4e for this vaddr */
-  pml4e_t *pml4e = get_pml4eVaddr(cr3, vaddr);
-
-  if (isPresent(*pml4e)) {
-    /* Get the VA of the pdpte for this vaddr */
-    pdpte_t *pdpte = get_pdpteVaddr(*pml4e, vaddr);
-    if (isPresent(*pdpte)) {
-      /* 
-       * The PDPE can be configurd in large page mode. If it is then we have the
-       * entry corresponding to the given vaddr If not then we go deeper in the
-       * page walk.
-       */
-      if (isHugePage(*pdpte, PG_L3)) {
-        pge = pdpte;
-      } else {
-        /* Get the pde associated with this vaddr */
-        pde_t *pde = get_pdeVaddr(*pdpte, vaddr);
-        if (isPresent(*pde)) {
-          /* 
-           * As is the case with the pdpte, if the pde is configured for large
-           * page size then we have the corresponding entry. Otherwise we need
-           * to traverse one more level, which is the last. 
-           */
-          if (isHugePage(*pde, PG_L2)) {
-            pge = pde;
-          } else {
-            pge = get_pteVaddr(*pde, vaddr);
-          }
-        }
-      }
-    }
+  case 1:
+  case -1:
+    /* Found L1 entry */
+    return l1e;
+  case 2:
+  case -2:
+    /* Found L2 entry */
+    return l2e;
+  case 3:
+  case -3:
+    /* Found L3 entry */
+    return l3e;
+  case 4:
+  case -4:
+    /* Found L4 entry */
+    return l4e;
   }
 
-  /* Return the entry corresponding to this vaddr */
-  return pge;
+  // Unreachable
+  BUG();
 }
 
 int walk_page_table(cr3_t cr3, uintptr_t vaddr, pml4e_t** pml4e,
