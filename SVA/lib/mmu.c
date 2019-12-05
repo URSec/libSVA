@@ -1043,108 +1043,16 @@ getPhysicalAddrSVADMAP (void * v) {
  return  ((uintptr_t) v & ~SVADMAPSTART);
 }
 
-/*
- * Function: getPhysicalAddrFromPML4E()
- *
- * Description:
- *  Find the physical page number of the specified virtual address.  Begin the
- *  translation starting from the specified PML4E.
- *
- * Inputs:
- *  v - The virtual address to look up.
- *  pmlr4e - A pointer to the PML4E entry from which to start the lookup.
- *
- * Outputs:
- *  paddr - A pointer into which to store the physical address.
- *
- * Return value:
- *  1 - A physical frame was mapped at the specified virtual address.
- *  0 - No frame was mapped at the specified virtual address.
- */
-unsigned char
-getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr) {
+bool getPhysicalAddrFromPML4E(void* v, pml4e_t* pml4e, uintptr_t* paddr) {
   /* Virtual address to convert */
-  uintptr_t vaddr  = ((uintptr_t) v);
+  uintptr_t vaddr = (uintptr_t)v;
 
-  /*
-   * Determine if the PML4E is present.  If not, stop the page table walk.
-   */
-  if (!isPresent(*pml4e)) {
-    return 0;
-  }
-
-  /*
-   * Use the PML4E to get the address of the PDPTE.
-   */
-  pdpte_t* pdpte = get_pdpteVaddr(*pml4e, vaddr);
-
-  /*
-   * Determine if the PDPTE is present.  If not, stop the page table walk.
-   */
-  if (!isPresent(*pdpte)) {
-    return 0;
-  }
-
-  /*
-   * Determine if the PDPTE has the PS flag set.  If so, then it's pointing to
-   * a 1 GB page; return the physical address of that page.
-   */
-  if (isHugePage(*pdpte, PG_L3)) {
-    *paddr = (*pdpte & PG_FRAME & ~(PG_L3_SIZE - 1)) +
-             (vaddr & (PG_L3_SIZE - 1));
-    return 1;
-  }
-
-  /*
-   * Find the page directory entry table from the PDPTE value.
-   */
-  pde_t* pde = get_pdeVaddr(*pdpte, vaddr);
-
-  /*
-   * Determine if the PDE is present.  If not, stop the page table walk.
-   */
-  if (!isPresent(*pde)) {
-    return 0;
-  }
-
-  /*
-   * Determine if the PDE has the PS flag set.  If so, then it's pointing to a
-   * 2 MB page; return the physical address of that page.
-   */
-  if (isHugePage(*pde, PG_L2)) {
-    *paddr = (*pde & PG_FRAME & ~(PG_L2_SIZE - 1)) +
-             (vaddr & (PG_L2_SIZE - 1));
-    return 1;
-  }
-
-  /*
-   * Find the PTE pointed to by this PDE.
-   */
-  pte_t* pte = get_pteVaddr(*pde, vaddr);
-
-  /*
-   * Compute the physical address.
-   */
-  if (isPresent(*pte)) {
-    *paddr = (*pte & PG_FRAME) + (vaddr & (PG_L1_SIZE - 1));
-    return 1;
-  }
-
-  /* No entry was found.  Return zero */
-  return 0;
+  return walk_page_table((cr3_t)0, vaddr, &pml4e, NULL, NULL, NULL, paddr) > 0;
 }
 
-/*
- * Function: getPhysicalAddr()
- *
- * Description:
- *  Find the physical page number of the specified virtual address using the
- *  virtual address space currently in use on this processor.
- */
-uintptr_t
-getPhysicalAddr (void * v) {
+uintptr_t getPhysicalAddr(void* v) {
   /* Virtual address to convert */
-  uintptr_t vaddr  = ((uintptr_t) v);
+  uintptr_t vaddr = (uintptr_t)v;
 
   /* Physical address */
   uintptr_t paddr;
@@ -1154,36 +1062,29 @@ getPhysicalAddr (void * v) {
    * bit-masking operation to convert the virtual address to a physical
    * address.
    */
-  if (((uintptr_t) v >= KERNDMAPSTART) && ((uintptr_t) v < KERNDMAPEND))
+  if (vaddr >= KERNDMAPSTART && vaddr < KERNDMAPEND) {
        return getPhysicalAddrKDMAP(v);
+  }
 
   /*
    * If the virtual address falls within the SVA VM's direct map, use a simple
    * bit-masking operation to find the physical address.
    */
 #ifdef SVA_DMAP
-  if (((uintptr_t) v >= SVADMAPSTART) && ((uintptr_t) v <= SVADMAPEND))
+  if (vaddr >= SVADMAPSTART && vaddr <= SVADMAPEND) {
        return getPhysicalAddrSVADMAP(v);
+  }
 #endif
 
   /*
    * Get the currently active page table.
    */
   cr3_t cr3 = get_root_pagetable();
-
-  /*
-   * Get the address of the PML4e.
-   */
-  pml4e_t* pml4e = get_pml4eVaddr(cr3, vaddr);
-
-  /*
-   * Perform the rest of the page table walk.
-   */
-  if (getPhysicalAddrFromPML4E (v, pml4e, &paddr)) {
+  if (walk_page_table(cr3, vaddr, NULL, NULL, NULL, NULL, &paddr) > 0) {
     return paddr;
+  } else {
+    return PADDR_INVALID;
   }
-
-  return 0;
 }
 
 /*

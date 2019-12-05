@@ -65,6 +65,13 @@
 #include "sva/util.h"
 #include "sva/vmx.h"
 
+/**
+ * Invalid physical address.
+ *
+ * Note that current hardware only supports up to 46 bit physical addresses.
+ */
+static const uintptr_t PADDR_INVALID = ~0UL;
+
 /* Size of the smallest page frame in bytes */
 static const uintptr_t X86_PAGE_SIZE = 4096u;
 
@@ -417,9 +424,33 @@ extern int walk_page_table(cr3_t cr3, uintptr_t vaddr, pml4e_t** pml4e,
                            pdpte_t** pdpte, pde_t** pde, pte_t** pte,
                            uintptr_t* paddr);
 
-extern uintptr_t getPhysicalAddr (void * v);
-extern unsigned char
-getPhysicalAddrFromPML4E (void * v, pml4e_t * pml4e, uintptr_t * paddr);
+/**
+ * Get the physical address of the specified virtual address using the virtual
+ * address space currently in use on this processor.
+ *
+ * @param vaddr The virtual address for which to query the physical address
+ * @return      The physical address to which `vaddr` maps, or PADDR_INVALID if
+ *              `vaddr` is unmapped
+ */
+extern uintptr_t getPhysicalAddr(void* vaddr);
+
+/**
+ * Get the physical address of the specified virtual address using the specified
+ * L4 pagetable entry.
+ *
+ * Because we save the L4 entry mapping ghost memory into our thread data, it is
+ * common for us to already have the L4 entry when we want to do a walk for a
+ * ghost memory address.
+ *
+ * @param[in]  vaddr  The virtual address to look up
+ * @param[in]  pml4e  A pointer to the PML4E entry from which to start the lookup
+ * @param[out] paddr  The physical address to which `vaddr` maps
+ * @return            True if the walk succeeded, false if it failed (e.g.
+ *                    because `vaddr` isn't mapped)
+ */
+extern bool
+getPhysicalAddrFromPML4E(void* vaddr, pml4e_t* pml4e, uintptr_t* paddr);
+
 extern pml4e_t mapSecurePage (uintptr_t v, uintptr_t paddr);
 extern uintptr_t unmapSecurePage (struct SVAThread *, unsigned char * v);
 extern uintptr_t alloc_frame(void);
