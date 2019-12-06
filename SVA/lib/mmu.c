@@ -2324,6 +2324,10 @@ printPTES (uintptr_t vaddr) {
  */
 void
 sva_remove_page (uintptr_t paddr) {
+  if (!mmuIsInitialized) {
+    return;
+  }
+
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
@@ -2555,6 +2559,11 @@ uintptr_t sva_get_kernel_pml4pg(uintptr_t paddr)
  */
 void
 sva_remove_mapping(page_entry_t * pteptr) {
+  if (!mmuIsInitialized) {
+    *pteptr = ZERO_MAPPING;
+    return;
+  }
+
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
     tsc_tmp = sva_read_tsc();
