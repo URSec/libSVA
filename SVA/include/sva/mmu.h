@@ -778,10 +778,15 @@ static inline bool isHugePage(page_entry_t pte, enum page_type_t level) {
   switch (level) {
   case PG_L1:
   case PG_L4:
+  case PG_EPTL1:
+  case PG_EPTL4:
     return false;
   case PG_L2:
   case PG_L3:
     return pte & PG_PS;
+  case PG_EPTL2:
+  case PG_EPTL3:
+    return pte & PG_EPT_PS;
   default:
     // TODO: Other page table types
     SVA_ASSERT_UNREACHABLE("SVA: FATAL: Not a page table type %d\n", level);
@@ -799,6 +804,7 @@ static inline bool isHugePage(page_entry_t pte, enum page_type_t level) {
 static inline bool isLeafEntry(page_entry_t pte, enum page_type_t level) {
   switch (level) {
   case PG_L1:
+  case PG_EPTL1:
     // L1 entries are always leaf entries.
     return true;
   default:
