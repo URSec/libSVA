@@ -341,7 +341,9 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
    */
   if (isPresent_maybeEPT(newVal, isEPT)) {
     SVA_ASSERT(newPG != NULL,
-      "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
+      "SVA: FATAL: Attempted to create mapping to non-existant frame 0x%lx"
+      "(PTE 0x%016lx)\n",
+      newPA / PAGE_SIZE, newVal);
 
     /*
      * Verify that we're not attempting to establish a mapping to a ghost PTP.
