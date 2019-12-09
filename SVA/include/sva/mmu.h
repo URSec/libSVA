@@ -788,6 +788,24 @@ static inline bool isHugePage(page_entry_t pte, enum page_type_t level) {
   }
 }
 
+/**
+ * Determine if a page table entry is a leaf entry (one that maps data, not a
+ * lower level page table).
+ *
+ * @param entry The page table entry that may be a leaf entry
+ * @param level The level of the page table which contains `entry`
+ * @return      True if `entry` is a leaf entry, otherwise false
+ */
+static inline bool isLeafEntry(page_entry_t pte, enum page_type_t level) {
+  switch (level) {
+  case PG_L1:
+    // L1 entries are always leaf entries.
+    return true;
+  default:
+    return isHugePage(pte, level);
+  }
+}
+
 /*  
  * Global TLB flush (except for this for pages marked PG_G)
  */ 
