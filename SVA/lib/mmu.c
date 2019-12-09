@@ -230,8 +230,9 @@ static bool mappingIsSafe(page_entry_t entry, enum page_type_t type) {
   case PG_L1 ... PG_L4:
   case PG_EPTL1 ... PG_EPTL4:
   case PG_DML1 ... PG_DML4:
-    /* Safe if neither writable or executable. */
-    return !isExecutable(entry) && !isWritable(entry);
+    /* Safe if neither writable nor executable. */
+    return !isWritable(entry) &&
+           (!isExecutable(entry) || isUserMapping(entry)); // Assume SMEP
   case PG_TKDATA:
   case PG_TUDATA:
     /* Safe if only executable by user. */
