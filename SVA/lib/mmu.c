@@ -358,13 +358,8 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
      *
      * For non-last-level mappings, verify that the mappoing points to the
      * appropriate next-level page table.
-     *
-     * NOTE: PG_PS and PG_EPT_PS are the same bit (#7), so we can use the
-     * same check for both regular and extended page tables.
      */
-    if (ptePG->type == PG_L1 || ptePG->type == PG_EPTL1 ||
-        isHugePage(newVal, ptePG->type))
-    {
+    if (isLeafEntry(newVal, ptePG->type)) {
       /*
        * The OS is only allowed to create mappings to certain types of frames
        * (e.g., unused, kernel data, or user data frames). Some frame types
@@ -694,8 +689,8 @@ __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
   /* Is this an extended page table update? */
   uintptr_t ptePaddr = getPhysicalAddr(pteptr);
   page_desc_t *ptePG = getPageDescPtr(ptePaddr);
-  bool oldIsLeaf = ptePG->type == PG_L1 || isHugePage(*pteptr, ptePG->type);
-  bool newIsLeaf = ptePG->type == PG_L1 || isHugePage(mapping, ptePG->type);
+  bool oldIsLeaf = isLeafEntry(*pteptr, ptePG->type);
+  bool newIsLeaf = isLeafEntry(mapping, ptePG->type);
   size_t oldCount = oldIsLeaf ? getMappedSize(ptePG->type) / PAGE_SIZE : 1;
   size_t newCount = newIsLeaf ? getMappedSize(ptePG->type) / PAGE_SIZE : 1;
   unsigned char isEPT = (ptePG->type >= PG_EPTL1) && (ptePG->type <= PG_EPTL4);
@@ -2342,8 +2337,7 @@ sva_remove_page (uintptr_t paddr) {
         freePTPage(ptindex);
         ptp_vaddr[i] = 0;
       } else {
-        bool isLeaf = pgDesc->type == PG_L1 ||
-                      isHugePage(ptp_vaddr[i], pgDesc->type);
+        bool isLeaf = isLeafEntry(ptp_vaddr[i], pgDesc->type);
         size_t count = isLeaf ? getMappedSize(pgDesc->type) / PAGE_SIZE : 1;
         /*
          * NB: We don't want to actually change the data in the page table, as
