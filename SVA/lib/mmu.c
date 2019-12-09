@@ -1993,115 +1993,35 @@ static void validate_existing_leaf(page_entry_t entry, size_t frames) {
 }
 
 /**
- * Validate that any existing L1 entries in a new page table conform to SVA's
+ * Validate that any existing entries in a new page table conform to SVA's
  * security policy.
  *
- * This function will also update reference counts and remove the frame from the
- * kernel's direct map.
+ * This function will also update reference counts for the frames referenced in
+ * the entries.
  *
  * @param frame The new page table frame
+ * @param level The level of the new page table
  */
-static void validate_existing_l1_entries(uintptr_t frameAddr) {
-  pte_t* l1_entries = (pte_t*)getVirtual(frameAddr);
+static void validate_existing_entries(uintptr_t frame, enum page_type_t level) {
+  page_entry_t* entries = (page_entry_t*)getVirtual(frame);
 
   for (size_t i = 0; i < PG_ENTRIES; ++i) {
-    if (isPresent(l1_entries[i])) {
-      validate_existing_leaf(l1_entries[i], 1);
-    }
-  }
-}
-
-/**
- * Validate that any existing L2 entries in a new page table conform to SVA's
- * security policy.
- *
- * This function will also update reference counts and remove the frame from the
- * kernel's direct map.
- *
- * @param frame The new page table frame
- */
-static void validate_existing_l2_entries(uintptr_t frameAddr) {
-  pde_t* l2_entries = (pde_t*)getVirtual(frameAddr);
-
-  for (size_t i = 0; i < PG_ENTRIES; ++i) {
-    if (isPresent(l2_entries[i])) {
-      if (isHugePage(l2_entries[i], PG_L2)) {
-        validate_existing_leaf(l2_entries[i], PG_L2_SIZE / PG_L1_SIZE);
+    if (isPresent(entries[i])) {
+      if (isLeafEntry(entries[i], level)) {
+        validate_existing_leaf(entries[i], getMappedSize(level) / PAGE_SIZE);
       } else {
-        uintptr_t entryFrame = l2_entries[i] & PG_FRAME;
+        uintptr_t entryFrame = entries[i] & PG_FRAME;
         page_desc_t* pgDesc = getPageDescPtr(entryFrame);
         SVA_ASSERT(pgDesc != NULL,
-          "SVA: FATAL: New L2 table at 0x%lx contains mapping to non-existant "
-          "frame 0x%lx\n", frameAddr / PAGE_SIZE, entryFrame / PAGE_SIZE);
+          "SVA: FATAL: New L%d table at 0x%lx contains mapping to non-existant "
+          "frame 0x%lx\n", level, frame / PAGE_SIZE, entryFrame / PAGE_SIZE);
 
-        if (pgDesc->type != PG_L1) {
+        if (pgDesc->type != getSublevelType(level)) {
           SVA_ASSERT_UNREACHABLE(
             "SVA: FATAL: Recursive page validation not yet supported\n");
         }
         pgRefCountInc(pgDesc, false);
       }
-    }
-  }
-}
-
-/**
- * Validate that any existing L3 entries in a new page table conform to SVA's
- * security policy.
- *
- * This function will also update reference counts and remove the frame from the
- * kernel's direct map.
- *
- * @param frame The new page table frame
- */
-static void validate_existing_l3_entries(uintptr_t frameAddr) {
-  pdpte_t* l3_entries = (pdpte_t*)getVirtual(frameAddr);
-
-  for (size_t i = 0; i < PG_ENTRIES; ++i) {
-    if (isPresent(l3_entries[i])) {
-      if (isHugePage(l3_entries[i], PG_L3)) {
-        validate_existing_leaf(l3_entries[i], PG_L3_SIZE / PG_L1_SIZE);
-      } else {
-        uintptr_t entryFrame = l3_entries[i] & PG_FRAME;
-        page_desc_t* pgDesc = getPageDescPtr(entryFrame);
-        SVA_ASSERT(pgDesc != NULL,
-          "SVA: FATAL: New L3 table at 0x%lx contains mapping to non-existant "
-          "frame 0x%lx\n", frameAddr / PAGE_SIZE, entryFrame / PAGE_SIZE);
-
-        if (pgDesc->type != PG_L2) {
-          SVA_ASSERT_UNREACHABLE(
-            "SVA: FATAL: Recursive page validation not yet supported\n");
-        }
-        pgRefCountInc(pgDesc, false);
-      }
-    }
-  }
-}
-
-/**
- * Validate that any existing L4 entries in a new page table conform to SVA's
- * security policy.
- *
- * This function will also update reference counts and remove the frame from the
- * kernel's direct map.
- *
- * @param frame The new page table frame
- */
-static void validate_existing_l4_entries(uintptr_t frameAddr) {
-  pml4e_t* l4_entries = (pml4e_t*)getVirtual(frameAddr);
-
-  for (size_t i = 0; i < PG_ENTRIES; ++i) {
-    if (isPresent(l4_entries[i])) {
-      uintptr_t entryFrame = l4_entries[i] & PG_FRAME;
-      page_desc_t* pgDesc = getPageDescPtr(entryFrame);
-      SVA_ASSERT(pgDesc != NULL,
-        "SVA: FATAL: New L4 table at 0x%lx contains mapping to non-existant "
-        "frame 0x%lx\n", frameAddr / PAGE_SIZE, entryFrame / PAGE_SIZE);
-
-      if (pgDesc->type != PG_L3) {
-        SVA_ASSERT_UNREACHABLE(
-          "SVA: FATAL: Recursive page validation not yet supported\n");
-      }
-      pgRefCountInc(pgDesc, false);
     }
   }
 }
@@ -2185,23 +2105,7 @@ void sva_declare_page(uintptr_t frame, enum page_type_t level) {
   /*
    * Validate any existing entries in the new page table.
    */
-  switch (level) {
-  case PG_L1:
-    validate_existing_l1_entries(frame);
-    break;
-  case PG_L2:
-    validate_existing_l2_entries(frame);
-    break;
-  case PG_L3:
-    validate_existing_l3_entries(frame);
-    break;
-  case PG_L4:
-    validate_existing_l4_entries(frame);
-    break;
-  default:
-    /* Caller passed a bad page type */
-    BUG();
-  }
+  validate_existing_entries(frame, level);
 
   /* Restore interrupts */
   sva_exit_critical(rflags);
