@@ -269,8 +269,8 @@ get_frame_from_os(void) {
  *  Return a frame acquired with get_frame_from_os().
  *
  *  The frame's page type in SVA's page_desc structure will be returned to
- *  PG_UNUSED, so that the OS is once again free to establish its own
- *  mappings to it.
+ *  PG_FREE, so that the OS is once again free to establish its own mappings
+ *  to it.
  *
  * Argument:
  *  paddr - the physical address of the frame being returned.
@@ -281,7 +281,7 @@ static inline void return_frame_to_os(uintptr_t paddr) {
   page_desc_t * page = getPageDescPtr(paddr);
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: Returning non-existant frame to kernel\n");
-  page->type = PG_UNUSED;
+  page->type = PG_FREE;
 #endif /* end #ifndef XEN */
 
   releaseSVAMemory(paddr, X86_PAGE_SIZE);

@@ -56,8 +56,8 @@ sva_declare_l1_eptpage(uintptr_t frameAddr) {
    */
   switch (pgDesc->type) {
     case PG_EPTL1:
-    case PG_UNUSED:
-    case PG_TKDATA:
+    case PG_FREE:
+    case PG_DATA:
       break;
 
     default:
@@ -138,8 +138,8 @@ sva_declare_l2_eptpage(uintptr_t frameAddr) {
    */
   switch (pgDesc->type) {
     case PG_EPTL2:
-    case PG_UNUSED:
-    case PG_TKDATA:
+    case PG_FREE:
+    case PG_DATA:
       break;
 
     default:
@@ -220,8 +220,8 @@ sva_declare_l3_eptpage(uintptr_t frameAddr) {
    */
   switch (pgDesc->type) {
     case PG_EPTL3:
-    case PG_UNUSED:
-    case PG_TKDATA:
+    case PG_FREE:
+    case PG_DATA:
       break;
 
     default:
@@ -302,8 +302,8 @@ sva_declare_l4_eptpage(uintptr_t frameAddr) {
    */
   switch (pgDesc->type) {
     case PG_EPTL4:
-    case PG_UNUSED:
-    case PG_TKDATA:
+    case PG_FREE:
+    case PG_DATA:
       break;
 
     default:

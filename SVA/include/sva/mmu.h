@@ -110,28 +110,37 @@ static const uintptr_t ZERO_MAPPING = 0;
 /*
  * Frame usage constants
  */
-/* Enum representing the four page types */
-enum page_type_t {
-    PG_UNUSED = 0,
-    PG_L1,          /*  1: Defines a page being used as an L1 PTP */
-    PG_L2,          /*  2: Defines a page being used as an L2 PTP */
-    PG_L3,          /*  3: Defines a page being used as an L3 PTP */
-    PG_L4,          /*  4: Defines a page being used as an L4 PTP */
-    PG_LEAF,        /*  5: Generic type representing a valid LEAF page */
-    PG_TKDATA,      /*  6: Defines a kernel data page */
-    PG_TUDATA,      /*  7: Defines a user data page */
-    PG_CODE,        /*  8: Defines a code page */
-    PG_SVA,         /*  9: Defines an SVA system page */
-    PG_GHOST,       /* 10: Defines a secure page */
-    PG_DML1,        /* 11: Defines a L1 PTP  for the direct map */
-    PG_DML2,        /* 12: Defines a L2 PTP  for the direct map */
-    PG_DML3,        /* 13: Defines a L3 PTP  for the direct map */
-    PG_DML4,        /* 14: Defines a L4 PTP  for the direct map */
-    PG_EPTL1,       /* 15: Defines a L1 PTP for Extended Page Tables (VMX) */
-    PG_EPTL2,       /* 16: Defines a L2 PTP for Extended Page Tables (VMX) */
-    PG_EPTL3,       /* 17: Defines a L3 PTP for Extended Page Tables (VMX) */
-    PG_EPTL4,       /* 18: Defines a L4 PTP for Extended Page Tables (VMX) */
-};
+
+/**
+ * The type of a frame.
+ *
+ * These types are mutually exclusive: a frame may only be one type at a time,
+ * and all uses as its current type must be dropped before it can change type.
+ *
+ * Note that all types except `PG_DATA` are "sticky": a frame's type will not
+ * automatically change to `PG_FREE` when it's type reference count drops to 0.
+ * The type of the frame must be reset using the appropriate undeclare call for
+ * its current type.
+ */
+typedef enum page_type_t {
+  PG_FREE,     ///< Frame is not currently used as any type
+  PG_UNUSABLE, ///< Frame is not present or is reserved by firmware
+  PG_DATA,     ///< Frame is used as writable data
+  PG_SVA,      ///< Frame is used internally by SVA
+  PG_GHOST,    ///< Frame is used for ghost memory
+  PG_CODE,     ///< Frame is used for code
+  PG_L1,       ///< Frame is used as an L1 page table
+  PG_L2,       ///< Frame is used as an L2 page table
+  PG_L3,       ///< Frame is used as an L3 page table
+  PG_L4,       ///< Frame is used as an L4 page table
+  PG_EPTL1,    ///< Frame is used as an L1 extended page table
+  PG_EPTL2,    ///< Frame is used as an L2 extended page table
+  PG_EPTL3,    ///< Frame is used as an L3 extended page table
+  PG_EPTL4,    ///< Frame is used as an L4 extended page table
+  PG_SML1,     ///< Frame is used as an L1 page table for secure memory
+  PG_SML2,     ///< Frame is used as an L2 page table for secure memory
+  PG_SML3      ///< Frame is used as an L3 page table for secure memory
+} page_type_t;
 
 /* Mask to get the address bits out of a PTE, PDE, etc. */
 static const uintptr_t addrmask = 0x000ffffffffff000u;
@@ -145,53 +154,38 @@ static const uintptr_t addrmask = 0x000ffffffffff000u;
  */
 typedef struct page_desc_t {
 #if 0 // The value stored in this field is never actually used
-    /**
-     * If the page is a page table page, mark the virtual address to which it is
-     * mapped.
-     */
-    uintptr_t pgVaddr;
+  /**
+   * If the page is a page table page, mark the virtual address to which it is
+   * mapped.
+   */
+  uintptr_t pgVaddr;
 #endif
 
 #ifdef SVA_ASID_PG
-    /**
-     * The physical adddress of the other (kernel or user/SVA) version pml4 page
-     * table page.
-     */
-    uintptr_t other_pgPaddr;
+  /**
+   * The physical adddress of the other (kernel or user/SVA) version pml4 page
+   * table page.
+   */
+  uintptr_t other_pgPaddr;
 #endif
 
-    /**
-     * The type of this frame.
-     */
-    enum page_type_t type : 5;
-
-    /**
-     * Whether this frame is a Ghost page table page.
-     */
-    unsigned ghostPTP : 1;
-
-    /**
-     * Whether this frame is a page table for the SVA direct map.
-     */
-    unsigned dmap : 1;
-
-    /**
-     * Whether this frame is mapped in user space.
-     */
-    unsigned user : 1;
+  /**
+   * The type of this frame.
+   */
+  page_type_t type : 8;
 
 #define PG_REF_COUNT_BITS 12
 #define PG_REF_COUNT_MAX ((1U << PG_REF_COUNT_BITS) - 1)
 
-    /**
-     * Number of times this frame is mapped.
-     */
-    unsigned count : PG_REF_COUNT_BITS;
+  /**
+   * Number of times this frame is mapped.
+   */
+  unsigned count : PG_REF_COUNT_BITS;
 
-    /**
-     * Number of times this frame is mapped writable.
-     */
-    unsigned wr_count : PG_REF_COUNT_BITS;
+  /**
+   * Number of times this frame is mapped writable.
+   */
+  unsigned wr_count : PG_REF_COUNT_BITS;
 } page_desc_t;
 
 /* Array describing the physical pages. Used by SVA's MMU and EPT intrinsics.
@@ -1102,20 +1096,6 @@ void __update_mapping (pte_t * pageEntryPtr, page_entry_t val);
 static inline int isGhostVA(uintptr_t va)
     { return (va >= SECMEMSTART) && (va < SECMEMEND); }
 
-/* 
- * The following functions query the given page descriptor for type attributes.
- */
-static inline int isFramePg (page_desc_t *page) { 
-  return (page->type == PG_UNUSED)   ||      /* Defines an unused page */
-         (page->type == PG_TKDATA)   ||      /* Defines a kernel data page */
-         (page->type == PG_TUDATA)   ||      /* Defines a user data page */
-         (page->type == PG_CODE);           /* Defines a code page */
-}
-
-/* Description: Return whether the page is active or not */
-static inline int pgIsActive (page_desc_t *page) 
-    { return page->type != PG_UNUSED ; } 
-
 /**
  * Determine if a virtual address is part of the kernel's direct map.
  *
@@ -1269,34 +1249,87 @@ static inline unsigned int pgRefCountDec(page_desc_t* page, bool writable) {
   return count;
 }
 
-/* Page type queries */
-static inline int isL1Pg (page_desc_t *page) { return page->type == PG_L1; }
-static inline int isL2Pg (page_desc_t *page) { return page->type == PG_L2; }
-static inline int isL3Pg (page_desc_t *page) { return page->type == PG_L3; }
-static inline int isL4Pg (page_desc_t *page) { return page->type == PG_L4; }
-static inline int isEPTL1Pg (page_desc_t *page) { return page->type == PG_EPTL1; }
-static inline int isEPTL2Pg (page_desc_t *page) { return page->type == PG_EPTL2; }
-static inline int isEPTL3Pg (page_desc_t *page) { return page->type == PG_EPTL3; }
-static inline int isEPTL4Pg (page_desc_t * page) { return page->type = PG_EPTL4; }
-static inline int isSVAPg (page_desc_t *page) { return page->type == PG_SVA; }
-static inline int isCodePg (page_desc_t *page) { return page->type == PG_CODE; }
-static inline int isGhostPTP (page_desc_t *page) { return page->ghostPTP; }
+/*
+ *******************************************************************************
+ * Page type queries
+ *******************************************************************************
+ */
 
-static inline int isGhostPG (page_desc_t *page) { 
-    return page->type == PG_GHOST; 
+static inline int isL1Pg (page_desc_t *page) { return page->type == PG_L1; }
+
+static inline int isL2Pg (page_desc_t *page) { return page->type == PG_L2; }
+
+static inline int isL3Pg (page_desc_t *page) { return page->type == PG_L3; }
+
+static inline int isL4Pg (page_desc_t *page) { return page->type == PG_L4; }
+
+static inline int isEPTL1Pg (page_desc_t *page) { return page->type == PG_EPTL1; }
+
+static inline int isEPTL2Pg (page_desc_t *page) { return page->type == PG_EPTL2; }
+
+static inline int isEPTL3Pg (page_desc_t *page) { return page->type == PG_EPTL3; }
+
+static inline int isEPTL4Pg (page_desc_t * page) { return page->type = PG_EPTL4; }
+
+static inline int isSVAPg (page_desc_t *page) { return page->type == PG_SVA; }
+
+static inline int isCodePg (page_desc_t *page) { return page->type == PG_CODE; }
+
+static inline int isGhostPTP (page_desc_t *page) {
+  switch (page->type) {
+  case PG_SML1:
+  case PG_SML2:
+  case PG_SML3:
+    return true;
+  default:
+    return false;
+  }
 }
 
-static inline int isPTP (page_desc_t *pg) { 
-    return  pg->type == PG_L4    ||  
-            pg->type == PG_L3    ||  
-            pg->type == PG_L2    ||  
+static inline int isGhostPG(page_desc_t *page) {
+    return page->type == PG_GHOST;
+}
+
+static inline int isPTP (page_desc_t *pg) {
+    return  pg->type == PG_L4    ||
+            pg->type == PG_L3    ||
+            pg->type == PG_L2    ||
             pg->type == PG_L1
             ;
 }
 
-static inline int isUserPTP (page_desc_t *page) { return isPTP(page) && page->user;}
-static inline int isUserPG (page_desc_t *page){ return page->user; }
 static inline int isCodePG (page_desc_t *page){ return page->type == PG_CODE; }
+
+/**
+ * Get the integer value of the page level of a page type.
+ *
+ * For example, `PG_L4` is level 4. Types that aren't page tables are defined
+ * to have level 0.
+ *
+ * @param type The page type to get the integer level for
+ * @return     The integer page level of the page type `type`
+ */
+static inline int getIntLevel(page_type_t level) {
+  switch (level) {
+  case PG_L1:
+  case PG_EPTL1:
+  case PG_SML1:
+    return 1;
+  case PG_L2:
+  case PG_EPTL2:
+  case PG_SML2:
+    return 2;
+  case PG_L3:
+  case PG_EPTL3:
+  case PG_SML3:
+    return 3;
+  case PG_L4:
+  case PG_EPTL4:
+    return 4;
+  default:
+    return 0;
+  }
+}
 
 /**
  * Get the type of page mapped by the entries in a page table.
@@ -1313,7 +1346,7 @@ static inline enum page_type_t getSublevelType(enum page_type_t level) {
   case PG_L2:
     return PG_L1;
   case PG_L1:
-    return PG_LEAF;
+    return PG_DATA;
   default:
     SVA_ASSERT_UNREACHABLE("SVA: FATAL: Not a page table frame type\n");
   }

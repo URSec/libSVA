@@ -174,6 +174,8 @@ page_entry_store (unsigned long *page_entry, page_entry_t newVal) {
 #ifdef SVA_DMAP
   uintptr_t ptePA = getPhysicalAddr(page_entry);
   unsigned long *page_entry_svadm = (unsigned long *) getVirtualSVADMAP(ptePA);
+
+#if 0
   page_desc_t *ptePG = getPageDescPtr(ptePA);
 
   /*
@@ -187,6 +189,7 @@ page_entry_store (unsigned long *page_entry, page_entry_t newVal) {
    */
   if (ptePG->dmap) 
     newVal |= PG_RW;
+#endif
 
   /* Write the new value to the page_entry */
   *page_entry_svadm = newVal;
@@ -224,17 +227,16 @@ page_entry_store (unsigned long *page_entry, page_entry_t newVal) {
  */
 static bool mappingIsSafe(page_entry_t entry, enum page_type_t type) {
   switch (type) {
-  case PG_UNUSED:
-  case PG_LEAF:
-    return false;
+  case PG_FREE:
+    /* Safe as long as the mapping is read-only. */
+    return !isWritable(entry) && !isExecutable(entry);
   case PG_L1 ... PG_L4:
   case PG_EPTL1 ... PG_EPTL4:
-  case PG_DML1 ... PG_DML4:
+  case PG_SML1 ... PG_SML3:
     /* Safe if neither writable nor executable. */
     return !isWritable(entry) &&
            (!isExecutable(entry) || isUserMapping(entry)); // Assume SMEP
-  case PG_TKDATA:
-  case PG_TUDATA:
+  case PG_DATA:
     /* Safe if only executable by user. */
     return !isExecutable(entry) || isUserMapping(entry); // Assume SMEP
   case PG_CODE:
@@ -242,6 +244,7 @@ static bool mappingIsSafe(page_entry_t entry, enum page_type_t type) {
     return !isWritable(entry);
   case PG_SVA:
   case PG_GHOST:
+  case PG_UNUSABLE:
     /* Never safe. */
     return false;
   default:
@@ -286,7 +289,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
   page_desc_t *ptePG = getPageDescPtr(ptePAddr);
 
   /* Is this an extended page table update? */
-  unsigned char isEPT = (ptePG->type >= PG_EPTL1) && (ptePG->type <= PG_EPTL4);
+  unsigned char isEPT = ptePG->type >= PG_EPTL1 && ptePG->type <= PG_EPTL4;
  
   /* Return value */
   unsigned char retValue = 2;
@@ -310,30 +313,20 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
 
   /*
    * Verify that we're not trying to modify the PML4 entry that controls the
-   * ghost address space.
+   * secure memory virtual address space.
    */
-  if (vg) {
-    SVA_ASSERT(!(ptePG->type == PG_L4 &&
-                 (ptePAddr & PG_FRAME) == secmemOffset),
-      "SVA: MMU: Kernel attempted to modify ghost memory pml4e!\n");
-  }
+  SVA_ASSERT(!(ptePG->type == PG_L4 &&
+               (ptePAddr & PG_FRAME) == secmemOffset),
+    "SVA: MMU: Kernel attempted to modify ghost memory pml4e!\n");
 
   /*
-   * Verify that we're not modifying any of the page tables that control
-   * the ghost virtual address space.  Ensuring that the page that we're
-   * writing into isn't a ghost page table (along with the previous check)
-   * should suffice.
+   * Verify that we're not modifying any of the page tables that control the
+   * securem memory virtual address space. Ensuring that the page that we're
+   * writing into isn't a secure memory page table (along with the previous
+   * check) should suffice.
    */
-  if (vg) {
-    SVA_ASSERT(!isGhostPTP(ptePG),
-        "SVA: MMU: Kernel attempted to modify ghost memory mappings!\n");
-  }
-
-  /*
-   * Add check that the direct map is not being modified.
-   */
-  SVA_ASSERT(!(PG_DML1 <= ptePG->type && ptePG->type <= PG_DML4),
-    "SVA: MMU: Modifying direct map!\n");
+  SVA_ASSERT(!isGhostPTP(ptePG),
+    "SVA: MMU: Kernel attempted to modify ghost memory mappings!\n");
 
   /* 
    * If we aren't mapping a new page then we can skip several checks, and in
@@ -373,9 +366,13 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
        */
       switch (newPG->type) {
         /* These mappings are allowed without restriction. */
-        case PG_UNUSED:
-        case PG_TKDATA:
-        case PG_TUDATA:
+        case PG_DATA:
+          break;
+        case PG_FREE:
+          if (isWritable(newVal)) {
+            /* Make the page writable */
+            newPG->type = PG_DATA;
+          }
           break;
 
           /* These are allowed, but forced to be non-writable. */
@@ -693,7 +690,7 @@ __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
   bool newIsLeaf = isLeafEntry(mapping, ptePG->type);
   size_t oldCount = oldIsLeaf ? getMappedSize(ptePG->type) / PAGE_SIZE : 1;
   size_t newCount = newIsLeaf ? getMappedSize(ptePG->type) / PAGE_SIZE : 1;
-  unsigned char isEPT = (ptePG->type >= PG_EPTL1) && (ptePG->type <= PG_EPTL4);
+  unsigned char isEPT = ptePG->type >= PG_EPTL1 && ptePG->type <= PG_EPTL4;
 
   /*
    * If we have a new mapping as opposed to just changing the flags of an
@@ -1068,8 +1065,7 @@ uintptr_t getPhysicalAddr(void* v) {
  *  This function allocates a page table page, initializes it, and returns it
  *  to the caller.
  */
-static unsigned int
-allocPTPage (void) {
+static unsigned int allocPTPage(page_type_t level) {
   /* Index into the page table information array */
   unsigned int ptindex;
 
@@ -1118,7 +1114,7 @@ allocPTPage (void) {
     /*
      * Set the type of the page to be a ghost page table page.
      */
-    getPageDescPtr(getPhysicalAddr (p))->ghostPTP = 1;
+    getPageDescPtr(getPhysicalAddr(p))->type = level;
 
     /*
      * Return the index in the table.
@@ -1145,7 +1141,7 @@ freePTPage (unsigned int ptindex) {
   /*
    * Change the type of the page table page.
    */
-  getPageDescPtr(PTPages[ptindex].paddr)->ghostPTP = 0;
+  getPageDescPtr(PTPages[ptindex].paddr)->type = PG_FREE;
 
   return;
 }
@@ -1274,7 +1270,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
     unsigned int ptindex;
 
     /* Fetch a new page table page */
-    ptindex = allocPTPage();
+    ptindex = allocPTPage(PG_SML3);
 
     /*
      * Install a new PDPTE entry using the page.
@@ -1302,7 +1298,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
     unsigned int ptindex;
 
     /* Fetch a new page table page */
-    ptindex = allocPTPage();
+    ptindex = allocPTPage(PG_SML2);
 
     /*
      * Install a new PDPTE entry using the page.
@@ -1330,7 +1326,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
     unsigned int ptindex;
 
     /* Fetch a new page table page */
-    ptindex = allocPTPage();
+    ptindex = allocPTPage(PG_SML1);
 
     /*
      * Install a new PDE entry.
@@ -1380,16 +1376,6 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    * Check that we don't overflow the counter.
    */
   pgRefCountInc(pgDesc, true);
-
-  /*
-   * Mark the physical page frames used to map the entry as Ghost Page Table
-   * Pages.  Note that we don't mark the PML4E as a ghost page table page
-   * because it is also used to map traditional memory pages (it is a top-most
-   * level page table page).
-   */
-  getPageDescPtr(get_pdptePaddr(*pml4e, vaddr))->ghostPTP = 1;
-  getPageDescPtr(get_pdePaddr(*pdpte, vaddr))->ghostPTP = 1;
-  getPageDescPtr(get_ptePaddr(*pde, vaddr))->ghostPTP = 1;
 
   /*
    * Re-enable page protections.
@@ -1560,7 +1546,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
   unsigned int ptindex;
 
   /* Fetch a new page table page */
-  ptindex = allocPTPage();
+  ptindex = allocPTPage(PG_SML3);
   /*
    * Install a new PDPTE entry using the page.
    */
@@ -1588,7 +1574,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
       unsigned int ptindex;
 
       /* Fetch a new page table page */
-      ptindex = allocPTPage();
+      ptindex = allocPTPage(PG_SML2);
 
       /*
        * Install a new PDPTE entry using the page.
@@ -1624,7 +1610,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
         unsigned int ptindex;
 
         /* Fetch a new page table page */
-        ptindex = allocPTPage();
+        ptindex = allocPTPage(PG_SML1);
 
         /*
          * Install a new PDE entry.
@@ -1976,8 +1962,8 @@ static void validate_existing_leaf(page_entry_t entry, size_t frames) {
       "SVA: FATAL: New page table contains mapping to non-existant "
       "frame 0x%lx\n", frame / PAGE_SIZE);
 
-    if (pgDesc->type == PG_UNUSED) {
-      pgDesc->type = PG_TKDATA;
+    if (pgDesc->type == PG_FREE && isWritable(entry)) {
+      pgDesc->type = PG_DATA;
     }
     SVA_ASSERT(mappingIsSafe(entry, pgDesc->type),
       "SVA: FATAL: New page table contains unsafe mapping to frame 0x%lx "
@@ -2009,7 +1995,8 @@ static void validate_existing_entries(uintptr_t frame, enum page_type_t level) {
         page_desc_t* pgDesc = getPageDescPtr(entryFrame);
         SVA_ASSERT(pgDesc != NULL,
           "SVA: FATAL: New L%d table at 0x%lx contains mapping to non-existant "
-          "frame 0x%lx\n", level, frame / PAGE_SIZE, entryFrame / PAGE_SIZE);
+          "frame 0x%lx\n",
+          getIntLevel(level), frame / PAGE_SIZE, entryFrame / PAGE_SIZE);
 
         if (pgDesc->type != getSublevelType(level)) {
           SVA_ASSERT_UNREACHABLE(
@@ -2043,22 +2030,14 @@ void sva_declare_page(uintptr_t frame, enum page_type_t level) {
   page_desc_t *pgDesc = getPageDescPtr(frame);
   SVA_ASSERT(pgDesc != NULL,
     "SVA: FATAL: Attempt to use non-existant frame %lx as L%d page table\n",
-    frame / PAGE_SIZE, level);
+    frame / PAGE_SIZE, getIntLevel(level));
 
   /*
-   * Make sure that this is already an L1 page, an unused page, or a kernel
-   * data page.
+   * Make sure that this frame is free.
    */
-  switch (pgDesc->type) {
-    case PG_UNUSED:
-    case PG_TKDATA:
-      break;
-    default:
-      SVA_ASSERT_UNREACHABLE(
-        "SVA: FATAL: Declaring L%d page table for frame %lx "
-        "with invalid type %d\n",
-        level, frame / PAGE_SIZE, pgDesc->type);
-  }
+  SVA_ASSERT(pgDesc->type == PG_FREE,
+    "SVA: FATAL: Declaring L%d page table for frame %lx with invalid type %d\n",
+    getIntLevel(level), frame / PAGE_SIZE, pgDesc->type);
 
 #ifdef SVA_DMAP
   /*
@@ -2068,7 +2047,7 @@ void sva_declare_page(uintptr_t frame, enum page_type_t level) {
   SVA_ASSERT(pgRefCountWr(pgDesc) <= 2,
     "SVA: FATAL: Cannot declare L%d page: "
     "There are still %u writable mappings to frame 0x%ld!\n",
-    level, pgRefCountWr(pgDesc), frame / PAGE_SIZE);
+    getIntLevel(level), pgRefCountWr(pgDesc), frame / PAGE_SIZE);
 #else
 #if 0
   /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
@@ -2145,22 +2124,6 @@ void sva_declare_l4_page(uintptr_t frame) {
   sva_declare_page(frame, PG_L4);
 
   record_tsc(sva_declare_l4_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
-}
-
-/*
- * Function: sva_declare_dmap_page()
- *
- * Description:
- *   Declare a physical page frame to be a page for SVA direct mapping
- *
- * Input:
- *   frameAddr - the address of a physical page frame
- */
-void sva_declare_dmap_page(uintptr_t frameAddr) {
-  page_desc_t* pgDesc = getPageDescPtr(frameAddr);
-  SVA_ASSERT(pgDesc != NULL,
-    "SVA: FATAL: Attempt to use non-existant frame as direct map page table\n");
-  pgDesc->dmap = 1;
 }
 
 static inline page_entry_t * 
@@ -2304,10 +2267,12 @@ sva_remove_page (uintptr_t paddr) {
      * reference count above 2. Ignore the error until we set up proper per-type
      * reference counts.
      */
+#if 0
     printf("SVA: WARNING: undeclare page with outstanding references: "
         "type=%d count=%d\n", pgDesc->type, pgRefCount(pgDesc));
     printf("SVA: This should be fatal, but is allowed as a hack to support "
            "PV guests.\n");
+#endif
 #else
     SVA_ASSERT_UNREACHABLE(
       "SVA: FATAL: undeclare page with outstanding references: "
@@ -2327,7 +2292,7 @@ sva_remove_page (uintptr_t paddr) {
     if (isPresent_maybeEPT(ptp_vaddr[i], isEPT)) {
       /* Remove the mapping */
       page_desc_t *mappedPg = getPageDescPtr(ptp_vaddr[i]);
-      if (mappedPg->ghostPTP) {
+      if (isGhostPTP(mappedPg)) {
         /*
          * The method of removal for ghost PTP mappings is slightly
          * different than for ordinary mappings created by the OS (SVA has
@@ -2352,7 +2317,7 @@ sva_remove_page (uintptr_t paddr) {
   }
 
   /* Mark the page frame as an unused page. */
-  pgDesc->type = PG_UNUSED;
+  pgDesc->type = PG_FREE;
 
   /*
    * Make the page writeable again in the kernel's direct map. Be sure to
@@ -2401,7 +2366,7 @@ sva_remove_page (uintptr_t paddr) {
       }
 
       /* Mark the page frame as an unused page. */
-      other_pgDesc->type = PG_UNUSED;
+      other_pgDesc->type = PG_FREE;
 
       /*
        * Make the page writable again in the kernel's direct map. Be sure
@@ -2600,7 +2565,7 @@ void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
    */
   page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pte));
   SVA_ASSERT(ptDesc != NULL,
-    "SVA: FATAL: L%d page table frame doesn't exist\n", level);
+    "SVA: FATAL: L%d page table frame doesn't exist\n", getIntLevel(level));
   SVA_ASSERT(disableMMUChecks || ptDesc->type == level,
     "SVA: MMU: update_l%d bad type: %p %lx: %x\n",
     level, pte, new_pte, ptDesc->type);
