@@ -1250,7 +1250,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
   SVA_ASSERT(pgRefCount(pgDesc) <= 1,
     "SVA: Ghost page still in use somewhere else! "
     "refcount = %d\n", pgRefCount(pgDesc));
-  SVA_ASSERT(!isPTP(pgDesc) && !isCodePG(pgDesc),
+  SVA_ASSERT(!isPTP(pgDesc) && !isCodePg(pgDesc),
     "SVA: Ghost page has wrong type! "
     "type = %d\n", pgDesc->type);
 

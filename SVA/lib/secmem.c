@@ -787,7 +787,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
       if (pgRefCount(pgDesc_new) > 1) {
         panic("SVA: Ghost page still in use somewhere else!\n");
       }
-      if (isPTP(pgDesc_new) || isCodePG(pgDesc_new)) {
+      if (isPTP(pgDesc_new) || isCodePg(pgDesc_new)) {
         panic("SVA: Ghost page has wrong type!\n");
       }
 
