@@ -68,4 +68,12 @@
 #define USERSTART _ASM_CONST(0x0000000000000000, UL)
 #define USEREND   _ASM_CONST(0x0000800000000000, UL)
 
+#ifndef __ASSEMBLER__
+
+/* State whether this kernel virtual address is in the secure memory range */
+static inline int isGhostVA(uintptr_t va)
+    { return (va >= SECMEMSTART) && (va < SECMEMEND); }
+
+#endif /* !__ASSEMBLER__ */
+
 #endif /* _SVA_SECMEM_H */

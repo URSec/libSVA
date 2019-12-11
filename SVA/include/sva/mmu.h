@@ -57,18 +57,18 @@
  *===----------------------------------------------------------------------===
  */
 
-
 #ifndef SVA_MMU_H
 #define SVA_MMU_H
 
-#include "mmu_types.h"
+#include <sva/mmu_types.h>
 
-#include "sva/assert.h"
-#include "sva/callbacks.h"
-#include "sva/secmem.h"
-#include "sva/state.h"
-#include "sva/util.h"
-#include "sva/vmx.h"
+#include <sva/assert.h>
+#include <sva/callbacks.h>
+#include <sva/dmap.h>
+#include <sva/secmem.h>
+#include <sva/state.h>
+#include <sva/util.h>
+#include <sva/vmx.h>
 
 /**
  * Invalid physical address.
@@ -462,60 +462,6 @@ extern void free_frame(uintptr_t paddr);
  */
 void init_mmu(void);
 void init_leaf_page_from_mapping(page_entry_t mapping);
-
-/*
- *****************************************************************************
- * SVA utility functions needed by multiple compilation units
- *****************************************************************************
- */
-
-/*
- * Function: getVirtualSVADMAP()
- *
- * Description:
- *  This function takes a physical address and converts it into a virtual
- *  address that the SVA VM can access based on SVA direct mapping.
- *
- */
-static inline unsigned char *
-getVirtualSVADMAP (uintptr_t physical) {
-  return (unsigned char *)(physical | SVADMAPSTART);
-}
-
-/**
- * Get the kernel direct map virtual address for a physical address.
- *
- * @param paddr A physical address
- * @return      A virtual address in the kernel's direct map which maps to
- *              `paddr`
- */
-static inline unsigned char*
-getVirtualKernelDMAP(uintptr_t physical) {
-  return (unsigned char *)(physical | KERNDMAPSTART);
-}
-
-
-/*
- * Function: getVirtual()
- *
- * Description:
- *  This function takes a physical address and converts it into a virtual
- *  address that the SVA VM can access based on kernel direct mapping.
- *
- *  In a real system, this is done by having the SVA VM create its own
- *  virtual-to-physical mapping of all of physical memory within its own
- *  reserved portion of the virtual address space.  However, for now, we'll
- *  take advantage of FreeBSD's direct map of physical memory so that we don't
- *  have to set one up.
- */
-static inline unsigned char *
-getVirtual (uintptr_t physical) {
-#ifdef SVA_DMAP
-  return getVirtualSVADMAP(physical);
-#else
-  return getVirtualKernelDMAP(physical);
-#endif
-}
 
 /**
  * Determine if a virtual address is canonical.
@@ -1000,6 +946,12 @@ invvpid_allcontexts(void) {
       "wrong.\n");
 }
 
+/*
+ *****************************************************************************
+ * SVA utility functions needed by multiple compilation units
+ *****************************************************************************
+ */
+
 static inline void
 print_regs(void) {
   printf("Printing Active Reg Values:\n");
@@ -1096,58 +1048,6 @@ setMappingReadWrite (page_entry_t mapping) {
  * Mapping update function prototypes.
  */
 void __update_mapping (pte_t * pageEntryPtr, page_entry_t val);
-
-
-/*
- *****************************************************************************
- * Page descriptor query functions
- *****************************************************************************
- */
-
-/* Page setter methods */
-
-/* State whether this kernel virtual address is in the secure memory range */
-static inline int isGhostVA(uintptr_t va)
-    { return (va >= SECMEMSTART) && (va < SECMEMEND); }
-
-/**
- * Determine if a virtual address is part of the kernel's direct map.
- *
- * @param address The virtual address to check
- * @return        Whether or not `address` is part of the kernel's direct map
- */
-static inline bool isKernelDirectMap(uintptr_t address) {
-  return ((KERNDMAPSTART <= address) && (address < KERNDMAPEND));
-}
-
-#ifdef SVA_DMAP
-/**
- * Determine if a virtual address is part of SVA's direct map.
- *
- * @param address The virtual address to check
- * @return        Whether or not `address` is part of SVA's direct map
- */
-static inline bool isSVADirectMap(uintptr_t address) {
-  return ((SVADMAPSTART <= address) && (address < SVADMAPEND));
-}
-#endif
-
-/**
- * Determine if a virtual address is part of the direct map.
- *
- * This checks SVA's direct map if it is enabled, otherwise it checks the
- * kernel's.
- *
- * @param address The virtual address to check
- * @return        Whether or not `address` is part of the direct map
- */
-static inline bool isDirectMap(uintptr_t address) {
-#ifdef SVA_DMAP
-  return isSVADirectMap(address);
-#else
-  return isKernelDirectMap(address);
-#endif
-}
 
 /**
  * Get the number of active references to a page.
