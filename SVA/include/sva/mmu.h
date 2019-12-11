@@ -92,10 +92,8 @@ extern uintptr_t unmapSecurePage (struct SVAThread *, unsigned char * v);
 extern uintptr_t alloc_frame(void);
 extern void free_frame(uintptr_t paddr);
 
-/*
- *****************************************************************************
- * SVA Implementation Function Prototypes
- *****************************************************************************
+/**
+ * Perform early initialization of the MMU metadata.
  */
 void init_mmu(void);
 
@@ -132,23 +130,46 @@ print_regs(void) {
  *****************************************************************************
  */
 
-/* See implementation in c file for details */
-static inline page_entry_t * va_to_pte (uintptr_t va, enum page_type_t level);
-static inline int isValidMappingOrder (page_desc_t *pgDesc, uintptr_t newVA);
-void initDeclaredPage (unsigned long frameAddr);
-
-void page_entry_store(unsigned long *page_entry, page_entry_t newVal);
-
-
-/*
- * Mapping update function prototypes.
+/**
+ * Initialize a frame for use as a page table.
+ *
+ * @param frame The frame that was declared as a page table
  */
-void __update_mapping (pte_t * pageEntryPtr, page_entry_t val);
+void initDeclaredPage(uintptr_t frame);
+
+/**
+ * Write a page table entry into a page table.
+ *
+ * Logically, this simply does `*page_entry = newVal`, but with additional logic
+ * to ensure that it can safely write to the page table.
+ *
+ * Note: If this function needs to disable write protection in order to perform
+ * the page table update (because SVA doesn't have its own direct map), then it
+ * will unconditionally re-enable it.
+ *
+ * @param page_entry  The page table entry to update
+ * @param newVal      The new page table entry to store to `page_entry`
+ */
+void page_entry_store(page_entry_t* page_entry, page_entry_t newVal);
+
+/**
+ * Perform a page table entry update with validity checks.
+ *
+ * Also works for extended page table (EPT) updates. Whether a regular or
+ * extended page table is being updated and what level of page table is being
+ * updated is inferred from the SVA frame type of the page table being
+ * modified.
+ *
+ * @param pageEntryPtr  The page table entry to update
+ * @param val           The new page table entry to validate and store to
+ *                      `pageEntryPtr`
+ */
+void __update_mapping(page_entry_t* pageEntryPtr, page_entry_t val);
 
 /*
  * Function: readOnlyPage
  *
- * Description: 
+ * Description:
  *  This function determines whether or not the given page descriptor
  *  references a page that should be marked as read only. We set this for pages
  *  of type: l4,l3,l2,l1, code, and TODO: is this all of them?
@@ -184,7 +205,7 @@ readOnlyPageType(page_desc_t *pg) {
  *  when the new read only page is being inserted as a page-translation-page
  *  reference or as the lookup value for a given VA by the MMU. The latter case
  *  is the only we mark as read only, which will protect the page from writes
- *  if the WP bit in CR0 is set. 
+ *  if the WP bit in CR0 is set.
  *
  * Inputs:
  *  ptePG    - The page descriptor of the page that we are inserting into the
@@ -199,7 +220,7 @@ readOnlyPageType(page_desc_t *pg) {
  *  0 - The mapping can safely be made writeable.
  *  1 - The mapping should be read-only.
  */
-static inline unsigned char 
+static inline unsigned char
 mapPageReadOnly(page_desc_t * ptePG, page_entry_t mapping) {
   page_desc_t* mapping_pgDesc = getPageDescPtr(mapping);
   SVA_ASSERT(mapping_pgDesc != NULL,
@@ -211,7 +232,7 @@ mapPageReadOnly(page_desc_t * ptePG, page_entry_t mapping) {
     if (isL1Pg(ptePG))
       return 1;
 
-    /* 
+    /*
      * L2 and L3 pages should be mapped read-only unless they are data pages.
      */
     if ((isL2Pg(ptePG) || isL3Pg(ptePG)) && !isHugePage(mapping, ptePG->type))
@@ -221,42 +242,37 @@ mapPageReadOnly(page_desc_t * ptePG, page_entry_t mapping) {
   return 0;
 }
 
-/*
- * Function: protect_paging()
- *
- * Description:
- *  Actually enforce read only protection. 
- *
- *  Protects the page table entry. This disables the flag in CR0 which bypasses
- *  the RW flag in pagetables. After this call, it is safe to re-enable
- *  interrupts.
+/**
+ * Turn on write protection to prevent writes to page tables.
  */
-static inline void
-protect_paging(void) {
+static inline void protect_paging(void) {
   write_cr0(read_cr0() | CR0_WP);
 
   if(tsc_read_enable_sva)
-	  wp_num ++;
-  return;
+    wp_num++;
 }
 
-/*
- * Function: unprotect_paging
+/**
+ * Turn off write protection to allow updates to page tables.
  *
- * Description:
- *  This function disables page protection on x86_64 systems.  It is used by
- *  the SVA VM to allow itself to disable protection to update the in-memory
- *  page tables.
+ * If SVA is not configured to use its own direct map, it will perform updates
+ * to page tables through the kernel's direct map. However, in order to prevent
+ * the kernel from directly writing to the page tables, SVA makes the pages
+ * which map page tables in the kernel's direct map read-only. However, this
+ * also prevents SVA from writing to them when write protection is enabled. This
+ * function disables write protection by writing to `%cr0` in order to allow SVA
+ * to write to the page tables.
+ *
+ * Note that this function must be called in an atomic context (interrupts
+ * disabled).
  */
-static inline void
-unprotect_paging(void) {
+static inline void unprotect_paging(void) {
   write_cr0(read_cr0() & ~CR0_WP);
 
   if(tsc_read_enable_sva)
-	  wp_num ++;
+    wp_num++;
 }
 
-/* functions to change PCID and page table during user/sva and kernel switch*/
 void usersva_to_kernel_pcid(void);
 void kernel_to_usersva_pcid(void);
 

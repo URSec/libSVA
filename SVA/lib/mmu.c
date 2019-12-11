@@ -145,28 +145,7 @@ printPageType (unsigned char * p) {
 
 /* Functions for aiding in declare and updating of page tables */
 
-/*
- * Function: page_entry_store
- *
- * Description:
- *  This function takes a pointer to a page table entry and updates its value
- *  to the new value provided.
- *
- * Assumptions: 
- *  - This function assumes that write protection is enabled in CR0 (WP bit set
- *    to 1). 
- *
- * Inputs:
- *  *page_entry -: A pointer to the page entry to store the new value to, a
- *                 valid VA for accessing the page_entry.
- *  newVal      -: The new value to store, including the address of the
- *                 referenced page.
- *
- * Side Effect:
- *  - This function enables system wide write protection in CR0. 
- */
-void
-page_entry_store (unsigned long *page_entry, page_entry_t newVal) {
+void page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
   uint64_t tsc_tmp = 0;
   if (tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
@@ -710,33 +689,16 @@ void sva_mm_flush_tlb(void* address) {
   invlpg((uintptr_t)address);
 }
 
-/*
- * Function: initDeclaredPage
- *
- * Description:
- *  This function zeros out the physical page pointed to by frameAddr and
- *  changes the permissions of the page in the direct map to read-only.
- *  This function is agnostic as to which level page table entry we are
- *  modifying because the format of the entry is the same in all cases. 
- *
- * Assumption: This function should only be called by a declare intrinsic.
- *      Otherwise it has side effects that may break the system.
- *
- * Inputs:
- *  frameAddr: represents the physical address of this frame
- */
-void 
-initDeclaredPage (unsigned long frameAddr) {
+void initDeclaredPage(uintptr_t frame) {
   /*
    * Get the direct map virtual address of the physical address.
    */
-  unsigned char * vaddr = getVirtual (frameAddr);
+  unsigned char* vaddr = getVirtualKernelDMAP(frame);
 
   /*
    * Get a pointer to the page table entry that maps the physical page into the
    * direct map.
    */
-  vaddr = getVirtualKernelDMAP(frameAddr);
   page_entry_t* page_entry = get_pgeVaddr((uintptr_t)vaddr);
   if (page_entry != NULL && isPresent(*page_entry)) {
     /*
@@ -776,30 +738,10 @@ initDeclaredPage (unsigned long frameAddr) {
     invept_allcontexts();
     invvpid_allcontexts();
   }
-
-  return;
 }
 
-/*
- * Function: __update_mapping
- *
- * Description:
- *  Mapping update function that is agnostic to the level of page table. Most
- *  of the verification code is consistent regardless of which level page
- *  update we are doing. 
- *
- *  Also works for extended page table (EPT) updates. Whether a regular or
- *  extended page table is being updated is inferred from the SVA frame type
- *  of the PTP being modified.
- *
- * Inputs:
- *  - pageEntryPtr : reference to the page table entry to insert the mapping
- *      into
- *  - val : new entry value
- */
-void
-__update_mapping (pte_t * pageEntryPtr, page_entry_t val) {
-  /* 
+void __update_mapping(page_entry_t* pageEntryPtr, page_entry_t val) {
+  /*
    * If the given page update is valid then store the new value to the page
    * table entry, else raise an error.
    */
