@@ -8,7 +8,7 @@
  *===----------------------------------------------------------------------===
  *
  * Copyright (c) 2003 Peter Wemm.
- * Copyright (c) 1991 Regents of the University of California.
+ * Copyright (c) 1993 The Regents of the University of California.
  * All rights reserved.
  *
  * This code is derived from software contributed to Berkeley by
@@ -44,10 +44,15 @@
  * map the page tables using the pagetables themselves. This is done to
  * reduce the impact on kernel virtual memory for lots of sparse address
  * space, and to reduce the cost of memory to each process.
+ * $FreeBSD: release/9.0.0/sys/amd64/include/cpufunc.h 223796 2011-07-05 18:42:10Z jkim $
+ *
  *
  *  from: hp300: @(#)pmap.h 7.2 (Berkeley) 12/16/90
  *  from: @(#)pmap.h    7.4 (Berkeley) 5/12/91
  * $FreeBSD: release/9.0.0/sys/amd64/include/pmap.h 222813 2011-06-07 08:46:13Z attilio $
+ *===----------------------------------------------------------------------===
+ *
+ * SVA MMU control definitions and utilities.
  *
  *===----------------------------------------------------------------------===
  */
@@ -838,13 +843,22 @@ invltlb_all(void) {
   write_cr4(cr4);
 }
 
-/*
- * Invalidate all the TLB entries with a specific virtual address
- * (including global entries)
+/**
+ * Invalidate all the TLB entries with a specific virtual address (including
+ * global entries).
+ *
+ * @param addr  The virtual address for which to invalidate TLB entries
  */
-static __inline void
-invlpg(u_long addr) {
-  __asm __volatile("invlpg %0" : : "m" (*(char *)addr) : "memory");
+static inline void invlpg(uintptr_t addr) {
+  /*
+   * NB: I had to look at the FreeBSD implementation of invlpg() to figure out
+   * that you need to "dereference" the address to get the operand to the
+   * inline asm constraint to work properly.  While perhaps not necessary
+   * (because I don't think such a trivial thing can by copyrighted), the fact
+   * that I referenced the FreeBSD code is why we have the BSD copyright and
+   * attribute comment at the top of this file.
+   */
+  asm volatile("invlpg %0" : : "m" (*(char *)addr) : "memory");
 }
 
 /*
