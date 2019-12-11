@@ -52,17 +52,13 @@
 #include <sva/assert.h>
 #include <sva/callbacks.h>
 #include <sva/dmap.h>
+#include <sva/frame_meta.h>
 #include <sva/page.h>
 #include <sva/page_walk.h>
 #include <sva/secmem.h>
 #include <sva/state.h>
 #include <sva/util.h>
 #include <sva/vmx.h>
-
-/* Size of the physical memory and page size in bytes */
-static const unsigned long memSize = 0x0000002000000000u; /* 128GB */
-static const unsigned long pageSize = 4096;
-static const unsigned long numPageDescEntries = memSize / pageSize;
 
 /* The number of references allowed per page table page */
 static const int maxPTPVARefs = 1;
@@ -82,93 +78,8 @@ static const uintptr_t secmemOffset = ((SECMEMSTART >> 39) << 3) & vmask;
  *****************************************************************************
  */
 
-/*
- * Frame usage constants
- */
-
-/**
- * The type of a frame.
- *
- * These types are mutually exclusive: a frame may only be one type at a time,
- * and all uses as its current type must be dropped before it can change type.
- *
- * Note that all types except `PG_DATA` are "sticky": a frame's type will not
- * automatically change to `PG_FREE` when it's type reference count drops to 0.
- * The type of the frame must be reset using the appropriate undeclare call for
- * its current type.
- */
-typedef enum page_type_t {
-  PG_FREE,     ///< Frame is not currently used as any type
-  PG_UNUSABLE, ///< Frame is not present or is reserved by firmware
-  PG_DATA,     ///< Frame is used as writable data
-  PG_SVA,      ///< Frame is used internally by SVA
-  PG_GHOST,    ///< Frame is used for ghost memory
-  PG_CODE,     ///< Frame is used for code
-  PG_L1,       ///< Frame is used as an L1 page table
-  PG_L2,       ///< Frame is used as an L2 page table
-  PG_L3,       ///< Frame is used as an L3 page table
-  PG_L4,       ///< Frame is used as an L4 page table
-  PG_EPTL1,    ///< Frame is used as an L1 extended page table
-  PG_EPTL2,    ///< Frame is used as an L2 extended page table
-  PG_EPTL3,    ///< Frame is used as an L3 extended page table
-  PG_EPTL4,    ///< Frame is used as an L4 extended page table
-  PG_SML1,     ///< Frame is used as an L1 page table for secure memory
-  PG_SML2,     ///< Frame is used as an L2 page table for secure memory
-  PG_SML3      ///< Frame is used as an L3 page table for secure memory
-} page_type_t;
-
 /* Mask to get the address bits out of a PTE, PDE, etc. */
 static const uintptr_t addrmask = 0x000ffffffffff000u;
-
-/**
- * Frame descriptor metadata.
- *
- * There is one element of this structure for each physical frame of memory in
- * the system.  It records information about the physical memory (and the data
- * stored within it) that SVA needs to perform its MMU safety checks.
- */
-typedef struct page_desc_t {
-#if 0 // The value stored in this field is never actually used
-  /**
-   * If the page is a page table page, mark the virtual address to which it is
-   * mapped.
-   */
-  uintptr_t pgVaddr;
-#endif
-
-#ifdef SVA_ASID_PG
-  /**
-   * The physical adddress of the other (kernel or user/SVA) version pml4 page
-   * table page.
-   */
-  uintptr_t other_pgPaddr;
-#endif
-
-  /**
-   * The type of this frame.
-   */
-  page_type_t type : 8;
-
-#define PG_REF_COUNT_BITS 12
-#define PG_REF_COUNT_MAX ((1U << PG_REF_COUNT_BITS) - 1)
-
-  /**
-   * Number of times this frame is mapped.
-   */
-  unsigned count : PG_REF_COUNT_BITS;
-
-  /**
-   * Number of times this frame is mapped writable.
-   */
-  unsigned wr_count : PG_REF_COUNT_BITS;
-} page_desc_t;
-
-/* Array describing the physical pages. Used by SVA's MMU and EPT intrinsics.
- * The index is the physical page number.
- *
- * Defined in mmu.c.
- */
-extern page_desc_t page_desc[numPageDescEntries];
 
 /**
  * True if the MMU has been initialized (and MMU checks should be performed),
@@ -576,18 +487,6 @@ print_regs(void) {
  * MMU declare, update, and verification helper routines
  *****************************************************************************
  */
-/*
- * Description:
- *  Given a page table entry value, return the page description associate with
- *  the frame being addressed in the mapping.
- *
- * Inputs:
- *  mapping: the mapping with the physical address of the referenced frame
- *
- * Return:
- *  Pointer to the page_desc for this frame
- */
-page_desc_t * getPageDescPtr(unsigned long mapping);
 
 /* See implementation in c file for details */
 static inline page_entry_t * va_to_pte (uintptr_t va, enum page_type_t level);
@@ -645,120 +544,6 @@ setMappingReadWrite (page_entry_t mapping) {
  * Mapping update function prototypes.
  */
 void __update_mapping (pte_t * pageEntryPtr, page_entry_t val);
-
-/**
- * Get the number of active references to a page.
- *
- * @param page  The page for which to get the reference count
- * @return      The reference count for the page
- */
-static inline unsigned int pgRefCount(page_desc_t* page) {
-  return page->count;
-}
-
-/**
- * Get the number of writable references to a page.
- *
- * @param page  The page for which to get the writable reference count
- * @return      The writable reference count for the page
- */
-static inline unsigned int pgRefCountWr(page_desc_t* page) {
-  return page->wr_count;
-}
-
-/**
- * Increment a page's writable reference count, and get the old value.
- *
- * This is useful for e.g. copy-on-write to change just a frame's writable
- * reference count.
- *
- * @param page  The page whose writable reference count is to be incremented
- * @return      The old writable reference count for the page
- */
-static inline unsigned int pgRefCountIncWr(page_desc_t* page) {
-  unsigned int wr_count = page->wr_count;
-
-  SVA_ASSERT(wr_count + 1 <= page->count,
-    "SVA: FATAL: Frame metadata inconsistency: "
-    "writable count is greater than total count: frame 0x%lx\n",
-    (page - page_desc));
-
-  SVA_ASSERT(wr_count < PG_REF_COUNT_MAX,
-    "SVA: FATAL: Overflow in frame writable reference count: frame %lx\n",
-    (page - page_desc));
-  page->wr_count = wr_count + 1;
-
-  return wr_count;
-}
-
-/**
- * Decrement a page's writable reference count, and get the old value.
- *
- * This is useful for e.g. copy-on-write to change just a frame's writable
- * reference count.
- *
- * @param page  The page whose writable reference count is to be decremented
- * @return      The old writable reference count for the page
- */
-static inline unsigned int pgRefCountDecWr(page_desc_t* page) {
-  unsigned int wr_count = page->wr_count;
-
-  SVA_ASSERT(wr_count <= page->count,
-    "SVA: FATAL: Frame metadata inconsistency: "
-    "writable count is greater than total count: frame 0x%lx\n",
-    (page - page_desc));
-
-  SVA_ASSERT(wr_count > 0,
-    "SVA: FATAL: Frame metadata inconsistency: "
-    "attempt to decrement writable reference count below 0: "
-    "frame %lx\n", (page - page_desc));
-  page->wr_count = wr_count - 1;
-
-  return wr_count;
-}
-
-/**
- * Increment a page's reference count, and get the old value.
- *
- * @param page      The page whose reference count is to be incremented
- * @param writable  Whether to also increment the writable reference count
- * @return          The old reference count for the page
- */
-static inline unsigned int pgRefCountInc(page_desc_t* page, bool writable) {
-  unsigned int count = page->count;
-
-  SVA_ASSERT(count < PG_REF_COUNT_MAX,
-    "SVA: FATAL: Overflow in frame reference count: frame %lx\n",
-    (page - page_desc));
-  page->count = count + 1;
-  if (writable) {
-    pgRefCountIncWr(page);
-  }
-
-  return count;
-}
-
-/**
- * Decrement a page's reference count, and get the old value.
- *
- * @param page      The page whose reference count is to be decremented
- * @param writable  Whether to also increment the writable reference count
- * @return          The old reference count for the page
- */
-static inline unsigned int pgRefCountDec(page_desc_t* page, bool writable) {
-  unsigned int count = page->count;
-
-  if (writable) {
-    pgRefCountDecWr(page);
-  }
-  SVA_ASSERT(count > 0,
-    "SVA: FATAL: Frame metadata inconsistency: "
-    "attempt to decrement reference count below 0: "
-    "frame %lx\n", (page - page_desc));
-  page->count = count - 1;
-
-  return count;
-}
 
 /*
  *******************************************************************************

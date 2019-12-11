@@ -120,7 +120,7 @@ page_desc_t __svadata page_desc[numPageDescEntries];
  *  the maximum supported physical memory.
  */
 page_desc_t * getPageDescPtr(unsigned long mapping) {
-  unsigned long frameIndex = (mapping & PG_FRAME) / pageSize;
+  unsigned long frameIndex = (mapping & PG_FRAME) / PG_L1_SIZE;
   if (frameIndex >= numPageDescEntries)
     return NULL;
   return page_desc + frameIndex;
