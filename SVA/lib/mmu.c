@@ -167,7 +167,7 @@ void page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
    * page_entry_store() when it sets up its direct map.)
    */
   if (ptePG->dmap) 
-    newVal |= PG_RW;
+    newVal |= PG_W;
 #endif
 
   /* Write the new value to the page_entry */
@@ -393,7 +393,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
            */
 #if 0
           if (isCodePg(newPG)) {
-            SVA_ASSERT(!((newVal & (PG_RW | PG_U)) == PG_RW)
+            SVA_ASSERT(!((newVal & (PG_W | PG_U)) == PG_W)
               "SVA: Making kernel code writeable: %lx %lx\n", newVA, newVal);
           }
 #endif
@@ -1222,7 +1222,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
      * Install a new PDPTE entry using the page.
      */
     uintptr_t paddr = PTPages[ptindex].paddr;
-    *pml4e = PG_ENTRY_FRAME(paddr) | PG_V | PG_RW | PG_U;
+    *pml4e = PG_ENTRY_FRAME(paddr) | PG_P | PG_W | PG_U;
   }
 
   /*
@@ -1250,7 +1250,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
      * Install a new PDPTE entry using the page.
      */
     uintptr_t pdpte_paddr = PTPages[ptindex].paddr;
-    *pdpte = PG_ENTRY_FRAME(pdpte_paddr) | PG_V | PG_RW | PG_U;
+    *pdpte = PG_ENTRY_FRAME(pdpte_paddr) | PG_P | PG_W | PG_U;
 
     /*
      * Note that we've added another translation to the pml4e.
@@ -1278,7 +1278,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
      * Install a new PDE entry.
      */
     uintptr_t pde_paddr = PTPages[ptindex].paddr;
-    *pde = PG_ENTRY_FRAME(pde_paddr) | PG_V | PG_RW | PG_U;
+    *pde = PG_ENTRY_FRAME(pde_paddr) | PG_P | PG_W | PG_U;
 
     /*
      * Note that we've added another translation to the pdpte.
@@ -1303,7 +1303,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
   /*
    * Modify the PTE to install the physical to virtual page mapping.
    */
-  *pte = PG_ENTRY_FRAME(paddr) | PG_V | PG_RW | PG_U;
+  *pte = PG_ENTRY_FRAME(paddr) | PG_P | PG_W | PG_U;
 
   /*
    * Note that we've added another translation to the pde.
@@ -1497,7 +1497,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
    * Install a new PDPTE entry using the page.
    */
   uintptr_t paddr = PTPages[ptindex].paddr;
-  pml4e_val = PG_ENTRY_FRAME(paddr) | PG_V | PG_RW | PG_U;
+  pml4e_val = PG_ENTRY_FRAME(paddr) | PG_P | PG_W | PG_U;
 
   /*
    * Enable writing to the virtual address space used for secure memory.
@@ -1526,7 +1526,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
        * Install a new PDPTE entry using the page.
        */
       uintptr_t pdpte_paddr = PTPages[ptindex].paddr;
-      *pdpte = PG_ENTRY_FRAME(pdpte_paddr) | PG_V | PG_RW | PG_U;
+      *pdpte = PG_ENTRY_FRAME(pdpte_paddr) | PG_P | PG_W | PG_U;
     }
     *pdpte |= PG_U;
 
@@ -1562,7 +1562,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
          * Install a new PDE entry.
          */
         uintptr_t pde_paddr = PTPages[ptindex].paddr;
-        *pde = PG_ENTRY_FRAME(pde_paddr) | PG_V | PG_RW | PG_U;
+        *pde = PG_ENTRY_FRAME(pde_paddr) | PG_P | PG_W | PG_U;
       }
       *pde |= PG_U;
 
@@ -1592,7 +1592,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
           "src_pde = %p, *src_pde = 0x%lx\n",
           vaddr_pte, src_pte, *src_pte, src_pde, *src_pde);
 
-        *src_pte &= ~PG_RW;
+        *src_pte &= ~PG_W;
         *pte = *src_pte;
         updateUses(pte);
         /*
@@ -2619,7 +2619,7 @@ static void protect_code_page(uintptr_t vaddr, page_entry_t perms) {
   SVA_ASSERT(pgDesc->type = PG_CODE,
     "SVA: FATAL: Changing permissons on non-code page 0x%016lx\n", vaddr);
 
-  *leaf_entry &= ~(PG_V | PG_RW | PG_NX) | perms;
+  *leaf_entry &= ~(PG_P | PG_W | PG_NX) | perms;
   *leaf_entry |= perms;
 
   invlpg(vaddr);
@@ -2644,7 +2644,7 @@ void sva_unprotect_code_page(void* vaddr) {
   unsigned long flags = sva_enter_critical();
   kernel_to_usersva_pcid();
 
-  protect_code_page((uintptr_t)vaddr, PG_V | PG_RW | PG_NX);
+  protect_code_page((uintptr_t)vaddr, PG_P | PG_W | PG_NX);
 
   usersva_to_kernel_pcid();
   sva_exit_critical(flags);
@@ -2671,7 +2671,7 @@ void sva_protect_code_page(void* vaddr) {
   unsigned long flags = sva_enter_critical();
   kernel_to_usersva_pcid();
 
-  protect_code_page((uintptr_t)vaddr, PG_V);
+  protect_code_page((uintptr_t)vaddr, PG_P);
 
   usersva_to_kernel_pcid();
   sva_exit_critical(flags);

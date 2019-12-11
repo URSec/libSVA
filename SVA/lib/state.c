@@ -641,7 +641,7 @@ static bool loadThread(struct SVAThread* newThread) {
       /*
        * Restore the PML4E entry for the secure memory region.
        */
-      uintptr_t mask = PG_V | PG_RW | PG_U;
+      uintptr_t mask = PG_P | PG_W | PG_U;
       if ((newThread->secmemPML4e & mask) != mask) {
         panic ("SVA: Not Present: %lx %lx\n", newThread->secmemPML4e, mask);
       }

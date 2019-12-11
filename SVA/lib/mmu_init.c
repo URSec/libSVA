@@ -187,7 +187,7 @@ void * DMPDphys, void * DMPTphys, unsigned long ndmpdp, unsigned long ndm1g)
 
   for (i = 0; i < NPTEPG * NPDEPG * ndmpdp; i++) {
     ((pte_t *)DMPTphys)[i] = (uintptr_t) i << PAGE_SHIFT;
-    ((pte_t *)DMPTphys)[i] |= PG_RW | PG_V
+    ((pte_t *)DMPTphys)[i] |= PG_W | PG_P
 #ifdef SVA_ASID_PG
       ;
 #else
@@ -198,7 +198,7 @@ void * DMPDphys, void * DMPTphys, unsigned long ndmpdp, unsigned long ndm1g)
   for (i = NPDEPG * ndm1g, j = 0; i < NPDEPG * ndmpdp; i++, j++) {
     ((pde_t *)DMPDphys)[j] = (uintptr_t)DMPTphys + ((uintptr_t)j << PAGE_SHIFT);
     /* Preset PG_M and PG_A because demotion expects it. */
-    ((pde_t *)DMPDphys)[j] |= PG_RW | PG_V; /*| PG_PS |
+    ((pde_t *)DMPDphys)[j] |= PG_W | PG_P; /*| PG_PS |
 #ifdef SVA_ASID_PG
       PG_M | PG_A;
 #else	
@@ -209,7 +209,7 @@ void * DMPDphys, void * DMPTphys, unsigned long ndmpdp, unsigned long ndm1g)
   for (i = 0/*384*/; i < 0 /*384*/ + ndm1g; i++) {
     ((pdpte_t *)DMPDPphys)[i] = (uintptr_t)(i /*- 384*/) << PDPSHIFT;
     /* Preset PG_M and PG_A because demotion expects it. */
-    ((pdpte_t *)DMPDPphys)[i] |= PG_RW | PG_V | PG_PS |
+    ((pdpte_t *)DMPDPphys)[i] |= PG_W | PG_P | PG_PS |
 #ifdef SVA_ASID_PG
       PG_M | PG_A;
 #else	
@@ -218,7 +218,7 @@ void * DMPDphys, void * DMPTphys, unsigned long ndmpdp, unsigned long ndm1g)
   }
   for (j = 0; i < /*384 +*/ ndmpdp; i++, j++) {
     ((pdpte_t *)DMPDPphys)[i] = (uintptr_t)DMPDphys + (uintptr_t)(j << PAGE_SHIFT);
-    ((pdpte_t *)DMPDPphys)[i] |= PG_RW | PG_V | PG_U;
+    ((pdpte_t *)DMPDPphys)[i] |= PG_W | PG_P | PG_U;
   }
 
 
@@ -226,7 +226,7 @@ void * DMPDphys, void * DMPTphys, unsigned long ndmpdp, unsigned long ndm1g)
   for (i = 0; i < NDMPML4E; i++) {
     ((pdpte_t *)KPML4phys)[DMPML4I + i] = (uintptr_t)DMPDPphys + (uintptr_t)
       (i << PAGE_SHIFT);
-    ((pdpte_t *)KPML4phys)[DMPML4I + i] |= PG_RW | PG_V | PG_U;
+    ((pdpte_t *)KPML4phys)[DMPML4I + i] |= PG_W | PG_P | PG_U;
   }
 
 
@@ -569,7 +569,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
     memset(getVirtual(paddr), 0, FRAME_SIZE);
 
     /* Install a new PDPTE entry using the page  */
-    *pml4e = PG_ENTRY_FRAME(paddr) | PG_V | PG_RW;
+    *pml4e = PG_ENTRY_FRAME(paddr) | PG_P | PG_W;
   }
 
   /*
@@ -589,7 +589,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
     memset(getVirtual(pdpte_paddr), 0, FRAME_SIZE);
 
     /* Install a new PDE entry using the page. */
-    *pdpte = PG_ENTRY_FRAME(pdpte_paddr) | PG_V | PG_RW;
+    *pdpte = PG_ENTRY_FRAME(pdpte_paddr) | PG_P | PG_W;
   }
 
   /*
@@ -624,7 +624,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
     /*
      * Install a new PDE entry.
      */
-    *pde = PG_ENTRY_FRAME(pde_paddr) | PG_V | PG_RW | PG_PS;
+    *pde = PG_ENTRY_FRAME(pde_paddr) | PG_P | PG_W | PG_PS;
     *pde |= PG_G;
 
     /*
@@ -859,8 +859,8 @@ static page_entry_t intersect_perms(page_entry_t perms, page_entry_t pte) {
   pte ^= PG_NX;
 
   // The flags we care about are read, write, execute, and user-accesible.
-  if (perms & pte & PG_V) {
-    return perms & pte & (PG_V | PG_RW | PG_NX | PG_U);
+  if (perms & pte & PG_P) {
+    return perms & pte & (PG_P | PG_W | PG_NX | PG_U);
   } else {
     return 0; // An unmapped page has no permissions
   }
@@ -948,7 +948,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
     /// The number of 4KB frames mapped by this entry.
     size_t count = getSuperpageSize(level) / FRAME_SIZE;
     /// The maximal set of permissions this mapping is allowed to have.
-    page_entry_t perms = PG_V | PG_RW | PG_NX;
+    page_entry_t perms = PG_P | PG_W | PG_NX;
 
     for (size_t i = 0; i < count; ++i) {
       switch (desc[i].type) {
@@ -958,7 +958,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
       case PG_L1:
       case PG_CODE:
         if (!isDirectMap(vaddr)) {
-          perms &= ~PG_RW;
+          perms &= ~PG_W;
         }
         break;
       case PG_DATA:
@@ -972,7 +972,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
         break;
       case PG_FREE:
         if (!isDirectMap(vaddr)) {
-          perms &= ~PG_RW;
+          perms &= ~PG_W;
         }
         break;
       default:
@@ -980,8 +980,8 @@ static page_entry_t lower_permissions(page_entry_t entry,
       }
     }
 
-    if (perms & PG_V) {
-      if (isWritable(entry) && !(perms & PG_RW)) {
+    if (perms & PG_P) {
+      if (isWritable(entry) && !(perms & PG_W)) {
         /*
          * We removed the writable mapping to these frames, decrement their
          * writable reference count.
@@ -991,7 +991,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
         }
       }
 
-      entry = (entry & ~(PG_V | PG_RW)) | (entry & (perms & ~PG_NX));
+      entry = (entry & ~(PG_P | PG_W)) | (entry & (perms & ~PG_NX));
       // Turn the "no-execute" bit *on* if the permission is disabled.
       entry |= (PG_NX ^ (perms & PG_NX));
     } else {
@@ -1069,7 +1069,7 @@ import_existing_mappings(page_entry_t entry,
     /// The number of 4KB frames mapped by this entry.
     size_t count = getSuperpageSize(level) / FRAME_SIZE;
 
-    if ((perms & PG_NX) && (perms & PG_RW)) {
+    if ((perms & PG_NX) && (perms & PG_W)) {
       sva_dbg("SVA: WARNING: Page is writable and executable\n");
     }
 
@@ -1255,7 +1255,7 @@ void sva_mmu_init(void) {
 #endif
 
   /* Walk the kernel page tables and initialize the sva page_desc. */
-  import_existing_mappings(root_tbl, PG_L4, (PG_V | PG_RW | PG_NX | PG_U), 0);
+  import_existing_mappings(root_tbl, PG_L4, (PG_P | PG_W | PG_NX | PG_U), 0);
   lower_permissions(root_tbl, PG_L4, 0);
   invltlb_all();
 

@@ -766,7 +766,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
      */
     if (pgRefCount(pgDesc_old) == 2) {
       pgRefCountIncWr(pgDesc_old);
-      *pte |= PG_RW;
+      *pte |= PG_W;
     } else {
       /*
        * Perform a copy-on-write.
@@ -795,7 +795,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
        * Copy the page contents to the new process's copy.
        */
       memcpy(vaddr_new, vaddr_old, PG_L1_SIZE);
-      *pte = PG_ENTRY_FRAME(paddr_new) | PG_V | PG_RW | PG_U;
+      *pte = PG_ENTRY_FRAME(paddr_new) | PG_P | PG_W | PG_U;
       /* Update the TLB to reflect the change. */
       invlpg(vaddr);
 

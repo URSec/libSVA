@@ -29,7 +29,7 @@
  * @return    True if the entry is present, otherwise false
  */
 static inline bool isPresent(page_entry_t pte) {
-  return pte & PG_V;
+  return pte & PG_P;
 }
 
 /**
@@ -106,7 +106,7 @@ static inline bool isPresent_maybeEPT(page_entry_t pte, unsigned char isEPT) {
  * @return    True if `entry` maps a writable page, otherwise false
  */
 static inline bool isWritable(page_entry_t pte) {
-  return pte & PG_RW;
+  return pte & PG_W;
 }
 
 /**
@@ -198,7 +198,7 @@ static inline bool isLeafEntry(page_entry_t pte, enum page_type_t level) {
  *                identical to `mapping`
  */
 static inline page_entry_t setMappingReadOnly(page_entry_t mapping) {
-  return mapping & ~PG_RW;
+  return mapping & ~PG_W;
 }
 
 /**
@@ -209,7 +209,7 @@ static inline page_entry_t setMappingReadOnly(page_entry_t mapping) {
  *                identical to `mapping`
  */
 static inline page_entry_t setMappingReadWrite(page_entry_t mapping) {
-  return mapping | PG_RW;
+  return mapping | PG_W;
 }
 
 /**

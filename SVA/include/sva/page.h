@@ -85,22 +85,21 @@ static const uintptr_t ZERO_MAPPING = 0;
  * subject to copyright. Even if they are, the copyright would be owned by
  * Intel, not the FreeBSD developers.
  */
-/* MMU Flags ---- Intel Nomenclature ---- */
-#define PG_V        0x001   /* P    Valid               */
-#define PG_RW       0x002   /* R/W  Read/Write          */
-#define PG_U        0x004   /* U/S  User/Supervisor     */
-#define PG_NC_PWT   0x008   /* PWT  Write through       */
-#define PG_NC_PCD   0x010   /* PCD  Cache disable       */
-#define PG_A        0x020   /* A    Accessed            */
-#define PG_M        0x040   /* D    Dirty               */
-#define PG_PS       0x080   /* PS   Page size (0=4k,1=2M)   */
-#define PG_PTE_PAT  0x080   /* PAT  PAT index           */
-#define PG_G        0x100   /* G    Global              */
-#define PG_AVAIL1   0x200   /*    / Available for system    */
-#define PG_AVAIL2   0x400   /*   <  programmers use     */
-#define PG_AVAIL3   0x800   /*    \                     */
-#define PG_PDE_PAT  0x1000  /* PAT  PAT index           */
-#define PG_NX       (1ul<<63) /* No-execute             */
+#define PG_P        (1UL << 0)  ///< PTE present flag.
+#define PG_W        (1UL << 1)  ///< PTE writable flag.
+#define PG_U        (1UL << 2)  ///< PTE user-accessible flag.
+#define PG_NC_PWT   (1UL << 3)  ///< PTE write-through flag.
+#define PG_NC_PCD   (1UL << 4)  ///< PTE cache-disable flag.
+#define PG_A        (1UL << 5)  ///< PTE accessed flag.
+#define PG_D        (1UL << 6)  ///< PTE dirty flag.
+#define PG_PS       (1UL << 7)  ///< PTE page size flag (for huge pages).
+#define PG_PTE_PAT  (1UL << 7)  ///< PTE PAT flag (for L1 PTEs).
+#define PG_G        (1UL << 8)  ///< PTE global flag.
+#define PG_AVAIL1   (1UL << 9)  ///< Available for kernel's use.
+#define PG_AVAIL2   (1UL << 10) ///< Available for kernel's use.
+#define PG_AVAIL3   (1UL << 11) ///< Available for kernel's use.
+#define PG_PDE_PAT  (1UL << 12) ///< PTE PAT flag (for huge pages).
+#define PG_NX       (1UL << 63) ///< PTE no-execute flag.
 
 #ifdef FreeBSD
 /*
@@ -115,7 +114,7 @@ static const uintptr_t ZERO_MAPPING = 0;
 #define PG_MANAGED  PG_AVAIL2
 #define PG_FRAME    (0x000ffffffffff000ul)
 #define PG_PS_FRAME (0x000fffffffe00000ul)
-#define PG_PROT     (PG_RW|PG_U)    /* all protection bits . */
+#define PG_PROT     (PG_W|PG_U)    /* all protection bits. */
 #define PG_N        (PG_NC_PWT|PG_NC_PCD)   /* Non-cacheable */
 
 /* Size of the level 1 page table units */
@@ -397,12 +396,12 @@ static const uintptr_t ZERO_MAPPING = 0;
 /**
  * Flags for an SVA direct map L3 page table entrie.
  */
-#define PG_DMAP_L3 (PG_V | PG_RW | PG_A | PG_PS | PG_G | PG_NX)
+#define PG_DMAP_L3 (PG_P | PG_W | PG_A | PG_PS | PG_G | PG_NX)
 
 /**
  * Flags for an SVA direct map L4 page table entry.
  */
-#define PG_DMAP_L4 (PG_V | PG_RW | PG_A | PG_G | PG_NX)
+#define PG_DMAP_L4 (PG_P | PG_W | PG_A | PG_G | PG_NX)
 #endif
 
 #ifdef SVA_ASID_PG
@@ -415,19 +414,16 @@ static const uintptr_t ZERO_MAPPING = 0;
 #endif
 
 /* EPT page table entry flags */
-#define PG_EPT_R    0x1     /* R    Read                */
-#define PG_EPT_W    PG_RW   /* W    Write               */
-                            /* (0x2, same as R/W bit in regular page tables) */
-#define PG_EPT_X    0x4     /* X    Execute             */
-                            /* (only for supervisor accesses if mode-based
-                             * control enabled) */
-#define PG_EPT_IPAT 0x40    /* IPAT Ignore PAT memory type */
-#define PG_EPT_PS   PG_PS   /* PS   Page size           */
-                            /* (0x80, same as regular page tables) */
-#define PG_EPT_A    0x100   /* A    Accessed            */
-#define PG_EPT_D    0x200   /* D    Dirty               */
-#define PG_EPT_XU   0x400   /* XU   Execute (user-mode) */
-                            /* (only if mode-based execute control enabled) */
-#define PG_EPT_SVE  (1ul<<63) /* SVE Suppress EPT-violation #VE (if enabled) */
+#define PG_EPT_R    (1UL << 0)  ///< EPT readable flag.
+#define PG_EPT_W    (1UL << 1)  ///< EPT writable flag.
+#define PG_EPT_X    (1UL << 2)  ///< EPT executable flag (supervisor-executable
+                                ///< if mode-based execute control is enabled).
+#define PG_EPT_IPAT (1UL << 6)  ///< EPT ignore PAT flag.
+#define PG_EPT_PS   (1UL << 7)  ///< EPT page size flag (for huge pages).
+#define PG_EPT_A    (1UL << 8)  ///< EPT accessed flag.
+#define PG_EPT_D    (1UL << 9)  ///< EPT dirty flag.
+#define PG_EPT_XU   (1UL << 10) ///< EPT user-executable flag (only used if
+                                ///< mode-base execute control is enabled).
+#define PG_EPT_SVE  (1UL << 63) ///< EPT suppress EPT-violation #VE flag.
 
 #endif /* SVA_PAGE_H */
