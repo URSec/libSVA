@@ -62,12 +62,6 @@
 #include <sva/util.h>
 #include <sva/vmx.h>
 
-/* The number of references allowed per page table page */
-static const int maxPTPVARefs = 1;
-
-/* The count must be at least this value to remove a mapping to a page */
-static const int minRefCountToRemoveMapping = 1;
-
 /*
  * Offset into the PML4E at which the mapping for the secure memory region can
  * be found.
@@ -104,7 +98,6 @@ extern void free_frame(uintptr_t paddr);
  *****************************************************************************
  */
 void init_mmu(void);
-void init_leaf_page_from_mapping(page_entry_t mapping);
 
 /**
  * Determine if a virtual address is canonical.
@@ -146,12 +139,6 @@ void initDeclaredPage (unsigned long frameAddr);
 
 void page_entry_store(unsigned long *page_entry, page_entry_t newVal);
 
-#if 0
-static inline uintptr_t
-pageVA(page_desc_t pg){
-    return getVirtual(pg.physAddress);    
-}
-#endif
 
 /*
  * Mapping update function prototypes.
