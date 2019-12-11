@@ -141,12 +141,12 @@ frame_dequeue(void) {
  *  and is refusing to let us allocate secure memory.
  *
  *  The frame will be marked in SVA's page_desc structure as having type
- *  PG_SVA, so that SVA's MMU checks will preclude the OS from establishing
+ *  PGT_SVA, so that SVA's MMU checks will preclude the OS from establishing
  *  any other mappings to it in the future.
  *
  *  Frames returned by this function are suitable for use as ghost memory
  *  backing or SVA internal memory. If they are to be used for ghost memory,
- *  their page_desc type should be set to PG_GHOST.
+ *  their page_desc type should be set to PGT_GHOST.
  *
  * Return value:
  *  The physical address of the frame acquired.
@@ -225,8 +225,8 @@ get_frame_from_os(void) {
         pgRefCount(page) - 1, paddr);
   }
 
-  /* Set the page_desc entry for this frame to type PG_SVA. */
-  page->type = PG_SVA;
+  /* Set the page_desc entry for this frame to type PGT_SVA. */
+  page->type = PGT_SVA;
 #endif /* end #ifndef XEN */
 
   /*
@@ -269,7 +269,7 @@ get_frame_from_os(void) {
  *  Return a frame acquired with get_frame_from_os().
  *
  *  The frame's page type in SVA's page_desc structure will be returned to
- *  PG_FREE, so that the OS is once again free to establish its own mappings
+ *  PGT_FREE, so that the OS is once again free to establish its own mappings
  *  to it.
  *
  * Argument:
@@ -281,7 +281,7 @@ static inline void return_frame_to_os(uintptr_t paddr) {
   page_desc_t * page = getPageDescPtr(paddr);
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: Returning non-existant frame to kernel\n");
-  page->type = PG_FREE;
+  page->type = PGT_FREE;
 #endif /* end #ifndef XEN */
 
   releaseSVAMemory(paddr, FRAME_SIZE);
@@ -355,7 +355,7 @@ release_frames(void) {
  *  The front end function for allocating a physical frame.
  *
  * Postconditions:
- *  1. The frame returned will have its type set to PG_SVA in SVA's page_desc
+ *  1. The frame returned will have its type set to PGT_SVA in SVA's page_desc
  *  structure, i.e., it is protected by the MMU checks to ensure that the OS
  *  cannot establish its own mapping to access the frame. Only SVA can add a
  *  mapping to it.
@@ -366,7 +366,7 @@ release_frames(void) {
  *
  * NOTE FOR SAFE USAGE:
  *  If the caller of this function is planning to use the frame as SVA
- *  internal memory, it should leave the type set to PG_SVA. This allows SVA
+ *  internal memory, it should leave the type set to PGT_SVA. This allows SVA
  *  to protect it against unauthorized mappings.
  *
  *  If the frame is to be used for any other purpose, the caller is
@@ -376,9 +376,9 @@ release_frames(void) {
  *  the frame is later used for a sensitive purpose.
  *
  *  As an example, if a frame is allocated for use as ghost memory, its type
- *  will be changed to PG_GHOST, which is also protected by the MMU checks.
+ *  will be changed to PGT_GHOST, which is also protected by the MMU checks.
  *  Before it calls free_frame(), ghostFree() will call unmapSecurePage(),
- *  which removes the ghost mapping and sets the type back to PG_SVA.
+ *  which removes the ghost mapping and sets the type back to PGT_SVA.
  */
 uintptr_t
 alloc_frame(void) {
@@ -392,7 +392,7 @@ alloc_frame(void) {
  *  The front end function for freeing a physical frame.
  *
  * Preconditions:
- *  1. The frame's type should be set to PG_SVA in SVA's page_desc structure.
+ *  1. The frame's type should be set to PGT_SVA in SVA's page_desc structure.
  *
  *  2. No mappings to the frame should exist except in SVA's direct map.
  *     
@@ -401,8 +401,8 @@ alloc_frame(void) {
  *
  *     If the frame was used for any other purpose, it is the caller's
  *     responsibility to ensure that any non-SVA mappings either could never
- *     have been created (e.g., because the frame type was set to PG_GHOST,
- *     which, like PG_SVA, prevents the OS from mapping it), and/or that
+ *     have been created (e.g., because the frame type was set to PGT_GHOST,
+ *     which, like PGT_SVA, prevents the OS from mapping it), and/or that
  *     other mappings have been removed or confirmed to not exist.
  *
  *  If these preconditions are not always upheld, insecure mappings could
@@ -751,7 +751,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
     page_desc_t* pgDesc_old = getPageDescPtr(paddr);
     SVA_ASSERT(pgDesc_old != NULL,
       "SVA: FATAL: Ghost memory mapped to non-existant frame\n");
-    if (pgDesc_old->type != PG_GHOST)
+    if (pgDesc_old->type != PGT_GHOST)
       panic("SVA: sva_ghost_fault: vaddr = 0x%lx paddr = 0x%lx "
           "is not a ghost memory page!\n", vaddr, paddr);
 
@@ -803,7 +803,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
        * Set the frame type and increment the refcount for the new process's
        * copy. Check that we aren't overflowing the counter.
        */
-      pgDesc_new->type = PG_GHOST;
+      pgDesc_new->type = PGT_GHOST;
       pgRefCountInc(pgDesc_new, true);
 
       /*

@@ -126,7 +126,7 @@ declare_kernel_code_pages (uintptr_t btext, uintptr_t etext) {
    */
   for (page = btextPage; page < etextPage; page += pageSize) {
     /* Mark the page as both a code page and kernel level */
-    page_desc[page / pageSize].type = PG_CODE;
+    page_desc[page / pageSize].type = PGT_CODE;
 
     /* Configure the MMU so that the page is read-only */
     page_entry_t * page_entry = get_pgeVaddr (btext + (page - btextPage));
@@ -155,7 +155,7 @@ makePTReadOnly (void) {
   for (paddr = 0; paddr < memSize; paddr += pageSize) {
     enum page_type_t pgType = getPageDescPtr(paddr)->type;
 
-    if ((PG_L1 <= pgType) && (pgType <= PG_L4)) {
+    if ((PGT_L1 <= pgType) && (pgType <= PGT_L4)) {
       page_entry_t *pageEntry = get_pgeVaddr((uintptr_t) getVirtual(paddr));
       page_entry_store(pageEntry, setMappingReadOnly(*pageEntry));
     }
@@ -325,7 +325,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
   thisPg = getPageDescPtr(pageMapping);
 
   /* Mark if we have seen this traversal already */
-  traversedPTEAlready = (thisPg->type != PG_FREE);
+  traversedPTEAlready = (thisPg->type != PGT_FREE);
 
 #if DEBUG_INIT >= 1
   /* Character inputs to make the printing pretty for debugging */
@@ -336,19 +336,19 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
   char * l1s = "\t\t\tL1:";
 
   switch (pageLevel){
-    case PG_L4:
+    case PGT_L4:
         indent = l4s;
         printf("%sSetting L4 Page: mapping:0x%lx\n", indent, pageMapping);
         break;
-    case PG_L3:
+    case PGT_L3:
         indent = l3s;
         printf("%sSetting L3 Page: mapping:0x%lx\n", indent, pageMapping);
         break;
-    case PG_L2:
+    case PGT_L2:
         indent = l2s;
         printf("%sSetting L2 Page: mapping:0x%lx\n", indent, pageMapping);
         break;
-    case PG_L1:
+    case PGT_L1:
         indent = l1s;
         printf("%sSetting L1 Page: mapping:0x%lx\n", indent, pageMapping);
         break;
@@ -365,25 +365,25 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
    */
   switch(pageLevel){
 
-    case PG_L4:
+    case PGT_L4:
 
-      thisPg->type = PG_L4;       /* Set the page type to L4 */
+      thisPg->type = PGT_L4;       /* Set the page type to L4 */
       pgRefCountInc(thisPg, false);
-      subLevelPgType = PG_L3;
+      subLevelPgType = PGT_L3;
       numSubLevelPgEntries = NPML4EPG;//    numPgEntries;
       break;
 
-    case PG_L3:
+    case PGT_L3:
 
       /* TODO: Determine why we want to reassign an L4 to an L3 */
-      if (thisPg->type != PG_L4)
-        thisPg->type = PG_L3;       /* Set the page type to L3 */
+      if (thisPg->type != PGT_L4)
+        thisPg->type = PGT_L3;       /* Set the page type to L3 */
       pgRefCountInc(thisPg, false);
-      subLevelPgType = PG_L2;
+      subLevelPgType = PGT_L2;
       numSubLevelPgEntries = NPDPEPG; //numPgEntries;
       break;
 
-    case PG_L2:
+    case PGT_L2:
 
       /*
        * If my L2 page mapping signifies that this mapping references a 1GB
@@ -391,44 +391,44 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
        * for a L3 page entry and initialize the page_desc for this entry.
        * Then return as we don't need to traverse frame pages.
        */
-      if (isHugePage(pageMapping, PG_L3)) {
+      if (isHugePage(pageMapping, PGT_L3)) {
 #if DEBUG_INIT >= 1
         printf("\tIdentified 1GB page...\n");
 #endif
         unsigned long index = (pageMapping & ~PDPMASK) / pageSize;
-        if (page_desc[index].type == PG_FREE)
-          page_desc[index].type = PG_DATA;
+        if (page_desc[index].type == PGT_FREE)
+          page_desc[index].type = PGT_DATA;
         pgRefCountInc(&page_desc[index], isWritable(pageMapping));
         return;
       } else {
-        thisPg->type = PG_L2;       /* Set the page type to L2 */
+        thisPg->type = PGT_L2;       /* Set the page type to L2 */
         pgRefCountInc(thisPg, false);
-        subLevelPgType = PG_L1;
+        subLevelPgType = PGT_L1;
         numSubLevelPgEntries = NPDEPG; // numPgEntries;
       }
       break;
 
-    case PG_L1:
+    case PGT_L1:
       /*
        * If my L1 page mapping signifies that this mapping references a 2MB
        * page frame, then get the frame address using the correct page mask
        * for a L2 page entry and initialize the page_desc for this entry.
        * Then return as we don't need to traverse frame pages.
        */
-      if (isHugePage(pageMapping, PG_L2)) {
+      if (isHugePage(pageMapping, PGT_L2)) {
 #if DEBUG_INIT >= 1
         printf("\tIdentified 2MB page...\n");
 #endif
         /* The frame address referencing the page obtained */
         unsigned long index = (pageMapping & ~PDRMASK) / pageSize;
-        if (page_desc[index].type == PG_FREE)
-          page_desc[index].type = PG_DATA;
+        if (page_desc[index].type == PGT_FREE)
+          page_desc[index].type = PGT_DATA;
         pgRefCountInc(&page_desc[index], isWritable(pageMapping));
         return;
       } else {
-        thisPg->type = PG_L1;       /* Set the page type to L1 */
+        thisPg->type = PGT_L1;       /* Set the page type to L1 */
         pgRefCountInc(thisPg, false);
-        subLevelPgType = PG_DATA;
+        subLevelPgType = PGT_DATA;
         numSubLevelPgEntries = NPTEPG;//      numPgEntries;
       }
       break;
@@ -462,14 +462,14 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
    * walk on all sub entries.
    */
   for (unsigned long i = 0; i < numSubLevelPgEntries; i++){
-    if ((pageLevel == PG_L4) && (i == 256))
+    if ((pageLevel == PGT_L4) && (i == 256))
       continue;
 #if 0
     /*
      * Do not process any entries that implement the direct map.  This prevents
      * us from marking physical pages in the direct map as kernel data pages.
      */
-    if ((pageLevel == PG_L4) && (i == (KERNDMAPSTART / 0x1000))) {
+    if ((pageLevel == PGT_L4) && (i == (KERNDMAPSTART / 0x1000))) {
       continue;
     }
 #endif
@@ -494,7 +494,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
        * the recursive page table traversals. Now we just mark the leaf page
        * descriptors.
        */
-      if (pageLevel == PG_L1) {
+      if (pageLevel == PGT_L1) {
 #if DEBUG_INIT >= 2
         printf("%sInitializing leaf entry: pteaddr: %p, mapping: 0x%lx\n",
             indent, nextEntry, *nextEntry);
@@ -562,7 +562,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
     *firstpaddr += FRAME_SIZE;
 
     /* Set the type of the frame */
-    getPageDescPtr(paddr)->type = PG_L3;
+    getPageDescPtr(paddr)->type = PGT_L3;
     pgRefCountInc(getPageDescPtr(paddr), false);
 
     /* Zero the contents of the frame */
@@ -582,7 +582,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
     *firstpaddr += FRAME_SIZE;
 
     /* Set the type of the frame */
-    getPageDescPtr(pdpte_paddr)->type = PG_L2;
+    getPageDescPtr(pdpte_paddr)->type = PGT_L2;
     pgRefCountInc(getPageDescPtr(pdpte_paddr), false);
 
     /* Zero the contents of the frame */
@@ -617,7 +617,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
      * Set the types of the frames
      */
     for (uintptr_t p = pde_paddr; p < *firstpaddr; p += FRAME_SIZE) {
-      getPageDescPtr(p)->type = PG_L1;
+      getPageDescPtr(p)->type = PGT_L1;
       pgRefCountInc(getPageDescPtr(p), false);
     }
 
@@ -724,7 +724,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
 #endif
 
   /* Walk the kernel page tables and initialize the sva page_desc */
-  declare_ptp_and_walk_pt_entries(kpml4eVA, nkpml4e, PG_L4);
+  declare_ptp_and_walk_pt_entries(kpml4eVA, nkpml4e, PGT_L4);
 
   /*
    * Increment each physical page's refcount in the page_desc by 2 to reflect
@@ -737,7 +737,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
    * FIXME: I'm not really sure why the page-table walk isn't picking up the
    * references from the kernel's direct map. There's some code that that,
    * per the comments, is supposed to skip over kernel DMAP references (to
-   * avoid setting all the memory referenced by the DMAP as PG_DATA), but
+   * avoid setting all the memory referenced by the DMAP as PGT_DATA), but
    * it's commented out.
    */
   for (unsigned long i = 0; i < numPageDescEntries; i++) {
@@ -879,19 +879,19 @@ static void print_entry(page_entry_t entry, enum page_type_t level,
                         uintptr_t vaddr) {
   const char *level_name;
   switch (level) {
-  case PG_L4:
+  case PGT_L4:
     level_name = "CR3";
     break;
-  case PG_L3:
+  case PGT_L3:
     level_name = "  L4";
     break;
-  case PG_L2:
+  case PGT_L2:
     level_name = "    L3";
     break;
-  case PG_L1:
+  case PGT_L1:
     level_name = "      L2";
     break;
-  case PG_DATA:
+  case PGT_DATA:
     level_name = "        L1";
     break;
   default:
@@ -911,11 +911,11 @@ static void print_entry(page_entry_t entry, enum page_type_t level,
  */
 static inline size_t getSuperpageSize(enum page_type_t level) {
   switch (level) {
-  case PG_L2: // 1GB superpage
+  case PGT_L2: // 1GB superpage
     return PG_L3_SIZE;
-  case PG_L1: // 2MB superpage
+  case PGT_L1: // 2MB superpage
     return PG_L2_SIZE;
-  case PG_DATA: // Normal 4KB page
+  case PGT_DATA: // Normal 4KB page
     return PG_L1_SIZE;
   default:
     SVA_ASSERT_UNREACHABLE("SVA: FATAL: Invalid page type for superpage\n");
@@ -942,7 +942,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
 
   print_entry(entry, level, vaddr);
 
-  if (level == PG_DATA || (level != PG_L4 && isHugePage(entry, level + 1))) {
+  if (level == PGT_DATA || (level != PGT_L4 && isHugePage(entry, level + 1))) {
     // This is a leaf (super)page.
 
     /// The number of 4KB frames mapped by this entry.
@@ -952,25 +952,25 @@ static page_entry_t lower_permissions(page_entry_t entry,
 
     for (size_t i = 0; i < count; ++i) {
       switch (desc[i].type) {
-      case PG_L4:
-      case PG_L3:
-      case PG_L2:
-      case PG_L1:
-      case PG_CODE:
+      case PGT_L4:
+      case PGT_L3:
+      case PGT_L2:
+      case PGT_L1:
+      case PGT_CODE:
         if (!isDirectMap(vaddr)) {
           perms &= ~PG_W;
         }
         break;
-      case PG_DATA:
+      case PGT_DATA:
         // NB: we use the "no-execute" bit here to mean "page is executable."
         perms &= ~PG_NX;
         break;
-      case PG_SVA:
+      case PGT_SVA:
         if (!isInSecureMemory(vaddr)) {
           perms = 0;
         }
         break;
-      case PG_FREE:
+      case PGT_FREE:
         if (!isDirectMap(vaddr)) {
           perms &= ~PG_W;
         }
@@ -1036,11 +1036,11 @@ static page_entry_t lower_permissions(page_entry_t entry,
  * page at exactly one level).
  *
  * This function is recursive and should initially be called with
- * `entry = %cr3` and `level = PG_L4`.
+ * `entry = %cr3` and `level = PGT_L4`.
  *
  * @param entry     The page table entry mapping the current page being examined
  * @param level     The type of the entries in the page this entry references
- *                  (or `PG_DATA` for a terminal page)
+ *                  (or `PGT_DATA` for a terminal page)
  * @param max_perms The maximal permissions that a paged mapped my this entry
  *                  may have
  * @param vaddr     The beginning of the virtual address range mapped by this
@@ -1058,12 +1058,12 @@ import_existing_mappings(page_entry_t entry,
   // Disabled permissions higher in the page table hierarchy override enabled
   // ones that appear lower.
   page_entry_t perms =
-    level == PG_L4 ?
+    level == PGT_L4 ?
       // CR3 does not specify any permissions, so ignore its "permission" bits.
       max_perms :
       intersect_perms(max_perms, entry);
 
-  if (level == PG_DATA || (level != PG_L4 && isHugePage(entry, level + 1))) {
+  if (level == PGT_DATA || (level != PGT_L4 && isHugePage(entry, level + 1))) {
     // This is a leaf (super)page.
 
     /// The number of 4KB frames mapped by this entry.
@@ -1075,25 +1075,25 @@ import_existing_mappings(page_entry_t entry,
 
     enum page_type_t type;
     if (isGhostVA(vaddr)) {
-      type = PG_SVA;
+      type = PGT_SVA;
     } else {
-      type = perms & PG_NX ? PG_CODE : PG_DATA;
+      type = perms & PG_NX ? PGT_CODE : PGT_DATA;
     }
 
     for (size_t i = 0; i < count; ++i) {
       if (!isDirectMap(vaddr)) {
         enum page_type_t newType = type;
 
-        if (desc[i].type != PG_FREE && desc[i].type != type) {
+        if (desc[i].type != PGT_FREE && desc[i].type != type) {
           switch (desc[i].type) {
-          case PG_L4:
-          case PG_L3:
-          case PG_L2:
-          case PG_L1:
-            if (type == PG_SVA) {
+          case PGT_L4:
+          case PGT_L3:
+          case PGT_L2:
+          case PGT_L1:
+            if (type == PGT_SVA) {
               SVA_ASSERT_UNREACHABLE(
                 "SVA: FATAL: Page table frame also mapped as SVA data\n");
-            } else if (type == PG_CODE) {
+            } else if (type == PGT_CODE) {
               // Page table mapped as code?!
               SVA_ASSERT_UNREACHABLE(
                 "SVA: FATAL: Page table frame also mapped as code\n");
@@ -1103,17 +1103,17 @@ import_existing_mappings(page_entry_t entry,
               newType = desc[i].type;
             }
             break;
-          case PG_CODE:
-          case PG_DATA:
-            if (type == PG_SVA) {
+          case PGT_CODE:
+          case PGT_DATA:
+            if (type == PGT_SVA) {
               sva_dbg("SVA: WARNING: Kernel mapped frame used for SVA memory\n");
-              newType = PG_SVA;
+              newType = PGT_SVA;
             } else {
               sva_dbg("SVA: WARNING: Frame mapped as both code and data\n");
-              newType = PG_CODE;
+              newType = PGT_CODE;
             }
             break;
-          case PG_SVA:
+          case PGT_SVA:
             sva_dbg("SVA: WARNING: Kernel mapped frame used for SVA memory\n");
             break;
           default:
@@ -1142,20 +1142,20 @@ import_existing_mappings(page_entry_t entry,
     /// The number of bytes mapped by this page.
     size_t span = getMappedSize(level);
 
-    if (desc->type != PG_FREE && desc->type != level) {
+    if (desc->type != PGT_FREE && desc->type != level) {
       switch (desc->type) {
-      case PG_L4:
-      case PG_L3:
-      case PG_L2:
-      case PG_L1:
+      case PGT_L4:
+      case PGT_L3:
+      case PGT_L2:
+      case PGT_L1:
         SVA_ASSERT_UNREACHABLE(
           "SVA: FATAL: Frame used at multiple page table levels\n");
-      case PG_CODE:
+      case PGT_CODE:
         SVA_ASSERT_UNREACHABLE("SVA: FATAL: Code frame used as page table\n");
-      case PG_DATA:
+      case PGT_DATA:
         sva_dbg("SVA: WARNING: Data frame used as page table\n");
         break;
-      case PG_SVA:
+      case PGT_SVA:
         SVA_ASSERT_UNREACHABLE("SVA: FATAL: SVA memory used as page table\n");
       default:
         SVA_ASSERT_UNREACHABLE(
@@ -1255,8 +1255,8 @@ void sva_mmu_init(void) {
 #endif
 
   /* Walk the kernel page tables and initialize the sva page_desc. */
-  import_existing_mappings(root_tbl, PG_L4, (PG_P | PG_W | PG_NX | PG_U), 0);
-  lower_permissions(root_tbl, PG_L4, 0);
+  import_existing_mappings(root_tbl, PGT_L4, (PG_P | PG_W | PG_NX | PG_U), 0);
+  lower_permissions(root_tbl, PGT_L4, 0);
   invltlb_all();
 
   unsigned long initial_cr3 = PG_ENTRY_FRAME(root_tbl);

@@ -146,16 +146,16 @@ static inline bool isUserMapping(page_entry_t pte) {
  */
 static inline bool isHugePage(page_entry_t pte, enum page_type_t level) {
   switch (level) {
-  case PG_L1:
-  case PG_L4:
-  case PG_EPTL1:
-  case PG_EPTL4:
+  case PGT_L1:
+  case PGT_L4:
+  case PGT_EPTL1:
+  case PGT_EPTL4:
     return false;
-  case PG_L2:
-  case PG_L3:
+  case PGT_L2:
+  case PGT_L3:
     return pte & PG_PS;
-  case PG_EPTL2:
-  case PG_EPTL3:
+  case PGT_EPTL2:
+  case PGT_EPTL3:
     return pte & PG_EPT_PS;
   default:
     // TODO: Other page table types
@@ -173,8 +173,8 @@ static inline bool isHugePage(page_entry_t pte, enum page_type_t level) {
  */
 static inline bool isLeafEntry(page_entry_t pte, enum page_type_t level) {
   switch (level) {
-  case PG_L1:
-  case PG_EPTL1:
+  case PGT_L1:
+  case PGT_EPTL1:
     // L1 entries are always leaf entries.
     return true;
   default:
@@ -219,7 +219,7 @@ static inline page_entry_t setMappingReadWrite(page_entry_t mapping) {
  * @return      Whether or not `frame` is an L1 page table
  */
 static inline bool isL1Pg(page_desc_t* frame) {
-  return frame->type == PG_L1;
+  return frame->type == PGT_L1;
 }
 
 /**
@@ -229,7 +229,7 @@ static inline bool isL1Pg(page_desc_t* frame) {
  * @return      Whether or not `frame` is an L2 page table
  */
 static inline bool isL2Pg(page_desc_t* frame) {
-  return frame->type == PG_L2;
+  return frame->type == PGT_L2;
 }
 
 /**
@@ -239,7 +239,7 @@ static inline bool isL2Pg(page_desc_t* frame) {
  * @return      Whether or not `frame` is an L3 page table
  */
 static inline bool isL3Pg(page_desc_t* frame) {
-  return frame->type == PG_L3;
+  return frame->type == PGT_L3;
 }
 
 /**
@@ -249,7 +249,7 @@ static inline bool isL3Pg(page_desc_t* frame) {
  * @return      Whether or not `frame` is an L4 page table
  */
 static inline bool isL4Pg(page_desc_t* frame) {
-  return frame->type == PG_L4;
+  return frame->type == PGT_L4;
 }
 
 /**
@@ -259,7 +259,7 @@ static inline bool isL4Pg(page_desc_t* frame) {
  * @return      Whether or not `frame` is an L1 extended page table
  */
 static inline bool isEPTL1Pg(page_desc_t* frame) {
-  return frame->type == PG_EPTL1;
+  return frame->type == PGT_EPTL1;
 }
 
 /**
@@ -269,7 +269,7 @@ static inline bool isEPTL1Pg(page_desc_t* frame) {
  * @return      Whether or not `frame` is an L2 extended page table
  */
 static inline bool isEPTL2Pg(page_desc_t* frame) {
-  return frame->type == PG_EPTL2;
+  return frame->type == PGT_EPTL2;
 }
 
 /**
@@ -279,7 +279,7 @@ static inline bool isEPTL2Pg(page_desc_t* frame) {
  * @return      Whether or not `frame` is an L3 extended page table
  */
 static inline bool isEPTL3Pg(page_desc_t* frame) {
-  return frame->type == PG_EPTL3;
+  return frame->type == PGT_EPTL3;
 }
 
 /**
@@ -289,7 +289,7 @@ static inline bool isEPTL3Pg(page_desc_t* frame) {
  * @return      Whether or not `frame` is an L4 extended page table
  */
 static inline bool isEPTL4Pg(page_desc_t* frame) {
-  return frame->type == PG_EPTL4;
+  return frame->type == PGT_EPTL4;
 }
 
 /**
@@ -299,7 +299,7 @@ static inline bool isEPTL4Pg(page_desc_t* frame) {
  * @return      Whether or not `frame` is used for SVA-internal data
  */
 static inline bool isSVAPg(page_desc_t* frame) {
-  return frame->type == PG_SVA;
+  return frame->type == PGT_SVA;
 }
 
 /**
@@ -309,7 +309,7 @@ static inline bool isSVAPg(page_desc_t* frame) {
  * @return      Whether or not `frame` is used to hold ghost data
  */
 static inline bool isGhostPg(page_desc_t* frame) {
-    return frame->type == PG_GHOST;
+  return frame->type == PGT_GHOST;
 }
 
 /**
@@ -319,7 +319,7 @@ static inline bool isGhostPg(page_desc_t* frame) {
  * @return      Whether or not `frame` is used for code
  */
 static inline bool isCodePg(page_desc_t* frame) {
-  return frame->type == PG_CODE;
+  return frame->type == PGT_CODE;
 }
 
 /**
@@ -332,10 +332,10 @@ static inline bool isCodePg(page_desc_t* frame) {
  */
 static inline bool isRegularPTP(page_desc_t* frame) {
   switch (frame->type) {
-  case PG_L1:
-  case PG_L2:
-  case PG_L3:
-  case PG_L4:
+  case PGT_L1:
+  case PGT_L2:
+  case PGT_L3:
+  case PGT_L4:
     return true;
   default:
     return false;
@@ -350,10 +350,10 @@ static inline bool isRegularPTP(page_desc_t* frame) {
  */
 static inline bool isEPTP(page_desc_t* frame) {
   switch (frame->type) {
-  case PG_EPTL1:
-  case PG_EPTL2:
-  case PG_EPTL3:
-  case PG_EPTL4:
+  case PGT_EPTL1:
+  case PGT_EPTL2:
+  case PGT_EPTL3:
+  case PGT_EPTL4:
     return true;
   default:
     return false;
@@ -369,9 +369,9 @@ static inline bool isEPTP(page_desc_t* frame) {
  */
 static inline bool isGhostPTP(page_desc_t* frame) {
   switch (frame->type) {
-  case PG_SML1:
-  case PG_SML2:
-  case PG_SML3:
+  case PGT_SML1:
+  case PGT_SML2:
+  case PGT_SML3:
     return true;
   default:
     return false;
@@ -391,7 +391,7 @@ static inline bool isPTP(page_desc_t* frame) {
 /**
  * Get the integer value of the page level of a page type.
  *
- * For example, `PG_L4` is level 4. Types that aren't page tables are defined
+ * For example, `PGT_L4` is level 4. Types that aren't page tables are defined
  * to have level 0.
  *
  * @param type The page type to get the integer level for
@@ -399,20 +399,20 @@ static inline bool isPTP(page_desc_t* frame) {
  */
 static inline int getIntLevel(page_type_t level) {
   switch (level) {
-  case PG_L1:
-  case PG_EPTL1:
-  case PG_SML1:
+  case PGT_L1:
+  case PGT_EPTL1:
+  case PGT_SML1:
     return 1;
-  case PG_L2:
-  case PG_EPTL2:
-  case PG_SML2:
+  case PGT_L2:
+  case PGT_EPTL2:
+  case PGT_SML2:
     return 2;
-  case PG_L3:
-  case PG_EPTL3:
-  case PG_SML3:
+  case PGT_L3:
+  case PGT_EPTL3:
+  case PGT_SML3:
     return 3;
-  case PG_L4:
-  case PG_EPTL4:
+  case PGT_L4:
+  case PGT_EPTL4:
     return 4;
   default:
     return 0;
@@ -427,14 +427,14 @@ static inline int getIntLevel(page_type_t level) {
  */
 static inline enum page_type_t getSublevelType(enum page_type_t level) {
   switch (level) {
-  case PG_L4:
-    return PG_L3;
-  case PG_L3:
-    return PG_L2;
-  case PG_L2:
-    return PG_L1;
-  case PG_L1:
-    return PG_DATA;
+  case PGT_L4:
+    return PGT_L3;
+  case PGT_L3:
+    return PGT_L2;
+  case PGT_L2:
+    return PGT_L1;
+  case PGT_L1:
+    return PGT_DATA;
   default:
     SVA_ASSERT_UNREACHABLE("SVA: FATAL: Not a page table frame type\n");
   }
@@ -449,20 +449,20 @@ static inline enum page_type_t getSublevelType(enum page_type_t level) {
  */
 static inline size_t getMappedSize(enum page_type_t level) {
   switch (level) {
-  case PG_L1:
-  case PG_EPTL1:
-  case PG_SML1:
+  case PGT_L1:
+  case PGT_EPTL1:
+  case PGT_SML1:
     return PG_L1_SIZE;
-  case PG_L2:
-  case PG_EPTL2:
-  case PG_SML2:
+  case PGT_L2:
+  case PGT_EPTL2:
+  case PGT_SML2:
     return PG_L2_SIZE;
-  case PG_L3:
-  case PG_EPTL3:
-  case PG_SML3:
+  case PGT_L3:
+  case PGT_EPTL3:
+  case PGT_SML3:
     return PG_L3_SIZE;
-  case PG_L4:
-  case PG_EPTL4:
+  case PGT_L4:
+  case PGT_EPTL4:
     return PG_L4_SIZE;
   default:
     SVA_ASSERT_UNREACHABLE("SVA: FATAL: Not a page table frame type\n");

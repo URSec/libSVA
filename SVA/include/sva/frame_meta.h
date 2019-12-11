@@ -26,29 +26,29 @@
  * These types are mutually exclusive: a frame may only be one type at a time,
  * and all uses as its current type must be dropped before it can change type.
  *
- * Note that all types except `PG_DATA` are "sticky": a frame's type will not
- * automatically change to `PG_FREE` when it's type reference count drops to 0.
+ * Note that all types except `PGT_DATA` are "sticky": a frame's type will not
+ * automatically change to `PGT_FREE` when it's type reference count drops to 0.
  * The type of the frame must be reset using the appropriate undeclare call for
  * its current type.
  */
 typedef enum page_type_t {
-  PG_FREE,     ///< Frame is not currently used as any type
-  PG_UNUSABLE, ///< Frame is not present or is reserved by firmware
-  PG_DATA,     ///< Frame is used as writable data
-  PG_SVA,      ///< Frame is used internally by SVA
-  PG_GHOST,    ///< Frame is used for ghost memory
-  PG_CODE,     ///< Frame is used for code
-  PG_L1,       ///< Frame is used as an L1 page table
-  PG_L2,       ///< Frame is used as an L2 page table
-  PG_L3,       ///< Frame is used as an L3 page table
-  PG_L4,       ///< Frame is used as an L4 page table
-  PG_EPTL1,    ///< Frame is used as an L1 extended page table
-  PG_EPTL2,    ///< Frame is used as an L2 extended page table
-  PG_EPTL3,    ///< Frame is used as an L3 extended page table
-  PG_EPTL4,    ///< Frame is used as an L4 extended page table
-  PG_SML1,     ///< Frame is used as an L1 page table for secure memory
-  PG_SML2,     ///< Frame is used as an L2 page table for secure memory
-  PG_SML3      ///< Frame is used as an L3 page table for secure memory
+  PGT_FREE,     ///< Frame is not currently used as any type
+  PGT_UNUSABLE, ///< Frame is not present or is reserved by firmware
+  PGT_DATA,     ///< Frame is used as writable data
+  PGT_SVA,      ///< Frame is used internally by SVA
+  PGT_GHOST,    ///< Frame is used for ghost memory
+  PGT_CODE,     ///< Frame is used for code
+  PGT_L1,       ///< Frame is used as an L1 page table
+  PGT_L2,       ///< Frame is used as an L2 page table
+  PGT_L3,       ///< Frame is used as an L3 page table
+  PGT_L4,       ///< Frame is used as an L4 page table
+  PGT_EPTL1,    ///< Frame is used as an L1 extended page table
+  PGT_EPTL2,    ///< Frame is used as an L2 extended page table
+  PGT_EPTL3,    ///< Frame is used as an L3 extended page table
+  PGT_EPTL4,    ///< Frame is used as an L4 extended page table
+  PGT_SML1,     ///< Frame is used as an L1 page table for secure memory
+  PGT_SML2,     ///< Frame is used as an L2 page table for secure memory
+  PGT_SML3      ///< Frame is used as an L3 page table for secure memory
 } page_type_t;
 
 /**

@@ -55,9 +55,9 @@ sva_declare_l1_eptpage(uintptr_t frameAddr) {
    * kernel data page.
    */
   switch (pgDesc->type) {
-    case PG_EPTL1:
-    case PG_FREE:
-    case PG_DATA:
+    case PGT_EPTL1:
+    case PGT_FREE:
+    case PGT_DATA:
       break;
 
     default:
@@ -81,11 +81,11 @@ sva_declare_l1_eptpage(uintptr_t frameAddr) {
   /* 
    * Declare the page as an EPT L1 page (unless it is already one).
    */
-  if (pgDesc->type != PG_EPTL1) {
+  if (pgDesc->type != PGT_EPTL1) {
     /*
      * Mark this page frame as an EPT L1 page frame.
      */
-    pgDesc->type = PG_EPTL1;
+    pgDesc->type = PGT_EPTL1;
 
 #if 0
     /*
@@ -137,9 +137,9 @@ sva_declare_l2_eptpage(uintptr_t frameAddr) {
    * kernel data page.
    */
   switch (pgDesc->type) {
-    case PG_EPTL2:
-    case PG_FREE:
-    case PG_DATA:
+    case PGT_EPTL2:
+    case PGT_FREE:
+    case PGT_DATA:
       break;
 
     default:
@@ -163,11 +163,11 @@ sva_declare_l2_eptpage(uintptr_t frameAddr) {
   /* 
    * Declare the page as an EPT L2 page (unless it is already one).
    */
-  if (pgDesc->type != PG_EPTL2) {
+  if (pgDesc->type != PGT_EPTL2) {
     /*
      * Mark this page frame as an EPT L2 page frame.
      */
-    pgDesc->type = PG_EPTL2;
+    pgDesc->type = PGT_EPTL2;
 
 #if 0
     /*
@@ -219,9 +219,9 @@ sva_declare_l3_eptpage(uintptr_t frameAddr) {
    * kernel data page.
    */
   switch (pgDesc->type) {
-    case PG_EPTL3:
-    case PG_FREE:
-    case PG_DATA:
+    case PGT_EPTL3:
+    case PGT_FREE:
+    case PGT_DATA:
       break;
 
     default:
@@ -245,11 +245,11 @@ sva_declare_l3_eptpage(uintptr_t frameAddr) {
   /* 
    * Declare the page as an EPT L3 page (unless it is already one).
    */
-  if (pgDesc->type != PG_EPTL3) {
+  if (pgDesc->type != PGT_EPTL3) {
     /*
      * Mark this page frame as an EPT L2 page frame.
      */
-    pgDesc->type = PG_EPTL3;
+    pgDesc->type = PGT_EPTL3;
 
 #if 0
     /*
@@ -301,9 +301,9 @@ sva_declare_l4_eptpage(uintptr_t frameAddr) {
    * kernel data page.
    */
   switch (pgDesc->type) {
-    case PG_EPTL4:
-    case PG_FREE:
-    case PG_DATA:
+    case PGT_EPTL4:
+    case PGT_FREE:
+    case PGT_DATA:
       break;
 
     default:
@@ -327,11 +327,11 @@ sva_declare_l4_eptpage(uintptr_t frameAddr) {
   /* 
    * Declare the page as an EPT L4 page (unless it is already one).
    */
-  if (pgDesc->type != PG_EPTL4) {
+  if (pgDesc->type != PGT_EPTL4) {
     /*
      * Mark this page frame as an EPT L2 page frame.
      */
-    pgDesc->type = PG_EPTL4;
+    pgDesc->type = PGT_EPTL4;
 
 #if 0
     /*
@@ -397,10 +397,10 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
   page_desc_t *ptDesc = getPageDescPtr(getPhysicalAddr(eptePtr));
   if (!disableMMUChecks) {
     switch(ptDesc->type) {
-      case PG_EPTL1:
-      case PG_EPTL2:
-      case PG_EPTL3:
-      case PG_EPTL4:
+      case PGT_EPTL1:
+      case PGT_EPTL2:
+      case PGT_EPTL3:
+      case PGT_EPTL4:
         break;
 
       default:
@@ -522,7 +522,7 @@ load_eptable_internal(
    */
   uintptr_t epml4t_paddr = getPhysicalAddr(epml4t);
   page_desc_t *ptpDesc = getPageDescPtr(epml4t_paddr);
-  if ((ptpDesc->type != PG_EPTL4) && !disableMMUChecks && usevmx) {
+  if ((ptpDesc->type != PGT_EPTL4) && !disableMMUChecks && usevmx) {
     panic("SVA: MMU: Attempted to load an extended page table that wasn't "
         "registered with SVA as an EPML4 frame! "
         "vaddr: %p; paddr: 0x%lx; SVA frame type: %x\n",

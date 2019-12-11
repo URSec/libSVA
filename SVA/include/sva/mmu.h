@@ -168,14 +168,14 @@ void __update_mapping(page_entry_t* pageEntryPtr, page_entry_t val);
  */
 static inline int
 readOnlyPageType(page_desc_t *pg) {
-  return  (pg->type == PG_L4)
-           || (pg->type == PG_L3)
-           || (pg->type == PG_L2)
+  return  (pg->type == PGT_L4)
+           || (pg->type == PGT_L3)
+           || (pg->type == PGT_L2)
 #if 0
-           || (pg->type == PG_L1)
+           || (pg->type == PGT_L1)
 #endif
-           || (pg->type == PG_CODE)
-           || (pg->type == PG_SVA)
+           || (pg->type == PGT_CODE)
+           || (pg->type == PGT_SVA)
            ;
 }
 
