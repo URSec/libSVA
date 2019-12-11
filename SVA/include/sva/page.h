@@ -68,21 +68,6 @@
 static const uintptr_t PADDR_INVALID = ~0UL;
 
 /**
- * Size of the smallest page frame in bytes.
- */
-static const uintptr_t X86_PAGE_SIZE = 4096u;
-
-/**
- * Number of bits to shift to get the page number out of a PTE entry.
- */
-static const unsigned PAGESHIFT = 12;
-
-/**
- * Mask to get the proper number of bits from the virtual address.
- */
-static const uintptr_t vmask = 0x0000000000000ff8u;
-
-/**
  * Zero mapping is the mapping that eliminates the previous entry.
  */
 static const uintptr_t ZERO_MAPPING = 0;
@@ -95,6 +80,11 @@ static const uintptr_t ZERO_MAPPING = 0;
  * ===========================================================================
  */
 
+/*
+ * Note (Colin Pronovost, 2019-12-11): I do not believe that these values are
+ * subject to copyright. Even if they are, the copyright would be owned by
+ * Intel, not the FreeBSD developers.
+ */
 /* MMU Flags ---- Intel Nomenclature ---- */
 #define PG_V        0x001   /* P    Valid               */
 #define PG_RW       0x002   /* R/W  Read/Write          */
@@ -111,6 +101,14 @@ static const uintptr_t ZERO_MAPPING = 0;
 #define PG_AVAIL3   0x800   /*    \                     */
 #define PG_PDE_PAT  0x1000  /* PAT  PAT index           */
 #define PG_NX       (1ul<<63) /* No-execute             */
+
+#ifdef FreeBSD
+/*
+ *******************************************************************************
+ * Various FreeBSD-specific values that are needed for the FreeBSD-targeted
+ * version of SVA.
+ *******************************************************************************
+ */
 
 /* Various interpretations of the above */
 #define PG_W        PG_AVAIL1   /* "Wired" pseudoflag */
@@ -154,6 +152,8 @@ static const uintptr_t ZERO_MAPPING = 0;
 #define DMPML4I     (KPML4I - 4) //(KPML4I - NDMPML4E)/NDMPML4E * NDMPML4E /* the index of SVA direct mapping on pml4*/
 #define PML4PML4I   (NPML4EPG/2)    /* Index of recursive pml4 mapping */
 
+#endif
+
 /*
  * Note (Ethan Johnson, 8/23/18): I'm not sure if the following lines should
  * be included in the "FreeBSD code block". They were added in a 10/9/17
@@ -170,6 +170,18 @@ static const uintptr_t ZERO_MAPPING = 0;
  * END FreeBSD CODE BLOCK
  * ===========================================================================
  */
+
+/**
+ * The maximum physical address that is supported by the page table format.
+ *
+ * Note that the actual limit might be lower depending on the CPU model.
+ */
+#define PADDR_MAX (1UL << 52)
+
+/**
+ * The size of a frame, in bytes.
+ */
+#define FRAME_SIZE PG_L1_SIZE
 
 /**
  * The number of entries in a page table.
@@ -256,7 +268,7 @@ static const uintptr_t ZERO_MAPPING = 0;
  * @param l3e A L3 page table entry
  * @return    The physical address of the frames mapped by `l3e`
  */
-#define PG_L3_FRAME(l3e) ((l3e) & PG_FRAME & ~(PG_L3_SIZE - 1))
+#define PG_L3_FRAME(l3e) ((l3e) & (PADDR_MAX - 1) & ~(PG_L3_SIZE - 1))
 
 /**
  * Get the physical address of the frames mapped by an L2 page table entry.
@@ -266,15 +278,24 @@ static const uintptr_t ZERO_MAPPING = 0;
  * @param l2e A L2 page table entry
  * @return    The physical address of the frames mapped by `l2e`
  */
-#define PG_L2_FRAME(l2e) ((l2e) & PG_FRAME & ~(PG_L2_SIZE - 1))
+#define PG_L2_FRAME(l2e) ((l2e) & (PADDR_MAX - 1) & ~(PG_L2_SIZE - 1))
 
 /**
- * Get the physical address of the frames mapped by an L1 page table entry.
+ * Get the physical address of the frame mapped by an L1 page table entry.
  *
  * @param l1e A L1 page table entry
- * @return    The physical address of the frames mapped by `l1e`
+ * @return    The physical address of the frame mapped by `l1e`
  */
-#define PG_L1_FRAME(l1e) ((l1e) & PG_FRAME & ~(PG_L1_SIZE - 1))
+#define PG_L1_FRAME(l1e) ((l1e) & (PADDR_MAX - 1) & ~(PG_L1_SIZE - 1))
+
+/**
+ * Get the physical address of the next level page table from a page table
+ * entry.
+ *
+ * @param pte A page table entry
+ * @return    The physical address of the next level page table mapped by `pte`
+ */
+#define PG_ENTRY_FRAME(pte) PG_L1_FRAME(pte)
 
 /**
  * Get the offset of the L4 page table entry for a virtual address.
@@ -307,6 +328,70 @@ static const uintptr_t ZERO_MAPPING = 0;
  * @return  The offset of the entry mapping `v` in an L1 page table
  */
 #define PG_L1_OFFSET(v) ((uintptr_t)(v) & (PG_L1_SIZE - 1))
+
+/**
+ * Round a virtual address down to a multiple of `PG_L1_SIZE`.
+ *
+ * @param v A virtual address
+ * @return  `v` rounded down to a multiple of `PG_L1_SIZE`
+ */
+#define PG_L1_DOWN(v) ((uintptr_t)(v) & ~(PG_L1_SIZE - 1))
+
+/**
+ * Round a virtual address up to a multiple of `PG_L1_SIZE`.
+ *
+ * @param v A virtual address
+ * @return  `v` rounded up to a multiple of `PG_L1_SIZE`
+ */
+#define PG_L1_UP(v) (PG_L1_DOWN((uintptr_t)(v) + (PG_L1_SIZE - 1)))
+
+/**
+ * Round a virtual address down to a multiple of `PG_L2_SIZE`.
+ *
+ * @param v A virtual address
+ * @return  `v` rounded down to a multiple of `PG_L2_SIZE`
+ */
+#define PG_L2_DOWN(v) ((uintptr_t)(v) & ~(PG_L2_SIZE - 2))
+
+/**
+ * Round a virtual address up to a multiple of `PG_L2_SIZE`.
+ *
+ * @param v A virtual address
+ * @return  `v` rounded up to a multiple of `PG_L2_SIZE`
+ */
+#define PG_L2_UP(v) (PG_L2_DOWN((uintptr_t)(v) + (PG_L2_SIZE - 2)))
+
+/**
+ * Round a virtual address down to a multiple of `PG_L3_SIZE`.
+ *
+ * @param v A virtual address
+ * @return  `v` rounded down to a multiple of `PG_L3_SIZE`
+ */
+#define PG_L3_DOWN(v) ((uintptr_t)(v) & ~(PG_L3_SIZE - 3))
+
+/**
+ * Round a virtual address up to a multiple of `PG_L3_SIZE`.
+ *
+ * @param v A virtual address
+ * @return  `v` rounded up to a multiple of `PG_L3_SIZE`
+ */
+#define PG_L3_UP(v) (PG_L3_DOWN((uintptr_t)(v) + (PG_L3_SIZE - 3)))
+
+/**
+ * Round a virtual address down to a multiple of `PG_L4_SIZE`.
+ *
+ * @param v A virtual address
+ * @return  `v` rounded down to a multiple of `PG_L4_SIZE`
+ */
+#define PG_L4_DOWN(v) ((uintptr_t)(v) & ~(PG_L4_SIZE - 4))
+
+/**
+ * Round a virtual address up to a multiple of `PG_L4_SIZE`.
+ *
+ * @param v A virtual address
+ * @return  `v` rounded up to a multiple of `PG_L4_SIZE`
+ */
+#define PG_L4_UP(v) (PG_L4_DOWN((uintptr_t)(v) + (PG_L4_SIZE - 4)))
 
 #ifdef SVA_DMAP
 /**

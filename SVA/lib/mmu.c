@@ -92,7 +92,7 @@ struct PTInfo {
 struct PTInfo __svadata PTPages[1024];
 
 /* Cache of page table pages */
-extern unsigned char __svadata SVAPTPages[1024][X86_PAGE_SIZE];
+extern unsigned char __svadata SVAPTPages[1024][FRAME_SIZE];
 
 /* Array describing the physical pages. Used by SVA's MMU and EPT intrinsics.
  * The index is the physical page number.
@@ -120,7 +120,7 @@ page_desc_t __svadata page_desc[numPageDescEntries];
  *  the maximum supported physical memory.
  */
 page_desc_t * getPageDescPtr(unsigned long mapping) {
-  unsigned long frameIndex = (mapping & PG_FRAME) / PG_L1_SIZE;
+  unsigned long frameIndex = PG_ENTRY_FRAME(mapping) / FRAME_SIZE;
   if (frameIndex >= numPageDescEntries)
     return NULL;
   return page_desc + frameIndex;
@@ -256,11 +256,11 @@ static bool mappingIsSafe(page_entry_t entry, enum page_type_t type) {
 static inline unsigned char
 pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
   /* Collect associated information for the existing mapping */
-  unsigned long origPA = *page_entry & PG_FRAME;
+  unsigned long origPA = PG_ENTRY_FRAME(*page_entry);
   page_desc_t *origPG = getPageDescPtr(origPA);
 
   /* Get associated information for the new page being mapped */
-  unsigned long newPA = newVal & PG_FRAME;
+  unsigned long newPA = PG_ENTRY_FRAME(newVal);
   page_desc_t *newPG = getPageDescPtr(newPA);
 
   /* Get the page table page descriptor. */
@@ -294,8 +294,12 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
    * Verify that we're not trying to modify the PML4 entry that controls the
    * secure memory virtual address space.
    */
-  SVA_ASSERT(!(ptePG->type == PG_L4 &&
-               (ptePAddr & PG_FRAME) == secmemOffset),
+  size_t entryIdx =
+    ((uintptr_t)page_entry & (FRAME_SIZE - 1)) / sizeof(*page_entry);
+  bool isSecMemL4Entry = isL4Pg(ptePG) &&
+                         entryIdx >= PG_L4_ENTRY(SECMEMSTART) &&
+                         entryIdx < PG_L4_ENTRY(SECMEMEND);
+  SVA_ASSERT(!isSecMemL4Entry,
     "SVA: MMU: Kernel attempted to modify ghost memory pml4e!\n");
 
   /*
@@ -315,7 +319,7 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
     SVA_ASSERT(newPG != NULL,
       "SVA: FATAL: Attempted to create mapping to non-existant frame 0x%lx"
       "(PTE 0x%016lx)\n",
-      newPA / PAGE_SIZE, newVal);
+      newPA / FRAME_SIZE, newVal);
 
     /*
      * Verify that we're not attempting to establish a mapping to a ghost PTP.
@@ -567,7 +571,7 @@ updateNewPageData(page_entry_t mapping, bool isLeaf,
    */
   if (isPresent_maybeEPT(mapping, isEPT)) {
     for (size_t i = 0; i < count; ++i) {
-      uintptr_t newPA = (mapping & PG_FRAME) + i * PAGE_SIZE;
+      uintptr_t newPA = PG_ENTRY_FRAME(mapping) + i * FRAME_SIZE;
       page_desc_t *newPG = getPageDescPtr(newPA);
       SVA_ASSERT(newPG != NULL,
         "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
@@ -616,7 +620,7 @@ updateOrigPageData(page_entry_t mapping, bool isLeaf,
    */
   if (isPresent_maybeEPT(mapping, isEPT)) {
     for (size_t i = 0; i < count; ++i) {
-      uintptr_t origPA = (mapping & PG_FRAME) + i * PAGE_SIZE;
+      uintptr_t origPA = PG_ENTRY_FRAME(mapping) + i * FRAME_SIZE;
       page_desc_t *origPG = getPageDescPtr(origPA);
       SVA_ASSERT(origPG != NULL,
         "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
@@ -667,8 +671,8 @@ __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
   page_desc_t *ptePG = getPageDescPtr(ptePaddr);
   bool oldIsLeaf = isLeafEntry(*pteptr, ptePG->type);
   bool newIsLeaf = isLeafEntry(mapping, ptePG->type);
-  size_t oldCount = oldIsLeaf ? getMappedSize(ptePG->type) / PAGE_SIZE : 1;
-  size_t newCount = newIsLeaf ? getMappedSize(ptePG->type) / PAGE_SIZE : 1;
+  size_t oldCount = oldIsLeaf ? getMappedSize(ptePG->type) / FRAME_SIZE : 1;
+  size_t newCount = newIsLeaf ? getMappedSize(ptePG->type) / FRAME_SIZE : 1;
   unsigned char isEPT = ptePG->type >= PG_EPTL1 && ptePG->type <= PG_EPTL4;
 
   /*
@@ -831,7 +835,7 @@ int walk_page_table(cr3_t cr3, uintptr_t vaddr, pml4e_t** pml4e,
            * FIXME: Theoretically, there's no reason we couldn't use frame 0 as a page
            * table.
            */
-          if ((cr3 & PG_FRAME) == 0) {
+          if (PG_ENTRY_FRAME(cr3) == 0) {
             return -5;
           }
 
@@ -1041,7 +1045,7 @@ static unsigned int allocPTPage(page_type_t level) {
     /*
      * Initialize the memory.
      */
-    memset (p, 0, X86_PAGE_SIZE);
+    memset(p, 0, FRAME_SIZE);
 
     /*
      * Record the information about the page in the page table page array.
@@ -1218,13 +1222,13 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
      * Install a new PDPTE entry using the page.
      */
     uintptr_t paddr = PTPages[ptindex].paddr;
-    *pml4e = (paddr & addrmask) | PTE_CANWRITE | PTE_CANUSER | PTE_PRESENT;
+    *pml4e = PG_ENTRY_FRAME(paddr) | PG_V | PG_RW | PG_U;
   }
 
   /*
    * Enable writing to the virtual address space used for secure memory.
    */
-  *pml4e |= PTE_CANUSER;
+  *pml4e |= PG_U;
 
   /*
    * Record the value of the PML4E so that we can return it to the caller.
@@ -1246,14 +1250,14 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
      * Install a new PDPTE entry using the page.
      */
     uintptr_t pdpte_paddr = PTPages[ptindex].paddr;
-    *pdpte = (pdpte_paddr & addrmask) | PTE_CANWRITE | PTE_CANUSER | PTE_PRESENT;
+    *pdpte = PG_ENTRY_FRAME(pdpte_paddr) | PG_V | PG_RW | PG_U;
 
     /*
      * Note that we've added another translation to the pml4e.
      */
     updateUses(pdpte);
   }
-  *pdpte |= PTE_CANUSER;
+  *pdpte |= PG_U;
 
   if (isHugePage(*pdpte, PG_L3)) {
     printf("mapSecurePage: PDPTE has PS BIT\n");
@@ -1274,14 +1278,14 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
      * Install a new PDE entry.
      */
     uintptr_t pde_paddr = PTPages[ptindex].paddr;
-    *pde = (pde_paddr & addrmask) | PTE_CANWRITE | PTE_CANUSER | PTE_PRESENT;
+    *pde = PG_ENTRY_FRAME(pde_paddr) | PG_V | PG_RW | PG_U;
 
     /*
      * Note that we've added another translation to the pdpte.
      */
     updateUses(pde);
   }
-  *pde |= PTE_CANUSER;
+  *pde |= PG_U;
 
   if (isHugePage(*pde, PG_L2)) {
     printf("mapSecurePage: PDE has PS BIT\n");
@@ -1299,7 +1303,7 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
   /*
    * Modify the PTE to install the physical to virtual page mapping.
    */
-  *pte = (paddr & addrmask) | PTE_CANWRITE | PTE_CANUSER | PTE_PRESENT;
+  *pte = PG_ENTRY_FRAME(paddr) | PG_V | PG_RW | PG_U;
 
   /*
    * Note that we've added another translation to the pde.
@@ -1392,7 +1396,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
    * (either SVA's frame metadata has become inconsistent, or the caller has
    * improperly used this function to remove an entry in SVA's DMAP).
    */
-  page_desc_t *pageDesc = getPageDescPtr(*pte & PG_FRAME);
+  page_desc_t *pageDesc = getPageDescPtr(PG_L1_FRAME(*pte));
   SVA_ASSERT(pgRefCount(pageDesc) >= 2,
     "SVA: MMU: frame metadata inconsistency detected "
     "(attempted to remove ghost mapping with refcount < 2). "
@@ -1420,7 +1424,7 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
 #ifndef SVA_DMAP
   unprotect_paging();
 #endif
-  paddr = *pte & PG_FRAME;
+  paddr = PG_L1_FRAME(*pte);
   *pte = 0;
 
   /*
@@ -1493,12 +1497,12 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
    * Install a new PDPTE entry using the page.
    */
   uintptr_t paddr = PTPages[ptindex].paddr;
-  pml4e_val = (paddr & addrmask) | PTE_CANWRITE | PTE_CANUSER | PTE_PRESENT;
+  pml4e_val = PG_ENTRY_FRAME(paddr) | PG_V | PG_RW | PG_U;
 
   /*
    * Enable writing to the virtual address space used for secure memory.
    */
-  pml4e_val |= PTE_CANUSER;
+  pml4e_val |= PG_U;
 
   newThread->secmemPML4e = pml4e_val;
 
@@ -1507,7 +1511,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
 
   for (uintptr_t vaddr_pdp = vaddr_start;
       vaddr_pdp < vaddr_end;
-      vaddr_pdp += NBPDP, src_pdpte++, pdpte++) {
+      vaddr_pdp += PG_L3_SIZE, src_pdpte++, pdpte++) {
 
     if (!isPresent(*src_pdpte))
       continue;
@@ -1522,9 +1526,9 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
        * Install a new PDPTE entry using the page.
        */
       uintptr_t pdpte_paddr = PTPages[ptindex].paddr;
-      *pdpte = (pdpte_paddr & addrmask) | PTE_CANWRITE | PTE_CANUSER | PTE_PRESENT;
+      *pdpte = PG_ENTRY_FRAME(pdpte_paddr) | PG_V | PG_RW | PG_U;
     }
-    *pdpte |= PTE_CANUSER;
+    *pdpte |= PG_U;
 
     /*
      * Note that we've added another translation to the pml4e.
@@ -1538,8 +1542,8 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
     pde_t* src_pde = get_pdeVaddr(*src_pdpte, vaddr_pdp);
     pde_t* pde = get_pdeVaddr(*pdpte, vaddr_pdp);
     for (uintptr_t vaddr_pde = vaddr_pdp;
-        vaddr_pde < vaddr_pdp + NBPDP;
-        vaddr_pde += NBPDR, src_pde++, pde++) {
+        vaddr_pde < vaddr_pdp + PG_L3_SIZE;
+        vaddr_pde += PG_L2_SIZE, src_pde++, pde++) {
 
       /*
        * Get the PDE entry (or add it if it is not present).
@@ -1558,9 +1562,9 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
          * Install a new PDE entry.
          */
         uintptr_t pde_paddr = PTPages[ptindex].paddr;
-        *pde = (pde_paddr & addrmask) | PTE_CANWRITE | PTE_CANUSER | PTE_PRESENT;
+        *pde = PG_ENTRY_FRAME(pde_paddr) | PG_V | PG_RW | PG_U;
       }
-      *pde |= PTE_CANUSER;
+      *pde |= PG_U;
 
       /*
        * Note that we've added another translation to the pdpte.
@@ -1574,13 +1578,13 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
       pte_t* src_pte = get_pteVaddr(*src_pde, vaddr_pde);
       pte_t* pte = get_pteVaddr(*pde, vaddr_pde);
       for (uintptr_t vaddr_pte = vaddr_pde;
-          vaddr_pte < vaddr_pde + NBPDR;
-          vaddr_pte += PAGE_SIZE, src_pte++, pte++) {
+          vaddr_pte < vaddr_pde + PG_L2_SIZE;
+          vaddr_pte += PG_L1_SIZE, src_pte++, pte++) {
 
         if (!isPresent(*src_pte))
           continue;
 
-        page_desc_t *pgDesc = getPageDescPtr(*src_pte & PG_FRAME);
+        page_desc_t *pgDesc = getPageDescPtr(*src_pte);
 
         SVA_ASSERT(pgDesc->type == PG_GHOST,
           "SVA: ghostmemCOW: page is not a ghost memory page!\n"
@@ -1588,7 +1592,7 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
           "src_pde = %p, *src_pde = 0x%lx\n",
           vaddr_pte, src_pte, *src_pte, src_pde, *src_pde);
 
-        *src_pte &= ~PTE_CANWRITE;
+        *src_pte &= ~PG_RW;
         *pte = *src_pte;
         updateUses(pte);
         /*
@@ -1632,14 +1636,14 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
   unsigned long rflags = sva_enter_critical();
 
   /*
-   * Ensure there are no extraneous bits set in the page table pointer
-   * (which would be interpreted as flags in CR3). Masking with PG_FRAME will
+   * Ensure there are no extraneous bits set in the page table pointer (which
+   * would be interpreted as flags in CR3). Masking with `PG_ENTRY_FRAME` will
    * leave us with just the 4 kB-aligned physical address.
    *
    * (These bits aren't *supposed* to be set by the caller, but we can't
    * trust the system software to be honest.)
    */
-  uintptr_t new_pml4 = pg_ptr & PG_FRAME;
+  uintptr_t new_pml4 = PG_ENTRY_FRAME(pg_ptr);
 
   /*
    * Check that the new page table is an L4 page table page.
@@ -1663,8 +1667,8 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
      * Get a pointer to the section of the new top-level page table that maps
      * the secure memory region.
      */
-    pml4e_t *secmemp =
-      (pml4e_t *) getVirtualSVADMAP(new_pml4 + secmemOffset);
+    pml4e_t* root_pgtable = (pml4e_t*)getVirtual(new_pml4);
+    pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(SECMEMSTART)];
 
     /*
      * Write the PML4 entry for the secure memory region into the new
@@ -1872,6 +1876,7 @@ void kernel_to_usersva_pcid(void) {
 #endif
 }
 
+#ifdef FreeBSD
 /*
  * Instrinsic: sva_update_l4_dmap
  *
@@ -1889,6 +1894,7 @@ void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val)
   if(index < NDMPML4E)
   sva_update_l4_mapping(&(((pdpte_t *)pml4pg)[DMPML4I + index]), val);
 }
+#endif /* FreeBSD */
 
 /**
  * Validate that a leaf mapping is safe.
@@ -1898,11 +1904,11 @@ void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val)
  */
 static void validate_existing_leaf(page_entry_t entry, size_t frames) {
   for (size_t i = 0; i < frames; ++i) {
-    uintptr_t frame = (entry & PG_FRAME) + i * PAGE_SIZE;
+    uintptr_t frame = PG_ENTRY_FRAME(entry) + i * FRAME_SIZE;
     page_desc_t* pgDesc = getPageDescPtr(frame);
     SVA_ASSERT(pgDesc != NULL,
       "SVA: FATAL: New page table contains mapping to non-existant "
-      "frame 0x%lx\n", frame / PAGE_SIZE);
+      "frame 0x%lx\n", frame / FRAME_SIZE);
 
     if (pgDesc->type == PG_FREE && isWritable(entry)) {
       pgDesc->type = PG_DATA;
@@ -1931,14 +1937,14 @@ static void validate_existing_entries(uintptr_t frame, enum page_type_t level) {
   for (size_t i = 0; i < PG_ENTRIES; ++i) {
     if (isPresent(entries[i])) {
       if (isLeafEntry(entries[i], level)) {
-        validate_existing_leaf(entries[i], getMappedSize(level) / PAGE_SIZE);
+        validate_existing_leaf(entries[i], getMappedSize(level) / FRAME_SIZE);
       } else {
-        uintptr_t entryFrame = entries[i] & PG_FRAME;
+        uintptr_t entryFrame = PG_ENTRY_FRAME(entries[i]);
         page_desc_t* pgDesc = getPageDescPtr(entryFrame);
         SVA_ASSERT(pgDesc != NULL,
           "SVA: FATAL: New L%d table at 0x%lx contains mapping to non-existant "
           "frame 0x%lx\n",
-          getIntLevel(level), frame / PAGE_SIZE, entryFrame / PAGE_SIZE);
+          getIntLevel(level), frame / FRAME_SIZE, entryFrame / FRAME_SIZE);
 
         if (pgDesc->type != getSublevelType(level)) {
           SVA_ASSERT_UNREACHABLE(
@@ -1972,14 +1978,14 @@ void sva_declare_page(uintptr_t frame, enum page_type_t level) {
   page_desc_t *pgDesc = getPageDescPtr(frame);
   SVA_ASSERT(pgDesc != NULL,
     "SVA: FATAL: Attempt to use non-existant frame %lx as L%d page table\n",
-    frame / PAGE_SIZE, getIntLevel(level));
+    frame / FRAME_SIZE, getIntLevel(level));
 
   /*
    * Make sure that this frame is free.
    */
   SVA_ASSERT(pgDesc->type == PG_FREE,
     "SVA: FATAL: Declaring L%d page table for frame %lx with invalid type %d\n",
-    getIntLevel(level), frame / PAGE_SIZE, pgDesc->type);
+    getIntLevel(level), frame / FRAME_SIZE, pgDesc->type);
 
 #ifdef SVA_DMAP
   /*
@@ -1989,7 +1995,7 @@ void sva_declare_page(uintptr_t frame, enum page_type_t level) {
   SVA_ASSERT(pgRefCountWr(pgDesc) <= 2,
     "SVA: FATAL: Cannot declare L%d page: "
     "There are still %u writable mappings to frame 0x%ld!\n",
-    getIntLevel(level), pgRefCountWr(pgDesc), frame / PAGE_SIZE);
+    getIntLevel(level), pgRefCountWr(pgDesc), frame / FRAME_SIZE);
 #else
 #if 0
   /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
@@ -2075,7 +2081,7 @@ printPTES (uintptr_t vaddr) {
 
   /* Get the base of the pml4 to traverse */
   cr3_t cr3 = get_root_pagetable();
-  if ((cr3 & PG_FRAME) == 0)
+  if (PG_ENTRY_FRAME(cr3) == 0)
     return NULL;
 
   /* Get the VA of the pml4e for this vaddr */
@@ -2226,11 +2232,11 @@ sva_remove_page (uintptr_t paddr) {
    * If any valid mappings remain within the PTP, explicitly remove them to
    * ensure consistency of SVA's page metadata.
    *
-   * (Note: NPTEPG = # of entries in a PTP. We assume this is the same at
+   * (Note: PG_ENTRIES = # of entries in a PTP. We assume this is the same at
    * all levels of the paging hierarchy.)
    */
   page_entry_t *ptp_vaddr = (page_entry_t *) getVirtualSVADMAP(paddr);
-  for (unsigned long i = 0; i < NPTEPG; i++) {
+  for (unsigned long i = 0; i < PG_ENTRIES; i++) {
     if (isPresent_maybeEPT(ptp_vaddr[i], isEPT)) {
       /* Remove the mapping */
       page_desc_t *mappedPg = getPageDescPtr(ptp_vaddr[i]);
@@ -2245,7 +2251,7 @@ sva_remove_page (uintptr_t paddr) {
         ptp_vaddr[i] = 0;
       } else {
         bool isLeaf = isLeafEntry(ptp_vaddr[i], pgDesc->type);
-        size_t count = isLeaf ? getMappedSize(pgDesc->type) / PAGE_SIZE : 1;
+        size_t count = isLeaf ? getMappedSize(pgDesc->type) / FRAME_SIZE : 1;
         /*
          * NB: We don't want to actually change the data in the page table, as
          * the kernel may be relying on being able to access it for its own
@@ -2300,7 +2306,7 @@ sva_remove_page (uintptr_t paddr) {
        */
       page_entry_t *other_pml4_vaddr =
         (page_entry_t *) getVirtualSVADMAP(other_cr3);
-      for (int i = 0; i < NPTEPG; i++) {
+      for (int i = 0; i < PG_ENTRIES; i++) {
         if (isPresent_maybeEPT(other_pml4_vaddr[i], isEPT)) {
           /* Remove the mapping */
           __update_mapping(&other_pml4_vaddr[i], ZERO_MAPPING);
@@ -2577,7 +2583,7 @@ void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e) {
       kernel_pml4ePtr, new_l4e, kernel_ptDesc->type);
 
     if (((index >> 3) == PML4PML4I) &&
-        ((new_l4e & PG_FRAME) == (getPhysicalAddr(l4e) & PG_FRAME)))
+        (PG_ENTRY_FRAME(new_l4e) == PG_ENTRY_FRAME(getPhysicalAddr(l4e))))
     {
         new_l4e = other_cr3 | (new_l4e & 0xfff);
     }
@@ -2607,7 +2613,7 @@ static void protect_code_page(uintptr_t vaddr, page_entry_t perms) {
     "SVA: FATAL: Attempt to change permissions on unmapped page 0x%016lx\n",
     vaddr);
 
-  page_desc_t* pgDesc = getPageDescPtr(*leaf_entry & PG_FRAME);
+  page_desc_t* pgDesc = getPageDescPtr(*leaf_entry);
   SVA_ASSERT(pgDesc != NULL,
     "SVA: FATAL: Page table entry maps invalid frame\n");
   SVA_ASSERT(pgDesc->type = PG_CODE,
@@ -2716,8 +2722,8 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
    * Ensure no extraneous bits are set in the PML4 pointers which would be
    * interpreted as flags in CR3.
    */
-  orig_phys &= PG_FRAME;
-  kernel_phys &= PG_FRAME;
+  orig_phys = PG_ENTRY_FRAME(orig_phys);
+  kernel_phys = PG_ENTRY_FRAME(kernel_phys);
 
   page_desc_t *kernel_ptDesc = getPageDescPtr(kernel_phys);
   SVA_ASSERT(kernel_ptDesc != NULL,
@@ -2778,7 +2784,7 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
    * consistent with the user/SVA one (whose refcount was incremented when it
    * was loaded).
    */
-  if (orig_phys == (read_cr3() & PG_FRAME)) {
+  if (orig_phys == PG_ENTRY_FRAME(read_cr3())) {
     pgRefCountInc(kernel_ptDesc, false);
   }
 

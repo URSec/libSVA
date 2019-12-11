@@ -154,7 +154,7 @@ frame_dequeue(void) {
 static inline uintptr_t
 get_frame_from_os(void) {
   /* Ask the OS to give us a physical frame. */
-  uintptr_t paddr = provideSVAMemory(X86_PAGE_SIZE);
+  uintptr_t paddr = provideSVAMemory(FRAME_SIZE);
 
 #ifndef XEN
   /* FIXME: re-enable this code for Xen once MMU has been ported */
@@ -284,7 +284,7 @@ static inline void return_frame_to_os(uintptr_t paddr) {
   page->type = PG_FREE;
 #endif /* end #ifndef XEN */
 
-  releaseSVAMemory(paddr, X86_PAGE_SIZE);
+  releaseSVAMemory(paddr, FRAME_SIZE);
 }
 
 /*
@@ -478,7 +478,7 @@ ghostMalloc (intptr_t size) {
    * Get a page of memory from the operating system.  Note that the OS provides
    * the physical address of the allocated memory.
    */
-  for (intptr_t remaining = size; remaining > 0; remaining -= X86_PAGE_SIZE) {
+  for (intptr_t remaining = size; remaining > 0; remaining -= FRAME_SIZE) {
     if ((sp = alloc_frame()) != 0) {
       /* Physical address of the allocated page */
       uintptr_t paddr = sp;
@@ -503,7 +503,7 @@ ghostMalloc (intptr_t size) {
       /*
        * Move to the next virtual address.
        */
-      vaddr += X86_PAGE_SIZE;
+      vaddr += PG_L1_SIZE;
     } else {
       panic ("SVA: Kernel secure memory allocation failed!\n");
     }
@@ -634,7 +634,7 @@ ghostFree (struct SVAThread * threadp, unsigned char * p, intptr_t size) {
      * Loop through each page of the ghost memory until all of the frames
      * have been returned to the operating system kernel.
      */
-    for (unsigned char *ptr = p; ptr < (p + size); ptr += X86_PAGE_SIZE) {
+    for (unsigned char *ptr = p; ptr < (p + size); ptr += PG_L1_SIZE) {
       /*
        * Get the physical address before unmapping the page.  We do this
        * because unmapping the page may remove page table pages that are no
@@ -669,7 +669,7 @@ ghostFree (struct SVAThread * threadp, unsigned char * p, intptr_t size) {
            */
           if (threadp == currentThread) {
             unsigned char *dmapAddr = getVirtualSVADMAP(paddr);
-            memset(dmapAddr, 0, X86_PAGE_SIZE);
+            memset(dmapAddr, 0, PG_L1_SIZE);
           }
           free_frame(paddr);
         }
@@ -746,7 +746,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
       panic("sva_ghost_fault: cow pgfault pde %p does not exist\n", pde);
 
     pte_t* pte = get_pteVaddr(*pde, vaddr);
-    uintptr_t paddr = *pte & PG_FRAME;
+    uintptr_t paddr = PG_L1_FRAME(*pte);
 
     page_desc_t* pgDesc_old = getPageDescPtr(paddr);
     SVA_ASSERT(pgDesc_old != NULL,
@@ -766,7 +766,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
      */
     if (pgRefCount(pgDesc_old) == 2) {
       pgRefCountIncWr(pgDesc_old);
-      *pte = (*pte) | PTE_CANWRITE;
+      *pte |= PG_RW;
     } else {
       /*
        * Perform a copy-on-write.
@@ -794,8 +794,8 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
       /*
        * Copy the page contents to the new process's copy.
        */
-      memcpy(vaddr_new, vaddr_old, X86_PAGE_SIZE);
-      *pte = (paddr_new & addrmask) | PTE_CANWRITE | PTE_CANUSER | PTE_PRESENT;
+      memcpy(vaddr_new, vaddr_old, PG_L1_SIZE);
+      *pte = PG_ENTRY_FRAME(paddr_new) | PG_V | PG_RW | PG_U;
       /* Update the TLB to reflect the change. */
       invlpg(vaddr);
 
@@ -863,7 +863,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
   /*
    * Zero out the ghost memory contents.
    */
-  memset((void *) vaddr, 0, X86_PAGE_SIZE);
+  memset((void*)vaddr, 0, PG_L1_SIZE);
 
   /* Re-enable interrupts if necessary */
   sva_exit_critical(rflags);
@@ -876,7 +876,7 @@ void
 trap_pfault_ghost(unsigned trapno, void * trapAddr) {
   struct CPUState * cpup = getCPUState();
   sva_icontext_t * p = cpup->newCurrentIC;
-  uintptr_t vaddr = (unsigned long)(trapAddr) & ~(PAGE_MASK);
+  uintptr_t vaddr = PG_L1_DOWN(trapAddr);
   sva_ghost_fault(vaddr, p->code); 
 }
 

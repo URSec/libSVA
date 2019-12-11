@@ -62,21 +62,6 @@
 #include <sva/util.h>
 #include <sva/vmx.h>
 
-/*
- * Offset into the PML4E at which the mapping for the secure memory region can
- * be found.
- */
-static const uintptr_t secmemOffset = ((SECMEMSTART >> 39) << 3) & vmask;
-
-/*
- *****************************************************************************
- * Define structures used in the SVA MMU interface.
- *****************************************************************************
- */
-
-/* Mask to get the address bits out of a PTE, PDE, etc. */
-static const uintptr_t addrmask = 0x000ffffffffff000u;
-
 /**
  * True if the MMU has been initialized (and MMU checks should be performed),
  * otherwise false.

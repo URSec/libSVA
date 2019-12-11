@@ -58,7 +58,7 @@
 bool mmuIsInitialized = 0;
 
 /* Cache of page table pages */
-extern unsigned char __svadata SVAPTPages[1024][X86_PAGE_SIZE];
+extern unsigned char __svadata SVAPTPages[1024][FRAME_SIZE];
 
 /*
  * Function: init_mmu
@@ -117,8 +117,8 @@ void
 declare_kernel_code_pages (uintptr_t btext, uintptr_t etext) {
   /* Get pointers for the pages */
   uintptr_t page;
-  uintptr_t btextPage = getPhysicalAddr((void *)btext) & PG_FRAME;
-  uintptr_t etextPage = getPhysicalAddr((void *)etext) & PG_FRAME;
+  uintptr_t btextPage = PG_L1_DOWN(getPhysicalAddr((void*)btext));
+  uintptr_t etextPage = PG_L1_UP(getPhysicalAddr((void*)etext));
 
   /*
    * Scan through each page in the text segment.  Note that it is a code page,
@@ -315,10 +315,10 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
 
   /* Set the page pointer for the given page */
 #if USE_VIRT
-  uintptr_t pagePhysAddr = pageMapping & PG_FRAME;
+  uintptr_t pagePhysAddr = PG_ENTRY_FRAME(pageMapping);
   pagePtr = (page_entry_t *) getVirtual(pagePhysAddr);
 #else
-  pagePtr = (page_entry_t *)(pageMapping & PG_FRAME);
+  pagePtr = (page_entry_t *)PG_ENTRY_FRAME(pageMapping);
 #endif
 
   /* Get the page_desc for this page */
@@ -502,7 +502,7 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
       } else {
 #if DEBUG_INIT >= 2
         printf("%sProcessing:pte addr: %p, newPgAddr: %p, mapping: 0x%lx\n",
-            indent, nextEntry, (*nextEntry & PG_FRAME), *nextEntry );
+            indent, nextEntry, PG_ENTRY_FRAME(*nextEntry), *nextEntry);
 #endif
         declare_ptp_and_walk_pt_entries(nextEntry,
             numSubLevelPgEntries, subLevelPgType);
@@ -558,21 +558,18 @@ remap_internal_memory (uintptr_t * firstpaddr) {
   pml4e_t * pml4e = get_pml4eVaddr (get_pagetable(), vaddr);
   if (!isPresent(*pml4e)) {
     /* Allocate a new frame */
-    uintptr_t paddr = *(firstpaddr);
-    (*firstpaddr) += X86_PAGE_SIZE;
+    uintptr_t paddr = *firstpaddr;
+    *firstpaddr += FRAME_SIZE;
 
     /* Set the type of the frame */
     getPageDescPtr(paddr)->type = PG_L3;
     pgRefCountInc(getPageDescPtr(paddr), false);
 
     /* Zero the contents of the frame */
-#ifdef SVA_DMAP
-    memset (getVirtualSVADMAP (paddr), 0, X86_PAGE_SIZE);
-#else
-    memset (getVirtual (paddr), 0, X86_PAGE_SIZE);
-#endif
+    memset(getVirtual(paddr), 0, FRAME_SIZE);
+
     /* Install a new PDPTE entry using the page  */
-    *pml4e = (paddr & addrmask) | PTE_CANWRITE | PTE_PRESENT;
+    *pml4e = PG_ENTRY_FRAME(paddr) | PG_V | PG_RW;
   }
 
   /*
@@ -581,30 +578,27 @@ remap_internal_memory (uintptr_t * firstpaddr) {
   pdpte_t * pdpte = get_pdpteVaddr (pml4e, vaddr);
   if (!isPresent(*pdpte)) {
     /* Allocate a new frame */
-    uintptr_t pdpte_paddr = *(firstpaddr);
-    (*firstpaddr) += X86_PAGE_SIZE;
+    uintptr_t pdpte_paddr = *firstpaddr;
+    *firstpaddr += FRAME_SIZE;
 
     /* Set the type of the frame */
     getPageDescPtr(pdpte_paddr)->type = PG_L2;
     pgRefCountInc(getPageDescPtr(pdpte_paddr), false);
 
     /* Zero the contents of the frame */
-#ifdef SVA_DMAP
-    memset (getVirtualSVADMAP (pdpte_paddr), 0, X86_PAGE_SIZE);
-#else
-    memset (getVirtual (pdpte_paddr), 0, X86_PAGE_SIZE);
-#endif
+    memset(getVirtual(pdpte_paddr), 0, FRAME_SIZE);
+
     /* Install a new PDE entry using the page. */
-    *pdpte = (pdpte_paddr & addrmask) | PTE_CANWRITE | PTE_PRESENT;
+    *pdpte = PG_ENTRY_FRAME(pdpte_paddr) | PG_V | PG_RW;
   }
 
   /*
    * Advance the physical address to the next 2 MB boundary.
    */
-  if ((*firstpaddr & 0x0fffff)) {
+  if (*firstpaddr & 0x0fffff) {
     uintptr_t oldpaddr = *firstpaddr;
-    *firstpaddr = ((*firstpaddr) + 0x200000) & 0xffffffffffc00000u;
-    printf ("SVA: remap: %lx %lx\n", oldpaddr, *firstpaddr);
+    *firstpaddr = (*firstpaddr + 0x200000) & 0xffffffffffc00000u;
+    printf("SVA: remap: %lx %lx\n", oldpaddr, *firstpaddr);
   }
 
   /*
@@ -616,13 +610,13 @@ remap_internal_memory (uintptr_t * firstpaddr) {
      */
     pde_t * pde = get_pdeVaddr (pdpte, vaddr);
     /* Allocate a new frame */
-    uintptr_t pde_paddr = *(firstpaddr);
-    (*firstpaddr) += (2 * 1024 * 1024);
+    uintptr_t pde_paddr = *firstpaddr;
+    *firstpaddr += (2 * 1024 * 1024);
 
     /*
      * Set the types of the frames
      */
-    for (uintptr_t p = pde_paddr; p < *firstpaddr; p += X86_PAGE_SIZE) {
+    for (uintptr_t p = pde_paddr; p < *firstpaddr; p += FRAME_SIZE) {
       getPageDescPtr(p)->type = PG_L1;
       pgRefCountInc(getPageDescPtr(p), false);
     }
@@ -630,7 +624,7 @@ remap_internal_memory (uintptr_t * firstpaddr) {
     /*
      * Install a new PDE entry.
      */
-    *pde = (pde_paddr & addrmask) | PTE_CANWRITE | PTE_PRESENT | PTE_PS;
+    *pde = PG_ENTRY_FRAME(pde_paddr) | PG_V | PG_RW | PG_PS;
     *pde |= PG_G;
 
     /*
@@ -755,7 +749,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
   /* Identify kernel code pages and intialize the descriptors */
   declare_kernel_code_pages(btext, etext);
 
-  unsigned long initial_cr3 = *kpml4Mapping & PG_FRAME;
+  unsigned long initial_cr3 = PG_ENTRY_FRAME(*kpml4Mapping);
 #ifdef SVA_ASID_PG
   /* Enable processor support for PCIDs. */
   write_cr4(read_cr4() | CR4_PCIDE);
@@ -952,7 +946,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
     // This is a leaf (super)page.
 
     /// The number of 4KB frames mapped by this entry.
-    size_t count = getSuperpageSize(level) / PAGE_SIZE;
+    size_t count = getSuperpageSize(level) / FRAME_SIZE;
     /// The maximal set of permissions this mapping is allowed to have.
     page_entry_t perms = PG_V | PG_RW | PG_NX;
 
@@ -1020,7 +1014,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
     /// The number of bytes mapped by this page.
     size_t span = getMappedSize(level);
 
-    page_entry_t* entries = (page_entry_t*)getVirtual(entry & PG_FRAME);
+    page_entry_t* entries = (page_entry_t*)getVirtual(PG_ENTRY_FRAME(entry));
     for (size_t i = 0; i < PG_ENTRIES; ++i) {
       if (isPresent(entries[i])) {
         entries[i] = lower_permissions(entries[i], sublevel,
@@ -1073,7 +1067,7 @@ import_existing_mappings(page_entry_t entry,
     // This is a leaf (super)page.
 
     /// The number of 4KB frames mapped by this entry.
-    size_t count = getSuperpageSize(level) / PAGE_SIZE;
+    size_t count = getSuperpageSize(level) / FRAME_SIZE;
 
     if ((perms & PG_NX) && (perms & PG_RW)) {
       sva_dbg("SVA: WARNING: Page is writable and executable\n");
@@ -1172,7 +1166,7 @@ import_existing_mappings(page_entry_t entry,
     desc->type = level;
     pgRefCountInc(desc, false);
 
-    page_entry_t* entries = (page_entry_t*)getVirtual(entry & PG_FRAME);
+    page_entry_t* entries = (page_entry_t*)getVirtual(PG_ENTRY_FRAME(entry));
     for (size_t i = 0; i < PG_ENTRIES; ++i) {
       if (isPresent(entries[i])) {
         import_existing_mappings(entries[i], sublevel, perms,
@@ -1199,11 +1193,11 @@ void create_sva_direct_map(pml4e_t *first_dmap_entry, size_t num_dmap_entries) {
                "SVA: FATAL: DMAP entry not initially empty");
 
     if (i * PG_L4_SIZE < memSize) {
-      uintptr_t l3_table_frame = provideSVAMemory(PAGE_SIZE);
+      uintptr_t l3_table_frame = provideSVAMemory(FRAME_SIZE);
       SVA_ASSERT(l3_table_frame != 0, "SVA: FATAL: Out of memory\n");
       pdpte_t* l3_table = (pdpte_t*)(KERNDMAPSTART + l3_table_frame);
 
-      memset(l3_table, 0, PAGE_SIZE);
+      memset(l3_table, 0, FRAME_SIZE);
       for (size_t j = 0; j < PG_ENTRIES; ++j) {
         uintptr_t frame = i * PG_L4_SIZE + j * PG_L3_SIZE;
         if (frame >= memSize) {
@@ -1254,7 +1248,7 @@ void sva_mmu_init(void) {
    * Since SVA's direct map doesn't exist yet, we have to get the virtual
    * address for the L4 page table from the kernel's direct map.
    */
-  pml4e_t* l4_table = (pml4e_t*)(KERNDMAPSTART + (root_tbl & PG_FRAME));
+  pml4e_t* l4_table = (pml4e_t*)(KERNDMAPSTART + (PG_ENTRY_FRAME(root_tbl)));
   create_sva_direct_map(l4_table + PG_L4_ENTRY(SVADMAPSTART),
                         PG_L4_ENTRY(SVADMAPEND) - PG_L4_ENTRY(SVADMAPSTART));
   sva_dbg("SVA: INFO: Built SVA direct map\n");
@@ -1265,7 +1259,7 @@ void sva_mmu_init(void) {
   lower_permissions(root_tbl, PG_L4, 0);
   invltlb_all();
 
-  unsigned long initial_cr3 = root_tbl & PG_FRAME;
+  unsigned long initial_cr3 = PG_ENTRY_FRAME(root_tbl);
 
   /* Now load the initial value of CR3 to complete kernel init. */
   write_cr3(initial_cr3);

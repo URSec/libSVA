@@ -454,8 +454,9 @@ flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
     /*
      * Get a pointer into the page tables for the secure memory region.
      */
-    pml4e_t* secmemp =
-      (pml4e_t*)getVirtual((uintptr_t)(get_root_pagetable() + secmemOffset));
+    pml4e_t* root_pgtable =
+      (pml4e_t*)getVirtual((uintptr_t)get_root_pagetable());
+    pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(SECMEMSTART)];
 
     /*
      * Mark the secure memory is unmapped in the page tables.
@@ -633,13 +634,14 @@ static bool loadThread(struct SVAThread* newThread) {
       /*
        * Get a pointer into the page tables for the secure memory region.
        */
-      pml4e_t* secmemp =
-        (pml4e_t*)getVirtual((uintptr_t)(get_root_pagetable() + secmemOffset));
+      pml4e_t* root_pgtable =
+        (pml4e_t*)getVirtual((uintptr_t)get_root_pagetable());
+      pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(SECMEMSTART)];
 
       /*
        * Restore the PML4E entry for the secure memory region.
        */
-      uintptr_t mask = PTE_PRESENT | PTE_CANWRITE | PTE_CANUSER;
+      uintptr_t mask = PG_V | PG_RW | PG_U;
       if ((newThread->secmemPML4e & mask) != mask) {
         panic ("SVA: Not Present: %lx %lx\n", newThread->secmemPML4e, mask);
       }

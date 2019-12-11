@@ -633,7 +633,7 @@ sva_save_eptable(int vmid) {
    * Mask off the flags in the EPTP to get the host-physical address of the
    * top-level table.
    */
-  uintptr_t epml4t_paddr = eptp & PG_FRAME;
+  uintptr_t epml4t_paddr = PG_ENTRY_FRAME(eptp);
 
   /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);

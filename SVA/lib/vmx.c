@@ -421,7 +421,7 @@ sva_initvmx(void) {
    * ever set VMCS_ALLOC_SIZE to something different, this code will need to
    * be restructured.
    */
-  SVA_ASSERT(VMCS_ALLOC_SIZE == X86_PAGE_SIZE,
+  SVA_ASSERT(VMCS_ALLOC_SIZE == FRAME_SIZE,
       "SVA: VMX init error: "
       "VMCS_ALLOC_SIZE is not the same as X86_PAGE_SIZE!\n");
 

@@ -35,7 +35,7 @@ static inline uintptr_t get_root_pagetable(void) {
    * Mask off the flag bits in CR3, leaving just the 4 kB-aligned physical
    * address of the top-level page table.
    */
-  return cr3 & PG_FRAME;
+  return PG_ENTRY_FRAME(cr3);
 }
 
 /**
@@ -48,7 +48,7 @@ static inline uintptr_t get_root_pagetable(void) {
  *              `vaddr`
  */
 static inline uintptr_t get_pml4ePaddr(cr3_t cr3, uintptr_t vaddr) {
-  return (uintptr_t)&((pml4e_t*)(cr3 & PG_FRAME))[PG_L4_ENTRY(vaddr)];
+  return (uintptr_t)&((pml4e_t*)PG_ENTRY_FRAME(cr3))[PG_L4_ENTRY(vaddr)];
 }
 
 /**
@@ -61,7 +61,7 @@ static inline uintptr_t get_pml4ePaddr(cr3_t cr3, uintptr_t vaddr) {
  *              `vaddr`
  */
 static inline uintptr_t get_pdptePaddr(pml4e_t pml4e, uintptr_t vaddr) {
-  return (uintptr_t)&((pdpte_t*)(pml4e & PG_FRAME))[PG_L3_ENTRY(vaddr)];
+  return (uintptr_t)&((pdpte_t*)PG_ENTRY_FRAME(pml4e))[PG_L3_ENTRY(vaddr)];
 }
 
 /**
@@ -74,7 +74,7 @@ static inline uintptr_t get_pdptePaddr(pml4e_t pml4e, uintptr_t vaddr) {
  *              `vaddr`
  */
 static inline uintptr_t get_pdePaddr(pdpte_t pdpte, uintptr_t vaddr) {
-  return (uintptr_t)&((pde_t*)(pdpte & PG_FRAME))[PG_L2_ENTRY(vaddr)];
+  return (uintptr_t)&((pde_t*)PG_ENTRY_FRAME(pdpte))[PG_L2_ENTRY(vaddr)];
 }
 
 /**
@@ -87,7 +87,7 @@ static inline uintptr_t get_pdePaddr(pdpte_t pdpte, uintptr_t vaddr) {
  *              `vaddr`
  */
 static inline uintptr_t get_ptePaddr(pde_t pde, uintptr_t vaddr) {
-  return (uintptr_t)&((pte_t*)(pde & PG_FRAME))[PG_L1_ENTRY(vaddr)];
+  return (uintptr_t)&((pte_t*)PG_ENTRY_FRAME(pde))[PG_L1_ENTRY(vaddr)];
 }
 
 /**
