@@ -208,12 +208,6 @@ extern void sva_protect_code_page(void* vaddr);
  */
 void sva_mm_flush_tlb(void* address);
 
-extern uintptr_t sva_get_physical_address(uintptr_t vaddr);
-extern pte_t* sva_get_l1_entry(uintptr_t vaddr);
-extern pde_t* sva_get_l2_entry(uintptr_t vaddr);
-extern pdpte_t* sva_get_l3_entry(uintptr_t vaddr);
-extern pml4e_t* sva_get_l4_entry(uintptr_t vaddr);
-
 #ifdef FreeBSD
 extern void sva_mmu_init(pml4e_t * kpml4Mapping,
                          unsigned long nkpml4e,
