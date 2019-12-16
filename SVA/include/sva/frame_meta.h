@@ -18,6 +18,7 @@
 #ifndef SVA_FRAME_META_H
 #define SVA_FRAME_META_H
 
+#include <sva/assert.h>
 #include <sva/page.h>
 
 /**
@@ -26,30 +27,30 @@
  * These types are mutually exclusive: a frame may only be one type at a time,
  * and all uses as its current type must be dropped before it can change type.
  *
- * Note that all types except `PGT_DATA` are "sticky": a frame's type will not
- * automatically change to `PGT_FREE` when it's type reference count drops to 0.
- * The type of the frame must be reset using the appropriate undeclare call for
- * its current type.
+ * Note that frame types are "sticky": a frame's type will not automatically
+ * change to `PGT_FREE` when it's type reference count drops to 0. The type of
+ * the frame must be reset using the appropriate undeclare call for its current
+ * type.
  */
-typedef enum page_type_t {
-  PGT_FREE,     ///< Frame is not currently used as any type
-  PGT_UNUSABLE, ///< Frame is not present or is reserved by firmware
-  PGT_DATA,     ///< Frame is used as writable data
-  PGT_SVA,      ///< Frame is used internally by SVA
-  PGT_GHOST,    ///< Frame is used for ghost memory
-  PGT_CODE,     ///< Frame is used for code
-  PGT_L1,       ///< Frame is used as an L1 page table
-  PGT_L2,       ///< Frame is used as an L2 page table
-  PGT_L3,       ///< Frame is used as an L3 page table
-  PGT_L4,       ///< Frame is used as an L4 page table
-  PGT_EPTL1,    ///< Frame is used as an L1 extended page table
-  PGT_EPTL2,    ///< Frame is used as an L2 extended page table
-  PGT_EPTL3,    ///< Frame is used as an L3 extended page table
-  PGT_EPTL4,    ///< Frame is used as an L4 extended page table
-  PGT_SML1,     ///< Frame is used as an L1 page table for secure memory
-  PGT_SML2,     ///< Frame is used as an L2 page table for secure memory
-  PGT_SML3      ///< Frame is used as an L3 page table for secure memory
-} page_type_t;
+typedef enum frame_type_t {
+  PGT_FREE,     ///< Frame is not currently used as any type.
+  PGT_UNUSABLE, ///< Frame is not present or is reserved by firmware.
+  PGT_DATA,     ///< Frame is used as writable data.
+  PGT_SVA,      ///< Frame is used internally by SVA.
+  PGT_GHOST,    ///< Frame is used for ghost memory.
+  PGT_CODE,     ///< Frame is used for code.
+  PGT_L1,       ///< Frame is used as an L1 page table.
+  PGT_L2,       ///< Frame is used as an L2 page table.
+  PGT_L3,       ///< Frame is used as an L3 page table.
+  PGT_L4,       ///< Frame is used as an L4 page table.
+  PGT_EPTL1,    ///< Frame is used as an L1 extended page table.
+  PGT_EPTL2,    ///< Frame is used as an L2 extended page table.
+  PGT_EPTL3,    ///< Frame is used as an L3 extended page table.
+  PGT_EPTL4,    ///< Frame is used as an L4 extended page table.
+  PGT_SML1,     ///< Frame is used as an L1 page table for secure memory.
+  PGT_SML2,     ///< Frame is used as an L2 page table for secure memory.
+  PGT_SML3      ///< Frame is used as an L3 page table for secure memory.
+} frame_type_t;
 
 /**
  * Frame descriptor metadata.
@@ -58,7 +59,7 @@ typedef enum page_type_t {
  * the system.  It records information about the physical memory (and the data
  * stored within it) that SVA needs to perform its MMU safety checks.
  */
-typedef struct page_desc_t {
+typedef struct frame_desc_t {
 #if 0 // The value stored in this field is never actually used
   /**
    * If the page is a page table page, mark the virtual address to which it is
@@ -76,33 +77,28 @@ typedef struct page_desc_t {
 #endif
 
   /**
-   * The type of this frame.
+   * This frame's type.
    */
-  page_type_t type : 8;
+  frame_type_t type : 8;
 
-#define PG_REF_COUNT_BITS 12
-#define PG_REF_COUNT_MAX ((1U << PG_REF_COUNT_BITS) - 1)
-
-  /**
-   * Number of times this frame is mapped.
-   */
-  unsigned count : PG_REF_COUNT_BITS;
+#define FR_REF_COUNT_BITS 12
+#define FR_REF_COUNT_MAX ((1U << FR_REF_COUNT_BITS) - 1)
 
   /**
-   * Number of times this frame is mapped writable.
+   * Number of uses of this frame.
    */
-  unsigned wr_count : PG_REF_COUNT_BITS;
-} page_desc_t;
+  unsigned ref_count : FR_REF_COUNT_BITS;
+
+  /**
+   * Number of uses of this frame that force its current type.
+   */
+  unsigned type_count : FR_REF_COUNT_BITS;
+} frame_desc_t;
 
 /**
  * Size in bytes of the maximum supported amount of physical memory
  */
 static const unsigned long memSize = 0x0000002000000000u; /* 128GB */
-
-/**
- * Number of frame metadata entries
- */
-static const unsigned long numPageDescEntries = memSize / PG_L1_SIZE;
 
 /**
  * Array describing the physical frames.
@@ -111,7 +107,7 @@ static const unsigned long numPageDescEntries = memSize / PG_L1_SIZE;
  *
  * The index is the physical frame number.
  */
-extern page_desc_t page_desc[numPageDescEntries];
+extern frame_desc_t frame_desc[memSize / FRAME_SIZE];
 
 /**
  * Get the frame metadata for the specified frame.
@@ -120,120 +116,78 @@ extern page_desc_t page_desc[numPageDescEntries];
  *                which maps the frame
  * @return        The frame metadata for the frame specified in `mapping`
  */
-page_desc_t* getPageDescPtr(unsigned long mapping);
+frame_desc_t* get_frame_desc(unsigned long mapping);
 
 /**
- * Get the number of active references to a page.
+ * Change the type of a frame after performing validity checks.
  *
- * @param page  The page for which to get the reference count
- * @return      The reference count for the page
+ * @param frame The frame to change to a new type
+ * @param type  The new type to which to change `frame`
  */
-static inline unsigned int pgRefCount(page_desc_t* page) {
-  return page->count;
-}
+void frame_morph(frame_desc_t* frame, frame_type_t type);
 
 /**
- * Get the number of writable references to a page.
+ * Take a reference to a frame with the specified type.
  *
- * @param page  The page for which to get the writable reference count
- * @return      The writable reference count for the page
+ * Panics if the type of the frame is not the correct type.
+ *
+ * @param frame The frame to which the caller is taking a reference
+ * @param type  The frame type as which the caller wants to use `frame`
  */
-static inline unsigned int pgRefCountWr(page_desc_t* page) {
-  return page->wr_count;
-}
+void frame_take(frame_desc_t* frame, frame_type_t type);
 
 /**
- * Increment a page's writable reference count, and get the old value.
+ * Take a reference to a frame with the specified type.
  *
- * This is useful for e.g. copy-on-write to change just a frame's writable
- * reference count.
+ * Unlike `frame_take`, this function forces the frame to the specified type.
+ * It is critical that the caller will clean up any mappings which are illegal
+ * for the frame's new type.
  *
- * @param page  The page whose writable reference count is to be incremented
- * @return      The old writable reference count for the page
+ * @param frame The frame to which the caller is taking a reference
+ * @param type  The frame type as which the caller wants to use `frame`
  */
-static inline unsigned int pgRefCountIncWr(page_desc_t* page) {
-  unsigned int wr_count = page->wr_count;
-
-  SVA_ASSERT(wr_count + 1 <= page->count,
-    "SVA: FATAL: Frame metadata inconsistency: "
-    "writable count is greater than total count: frame 0x%lx\n",
-    (page - page_desc));
-
-  SVA_ASSERT(wr_count < PG_REF_COUNT_MAX,
-    "SVA: FATAL: Overflow in frame writable reference count: frame %lx\n",
-    (page - page_desc));
-  page->wr_count = wr_count + 1;
-
-  return wr_count;
-}
+void frame_take_force(frame_desc_t* frame, frame_type_t type);
 
 /**
- * Decrement a page's writable reference count, and get the old value.
+ * Drop a reference to a frame with the specified type.
  *
- * This is useful for e.g. copy-on-write to change just a frame's writable
- * reference count.
+ * Panics if the type of the frame is not the correct type.
  *
- * @param page  The page whose writable reference count is to be decremented
- * @return      The old writable reference count for the page
+ * @param frame The frame to which the caller is dropping a reference
+ * @param type  The frame type as which the caller used `frame`
  */
-static inline unsigned int pgRefCountDecWr(page_desc_t* page) {
-  unsigned int wr_count = page->wr_count;
-
-  SVA_ASSERT(wr_count <= page->count,
-    "SVA: FATAL: Frame metadata inconsistency: "
-    "writable count is greater than total count: frame 0x%lx\n",
-    (page - page_desc));
-
-  SVA_ASSERT(wr_count > 0,
-    "SVA: FATAL: Frame metadata inconsistency: "
-    "attempt to decrement writable reference count below 0: "
-    "frame %lx\n", (page - page_desc));
-  page->wr_count = wr_count - 1;
-
-  return wr_count;
-}
+void frame_drop(frame_desc_t* frame, frame_type_t type);
 
 /**
- * Increment a page's reference count, and get the old value.
+ * Get the name of a frame type.
  *
- * @param page      The page whose reference count is to be incremented
- * @param writable  Whether to also increment the writable reference count
- * @return          The old reference count for the page
+ * @param type  A frame type
+ * @return      A string containing the name of the frame type `type`
  */
-static inline unsigned int pgRefCountInc(page_desc_t* page, bool writable) {
-  unsigned int count = page->count;
-
-  SVA_ASSERT(count < PG_REF_COUNT_MAX,
-    "SVA: FATAL: Overflow in frame reference count: frame %lx\n",
-    (page - page_desc));
-  page->count = count + 1;
-  if (writable) {
-    pgRefCountIncWr(page);
+static inline const char* frame_type_name(frame_type_t type) {
+#define FR_TY(t) case PGT_##t: return #t;
+  switch (type) {
+    FR_TY(FREE);
+    FR_TY(UNUSABLE);
+    FR_TY(DATA);
+    FR_TY(SVA);
+    FR_TY(GHOST);
+    FR_TY(CODE);
+    FR_TY(L1);
+    FR_TY(L2);
+    FR_TY(L3);
+    FR_TY(L4);
+    FR_TY(EPTL1);
+    FR_TY(EPTL2);
+    FR_TY(EPTL3);
+    FR_TY(EPTL4);
+    FR_TY(SML1);
+    FR_TY(SML2);
+    FR_TY(SML3);
+  default:
+    SVA_ASSERT_UNREACHABLE("SVA: FATAL: invalid frame type %d\n", type);
   }
-
-  return count;
-}
-
-/**
- * Decrement a page's reference count, and get the old value.
- *
- * @param page      The page whose reference count is to be decremented
- * @param writable  Whether to also increment the writable reference count
- * @return          The old reference count for the page
- */
-static inline unsigned int pgRefCountDec(page_desc_t* page, bool writable) {
-  unsigned int count = page->count;
-
-  if (writable) {
-    pgRefCountDecWr(page);
-  }
-  SVA_ASSERT(count > 0,
-    "SVA: FATAL: Frame metadata inconsistency: "
-    "attempt to decrement reference count below 0: "
-    "frame %lx\n", (page - page_desc));
-  page->count = count - 1;
-
-  return count;
+#undef FR_TY
 }
 
 #endif /* SVA_FRAME_META_H */

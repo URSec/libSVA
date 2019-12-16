@@ -17,7 +17,7 @@ ASFLAGS += -msoft-float -mno-mmx -mno-sse -mno-avx -mno-aes -mcmodel=kernel -mno
 
 
 OFILES = init.o secmem.o handlers.o mmu.o mmu_init.o interrupt.o state.o \
-         debug.o stateasm.o invoke.o invokeasm.o checks.o keys.o \
+         frame_meta.o debug.o stateasm.o invoke.o invokeasm.o checks.o keys.o \
          thread_stack.o profile.o vmx.o vmx_ept.o
 
 libsva.a: $(OFILES)

@@ -20,4 +20,6 @@
 
 #define __svadata __attribute__((__section__("svamem")))
 
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+
 #endif /* _SVA_COMPILER_H */
