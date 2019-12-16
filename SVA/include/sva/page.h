@@ -404,15 +404,6 @@ static const uintptr_t ZERO_MAPPING = 0;
 #define PG_DMAP_L4 (PG_P | PG_W | PG_A | PG_G | PG_NX)
 #endif
 
-#ifdef SVA_ASID_PG
-/* ASID/page table switch*/
-
-/**
- * Disable pmle4 page table page switch in Trap() handler.
- */
-#define PML4_SWITCH_DISABLE 0x10
-#endif
-
 /* EPT page table entry flags */
 #define PG_EPT_R    (1UL << 0)  ///< EPT readable flag.
 #define PG_EPT_W    (1UL << 1)  ///< EPT writable flag.

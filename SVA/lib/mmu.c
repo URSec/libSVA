@@ -1348,36 +1348,6 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
     new_pml4 / FRAME_SIZE);
   frame_take(newpml4Desc, PGT_L4);
 
-#ifdef SVA_ASID_PG
-  /*
-   * Also do this for the respective kernel versions of the PML4s (if they
-   * exist).
-   */
-  if (newpml4Desc->other_pgPaddr) {
-    frame_desc_t *kernel_newpml4Desc =
-      get_frame_desc(newpml4Desc->other_pgPaddr);
-
-    frame_take(kernel_newpml4Desc, PGT_L4);
-  }
-
-  if (oldpml4Desc->other_pgPaddr) {
-    frame_desc_t *kernel_oldpml4Desc =
-      get_frame_desc(oldpml4Desc->other_pgPaddr);
-
-    frame_drop(kernel_oldpml4Desc, PGT_L4);
-  }
-
-  /*
-   * Invalidate the TLB's entries for this process in the kernel's address
-   * space (PCID = 1).
-   *
-   * The invltlb_kernel() function has the side effect of changing the active
-   * PCID to 1. We will immediately change it back to 0 (user/SVA) below when
-   * we load the new page table.
-   */
-  invltlb_kernel();
-#endif
-
   /*
    * Load the new page table.
    *
@@ -1435,39 +1405,6 @@ sva_load_cr0 (unsigned long val) {
  *  SVA internal memory).
  */
 void usersva_to_kernel_pcid(void) {
-#ifdef SVA_ASID_PG
-  unsigned long old_cr3 = read_cr3();
-
-  /*
-   * If the PCID is not already 1 (kernel), set PCID to 1 and switch to the
-   * kernel version of the top-level page table.
-   */
-  if (!(old_cr3 & 0x1)) {
-    /* Get the alternate PML4 address from SVA's page metadata. */
-    frame_desc_t *pml4Desc = get_frame_desc(old_cr3);
-    unsigned long altpml4 = pml4Desc->other_pgPaddr;
-
-    /*
-     * If we haven't yet set up the separate PML4 tables for the kernel and
-     * user/SVA, stay with the current value loaded in CR3 (but still reload
-     * CR3 to set the new PCID).
-     */
-    if (altpml4 == 0)
-      altpml4 = old_cr3;
-
-    /* Load CR3 with the new PML4 address and PCID = 1. */
-    unsigned long new_cr3 =
-      (altpml4 & ~0xfff) /* clear PCID field (bits 0-11) */
-      | 0x1 /* set PCID field to 1 */
-      | ((unsigned long)1 << 63) /* ensure XD (bit 63) is set */;
-
-    write_cr3(new_cr3);
-
-    if (tsc_read_enable_sva)
-      as_num++;
-  }
-#endif
-
 #ifdef SVA_LLC_PART
   /* Switch to the OS cache partition. */
   wrmsr(COS_MSR, OS_COS);
@@ -1483,37 +1420,6 @@ void usersva_to_kernel_pcid(void) {
  *  internal memory, that are not present in the kernel's version).
  */
 void kernel_to_usersva_pcid(void) {
-#ifdef SVA_ASID_PG
-  unsigned long old_cr3 = read_cr3();
-
-  /*
-   * If the PCID is not already 0 (user/SVA), set PCID to 0 and switch to the
-   * user/SVA version of the top-level page table.
-   */
-  if (old_cr3 & 0x1 /* if PCID != 1, it will be 0 */) {
-    /* Get the alternate PML4 address from SVA's page metadata. */
-    frame_desc_t *pml4Desc = get_frame_desc(old_cr3);
-    unsigned long altpml4 = pml4Desc->other_pgPaddr;
-
-    /*
-     * If we haven't yet set up the separate PML4 tables for the kernel and
-     * user/SVA, stay with the current value loaded in CR3 (but still reload
-     * CR3 to set the new PCID).
-     */
-    if (altpml4 == 0)
-      altpml4 = old_cr3;
-
-    unsigned long new_cr3 =
-      (altpml4 & ~0xfff) /* clear PCID field (bits 0-11) */
-      | ((unsigned long)1 << 63) /* ensure XD (bit 63) is set */;
-
-    write_cr3(new_cr3);
-
-    if (tsc_read_enable_sva)
-      as_num++;
-  }
-#endif
-
 #ifdef SVA_LLC_PART
   /* Switch to the SVA cache partition. */
   wrmsr(COS_MSR, SVA_COS);
@@ -1838,87 +1744,11 @@ sva_remove_page (uintptr_t paddr) {
   sva_mm_flush_tlb(getVirtualKernelDMAP(paddr));
 #endif
 
-#ifdef SVA_ASID_PG
-  /*
-   * If the PTP being undeclared is a level-4 PTP (non-EPT), undeclare the
-   * kernel's copy of it in addition to the SVA/userspace copy.
-   *
-   * (It doesn't matter which one of the two copies we were given as the
-   * parameter to this intrinsic - whichever one we were given, we'll
-   * undeclare the other one here.)
-   */
-  if (pgDesc->type == PGT_L4) {
-    uintptr_t other_cr3 = pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
-
-    /*
-     * Only proceed if there actually *is* an alternate PML4 associated
-     * with this one. In general the kernel will set these up together but
-     * SVA doesn't *force* it to do so. (In particular, the alternate PML4
-     * may not exist for the initial set of page tables loaded during
-     * boot.)
-     */
-    if (other_cr3) {
-      frame_desc_t *other_pgDesc = get_frame_desc(other_cr3);
-
-      /*
-       * If any valid mappings remain within the PTP, explicitly remove
-       * them to ensure consistency of SVA's page metadata.
-       */
-      page_entry_t *other_pml4_vaddr =
-        (page_entry_t *) getVirtualSVADMAP(other_cr3);
-      for (int i = 0; i < PG_ENTRIES; i++) {
-        if (isPresent_maybeEPT(other_pml4_vaddr[i], isEPT)) {
-          /* Remove the mapping */
-          update_mapping(&other_pml4_vaddr[i], ZERO_MAPPING);
-        }
-      }
-
-      /* Mark the page frame as an unused page. */
-      other_pgDesc->type = PGT_FREE;
-
-#if 0
-      /*
-       * Make the page writable again in the kernel's direct map. Be sure
-       * to flush entries pointing to it in the TLBs so that the change
-       * takes effect right away.
-       */
-      page_entry_t* other_pte =
-        get_pgeVaddr((uintptr_t)getVirtualKernelDMAP(other_cr3));
-      do_mmu_update(other_pte, setMappingReadWrite(*other_pte));
-      sva_mm_flush_tlb(getVirtual(other_cr3));
-#endif
-
-      other_pgDesc->other_pgPaddr = 0;
-      pgDesc->other_pgPaddr = 0;
-    }
-  }
-#endif
-
   /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
   record_tsc(sva_remove_page_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
-
-#if SVA_ASID_PG
-/*
- * Function: sva_get_kernel_pml4pg
- * 
- * Description:
- *   Return the physical address of the kernel pml4 page table page
- *
- * Input:
- *   paddr - the physical address of the original (user/sva verison) pml4 page table page
- */
-uintptr_t sva_get_kernel_pml4pg(uintptr_t paddr)
-{
-	frame_desc_t *pgDesc = get_frame_desc(paddr);
-        SVA_ASSERT(pgDesc != NULL,
-          "SVA: FATAL: Frame doesn't exist\n");
-	uintptr_t other_paddr = pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
-	return other_paddr;		
-}
-#endif /* SVA_ASID_PG */
 
 /* 
  * Function: sva_remove_mapping()
@@ -1951,96 +1781,11 @@ sva_remove_mapping(page_entry_t * pteptr) {
   /* Update the page table mapping to zero */
   update_mapping(pteptr, ZERO_MAPPING);
 
-#ifdef SVA_ASID_PG
-  /*
-   * If we are removing a mapping in a level-4 page table (non-EPT), remove
-   * it in the kernel's copy of the PML4 in addition to the SVA/userspace
-   * copy.
-   */
-  uintptr_t ptePA = getPhysicalAddr(pteptr);
-  frame_desc_t *ptePG = get_frame_desc(ptePA);
-  SVA_ASSERT(ptePG != NULL,
-    "SVA: FATAL: Page table frame doesn't exist\n");
-
-  if(ptePG->type == PGT_L4) {
-    uintptr_t other_cr3 = ptePG->other_pgPaddr & ~PML4_SWITCH_DISABLE;
-
-    if(other_cr3) {
-      page_entry_t * other_pteptr = (page_entry_t *)
-        ((unsigned long) getVirtual(other_cr3)
-         | ((unsigned long) pteptr & vmask));
-
-      update_mapping(other_pteptr, ZERO_MAPPING);
-    }
-  }
-#endif
-
   /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
   record_tsc(sva_remove_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
-
-#ifdef SVA_ASID_PG
-/* 
- * Function: sva_update_l1_mapping_checkglobal()
- *
- * Description:
- *  This function updates a Level-1 Mapping.  In other words, it adds a
- *  a direct translation from a virtual page to a physical page.
- *  Compared to sva_update_l1_mapping, this function checks whether the virtual 
- *  address falls within the sva internal memory. If yes, make sure the PTEs are
- *  not marked as global.
- *
- *  This function makes different checks to ensure the mapping
- *  does not bypass the type safety proven by the compiler.
- *
- * Inputs:
- *  pteptr - The location within the L1 page in which the new translation
- *           should be placed.
- *  val    - The new translation to insert into the page table.
- */
-void
-sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned long va) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
-
-  kernel_to_usersva_pcid();
-  /*
-   * Disable interrupts so that we appear to execute as a single instruction.
-   */
-  unsigned long rflags = sva_enter_critical();
-
-  if((va >= 0xffffffff819ef000u) && (va <= 0xffffffff89b96060u) )
-  {
-    val &= ~PG_G;
-  }
-
-  /*
-   * Ensure that the PTE pointer points to an L1 page table.  If it does not,
-   * then report an error.
-   */
-  frame_desc_t * ptDesc = get_frame_desc (getPhysicalAddr(pteptr));
-  SVA_ASSERT(ptDesc != NULL,
-    "SVA: FATAL: Page table frame doesn't exist\n");
-  SVA_ASSERT(disableMMUChecks || ptDesc->type == PGT_L1,
-    "SVA: MMU: update_l1 not an L1: %p %lx: %x\n", pteptr, val, ptDesc->type);
-
-  /*
-   * Update the page table with the new mapping.
-   */
-  update_mapping(pteptr, val);
-
-  /* Restore interrupts */
-  sva_exit_critical (rflags);
-
-  usersva_to_kernel_pcid();
-
-  record_tsc(sva_update_l1_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
-}
-#endif /* SVA_ASID_PG */
 
 /**
  * Update a page table entry.
@@ -2125,35 +1870,7 @@ void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e) {
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
 
-  /*
-   * Disable interrupts so that we appear to execute as a single instruction.
-   */
-  unsigned long rflags = sva_enter_critical();
-
   sva_update_mapping(l4e, new_l4e, PGT_L4);
-
-#ifdef SVA_ASID_PG 
-  uintptr_t other_cr3 = ptDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
-  if (other_cr3) {
-    uintptr_t index = (uintptr_t)l4e & vmask;
-    pml4e_t* kernel_pml4ePtr =
-      (pml4e_t*)((uintptr_t)getVirtual(other_cr3) | index);
-    frame_desc_t* kernel_ptDesc = get_frame_desc(other_cr3);
-    SVA_ASSERT(disableMMUChecks || kernel_ptDesc->type == PGT_L4,
-      "SVA: MMU: update_l4 kernel or sva version pte not an L4: %lx %lx: %x\n",
-      kernel_pml4ePtr, new_l4e, kernel_ptDesc->type);
-
-    if (((index >> 3) == PML4PML4I) &&
-        (PG_ENTRY_FRAME(new_l4e) == PG_ENTRY_FRAME(getPhysicalAddr(l4e))))
-    {
-        new_l4e = other_cr3 | (new_l4e & 0xfff);
-    }
-    update_mapping(kernel_pml4ePtr, new_l4e);
-  }
-#endif
-
-  /* Restore interrupts */
-  sva_exit_critical(rflags);
 
   record_tsc(sva_update_l4_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
@@ -2240,126 +1957,6 @@ void sva_protect_code_page(void* vaddr) {
   record_tsc(sva_update_l1_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
 
-#ifdef SVA_ASID_PG
-/*
- * Intrisic: sva_create_kernel_pml4pg()
- *
- * Description:
- *  Record the kernel version of a level-4 page table page (PML4) in the page
- *  descriptor of the orignal (user/SVA version) level-4 page table page. The
- *  kernel version does not have the mappings of ghost memory and SVA
- *  internal memory.
- *
- *  Currently, for the pure purpose of measuring the overhead of ASID and
- *  page table manipulation, the kernel's version of the PML4 page table page
- *  is entirely the same as the user/SVA version. This avoids challenges due
- *  to x86's behavior of automatically saving interrupt contexts on one stack
- *  upon traps/interrupts. However, for a complete/secure SVA implementation,
- *  mappings to the secure memory regions (plus other sensitive mappings such
- *  as SVA's direct map) should actually be removed from the kernel's PML4.
- *
- * Inputs:
- *  orig_phys   - the physical address of the original PML4 page table page
- *                (which will become the user/SVA version)
- *  kernel_phys - the physical address of the page to be used for the new
- *                kernel version PML4
- */
-void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
-  /*
-   * Switch to the user/SVA page tables so that we can access SVA memory
-   * regions.
-   *
-   * Note that this is for the *currently active* page table, which is
-   * generally not the same as the one for which this intrinsic was called to
-   * bifurcate the PML4 - though it could be. If that is the case,
-   * kernel_to_usersva_pcid() will change the PCID but not the PML4 that CR3
-   * points to (since we are already using the user/SVA PML4, it being the
-   * only one currently in existence).
-   */
-  kernel_to_usersva_pcid();
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
-
-  /*
-   * Ensure no extraneous bits are set in the PML4 pointers which would be
-   * interpreted as flags in CR3.
-   */
-  orig_phys = PG_ENTRY_FRAME(orig_phys);
-  kernel_phys = PG_ENTRY_FRAME(kernel_phys);
-
-  frame_desc_t *kernel_ptDesc = get_frame_desc(kernel_phys);
-  SVA_ASSERT(kernel_ptDesc != NULL,
-    "SVA: FATAL: Attempt to use non-existant frame as a root page table\n");
-  frame_desc_t *usersva_ptDesc = get_frame_desc(orig_phys);
-  SVA_ASSERT(usersva_ptDesc != NULL,
-    "SVA: FATAL: Attempt to use non-existant frame as a root page table\n");
-
-  /*
-   * Ensure that the new kernel PML4 page has been declared to SVA as an L4
-   * PTP frame.
-   */
-  SVA_ASSERT(kernel_ptDesc->type == PGT_L4,
-    "SVA: MMU: attempted to use a page as a kernel PML4 that wasn't "
-    "declared to SVA as an L4 PTP frame!\n"
-    "paddr = 0x%lx\n; type = %d\n", kernel_phys, kernel_ptDesc->type);
-
-  /*
-   * Ensure that the original PML4 page (i.e. the user/SVA version PML4) that
-   * the new kernel PML4 is being attached to really is itself a PML4.
-   */
-  SVA_ASSERT(usersva_ptDesc->type == PGT_L4,
-    "SVA: MMU: attempted to set up a kernel version of a PML4 that "
-    "isn't actually a PML4!\n"
-    "Fake original page paddr = 0x%lx, "
-    "type = %d; Kernel PML4 paddr = 0x%lx\n",
-    orig_phys, usersva_ptDesc->type, kernel_phys);
-
-  /*
-   * If the kernel already set up a kernel PML4 for this user/SVA PML4, don't
-   * let it do so again.
-   *
-   * (I'm not sure this would *necessarily* create a security loophole, but
-   * it's certainly not a sane way to configure things and would be a mess to
-   * support, especially w.r.t. refcounts.)
-   */
-  SVA_ASSERT(usersva_ptDesc->other_pgPaddr == 0,
-    "SVA: MMU: attempted to set up a kernel version of a user/SVA PML4 "
-    "that already has a counterpart kernel PML4. paddr = 0x%lx\n", kernel_phys);
-
-  /*
-   * Point the two PML4s' page descriptors' cross-references (the
-   * other_pgPaddr field) to each other.
-   *
-   * Set the PML4_SWITCH_DISABLE flag in the user/SVA PML4's cross-reference
-   * to inhibit the Trap() handler from attempting to switch to the kernel
-   * PML4 before the kernel has declared it ready by calling
-   * sva_set_kernel_pml4pg_ready().
-   */
-  kernel_ptDesc->other_pgPaddr = orig_phys;
-  usersva_ptDesc->other_pgPaddr = kernel_phys | PML4_SWITCH_DISABLE;
-
-  /*
-   * If (and only if) the PML4 being bifurcated is the one currently loaded
-   * in CR3, increment the refcount of the new kernel PML4 to keep it
-   * consistent with the user/SVA one (whose refcount was incremented when it
-   * was loaded).
-   */
-  if (orig_phys == PG_ENTRY_FRAME(read_cr3())) {
-    frame_take(kernel_ptDesc, PGT_L4);
-  }
-
-  /* 
-   * Restore interrupts and return to the kernel page tables.
-   *
-   * If this intrinsic just set up a newly-minted kernel PML4 for the
-   * *currently active* page table, then this call to
-   * usersva_to_kernel_pcid() will make that new PML4 active.
-   */
-  sva_exit_critical(rflags);
-  usersva_to_kernel_pcid();
-}
-#endif /* SVA_ASID_PG */
-
 uintptr_t sva_get_physical_address(uintptr_t vaddr) {
   return getPhysicalAddr((void*)vaddr);
 }
@@ -2394,44 +1991,3 @@ pdpte_t* sva_get_l3_entry(uintptr_t vaddr) {
 pml4e_t* sva_get_l4_entry(uintptr_t vaddr) {
   return get_pml4eVaddr(get_root_pagetable(), vaddr);
 }
-
-#ifdef SVA_ASID_PG
-/*
- * Intrinsic: sva_set_kernel_pml4pg_ready()
- *
- * Description:
- *  Declare that the kernel version of a level-4 page table page (PML4)
- *  previously set up with sva_create_kernel_pml4pg() is ready for use.
- *
- *  Until this is called, the Trap() handler will refrain from switching
- *  PML4s when it performs an ASID switch.
- *
- * Inputs:
- *  orig_phys - the physical address of the original (user/SVA version)
- *              level-4 page table page whose kernel counterpart we want to
- *              mark ready for use
- */
-void sva_set_kernel_pml4pg_ready(uintptr_t orig_phys) {
-  /*
-   * Switch to the user/SVA page tables so that we can access SVA memory
-   * regions.
-   */
-  kernel_to_usersva_pcid();
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
-
-  /*
-   * Unset the PML4_SWITCH_DISABLE bit in the user/SVA PML4's pointer to its
-   * kernel counterpart.
-   */
-  frame_desc_t *usersva_ptDesc = get_frame_desc(orig_phys);
-  SVA_ASSERT(usersva_ptDesc != NULL,
-    "SVA: FATAL: Attempt to use non-existant frame as a root page table\n");
-  usersva_ptDesc->other_pgPaddr =
-    usersva_ptDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
-
-  /* Restore interrupts and return to the kernel page tables. */
-  sva_exit_critical(rflags);
-  usersva_to_kernel_pcid();
-}
-#endif /* SVA_ASID_PG */

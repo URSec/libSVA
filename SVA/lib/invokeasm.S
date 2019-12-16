@@ -79,34 +79,6 @@ sva_invoke:
   pushq %rbx
   pushq %rbp
 
-  #ifdef SVA_ASID_PG
-  //change PCID from 1(kernel) to 0(SVA)
-  movq %cr3, %r15
-  movq %r15, %r13
-  shrq $12, %r13
-  movq $0xffffffffff, %r14
-  andq %r14, %r13
-  shlq $5, %r13
-  addq $0, %r13
-  movq page_desc(%r13), %r14
-  cmovneq %r14, %r15
-  shrq $12,  %r15  
-  shlq $12,  %r15
-  movq $0x8000000000000000,   %r14
-  orq  %r14, %r15
-  movq %r15, %cr3
-
-#if 0
-  movq  tsc_read_enable_sva(%rip), %r14
-  testq %r14, %r14
-  je L1
-  movq as_num(%rip), %r15
-  addq $1, %r15
-  movq %r15, as_num(%rip)
-#endif
-
-L1:
-#endif
   /*
    * Save the location of the invoke frame into the CPUState.
    */
@@ -117,36 +89,6 @@ L1:
    * register.
    */
   movq %rcx, %rbx
-
-
-#ifdef SVA_ASID_PG
-  //change PCID from 0(SVA) to 1(kernel)
-  movq %cr3, %r15
-  movq %r15, %r13
-  shrq $12, %r13
-  movq $0xffffffffff, %r14
-  andq %r14, %r13
-  shlq $5, %r13
-  addq $0, %r13
-  movq page_desc(%r13), %r14
-  cmovneq %r14, %r15 
-  shrq $12,  %r15
-  shlq $12,  %r15
-  orq $1,    %r15
-  movq $0x8000000000000000,   %r14
-  orq  %r14, %r15
-  movq %r15, %cr3
-
-#if 0
-  movq  tsc_read_enable_sva(%rip), %r14
-  testq %r14, %r14
-  je L2
-  movq as_num(%rip), %r15
-  addq $1, %r15
-  movq %r15, as_num(%rip)
-#endif
-L2:
-#endif
 
 #ifdef SVA_LLC_PART
   pushq %rax
@@ -185,72 +127,12 @@ L2:
   popq  %rax
 #endif
 
-#ifdef SVA_ASID_PG
-  //change PCID from 1(kernel) to 0(SVA)
-  movq %cr3, %r15
-  movq %r15, %r13
-  shrq $12, %r13
-  movq $0xffffffffff, %r14
-  andq %r14, %r13
-  shlq $5, %r13
-  addq $0, %r13
-  movq page_desc(%r13), %r14
-  cmovneq %r14, %r15 
-  shrq $12, %r15
-  shlq $12, %r15
-  movq $0x8000000000000000,   %r14
-  orq  %r14, %r15
-  movq %r15, %cr3 
-
-#if 0
-  movq  tsc_read_enable_sva(%rip), %r14
-  testq %r14, %r14
-  je L3
-  movq as_num(%rip), %r15
-  addq $1, %r15
-  movq %r15, as_num(%rip) 
-#endif
-L3:
-#endif
-
   /*
    * Regular Return
    */
 
   /* Store the return value into the memory location */
   movq %rax, (%rbx)
-
-#ifdef SVA_ASID_PG
-  //change PCID from 0(SVA) to 1(kernel)
-  movq %cr3, %rbp
-  movq %rbp, %r13
-  shrq $12, %r13
-  movq $0xffffffffff, %r14
-  andq %r14, %r13
-  shlq $5, %r13
-  addq $0, %r13
-  movq page_desc(%r13), %r14
-  cmovneq %r14, %rbp 
-  shrq $12, %rbp
-  shlq $12, %rbp
-  orq $1, %rbp
-  movq $0x8000000000000000, %rbx
-  orq  %rbx, %rbp
-  movq %rbp, %cr3
-
-#if 0
-  movq  tsc_read_enable_sva(%rip), %rbx
-  testq %rbx, %rbx
-  je L4
-  movq as_num(%rip), %rbp
-  addq $1, %rbp
-  movq %rbp, as_num(%rip)
-#endif
-
-L4:
-#endif
-
-
 
   /* Restore the saved registers */
   popq %rbp

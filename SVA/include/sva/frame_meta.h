@@ -68,14 +68,6 @@ typedef struct frame_desc_t {
   uintptr_t pgVaddr;
 #endif
 
-#ifdef SVA_ASID_PG
-  /**
-   * The physical adddress of the other (kernel or user/SVA) version pml4 page
-   * table page.
-   */
-  uintptr_t other_pgPaddr;
-#endif
-
   /**
    * This frame's type.
    */

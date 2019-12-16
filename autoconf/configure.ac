@@ -66,17 +66,6 @@ AC_ARG_ENABLE(sva-dmap,
                              esac],
                              AC_DEFINE(NOSVA_DMAP))
 
-dnl Enable SVA ASID Feature
-AC_ARG_ENABLE(asid,
-              AS_HELP_STRING([--enable-asid],
-                             [Enable SVA ASID Feature (default is NO)]),
-                             [case "${enableval}" in
-                             	yes) AC_DEFINE(SVA_ASID_PG) ;;
-                             	no)  AC_DEFINE(NOSVA_ASID_PG) ;;
-                             	*)   AC_MSG_ERROR([bad value ${enableval} for --enable-sva-dmap]) ;;
-                             esac],
-                             AC_DEFINE(NOSVA_ASID_PG))
-
 dnl Enable LLC partitioning Feature
 AC_ARG_ENABLE(llc-part,
               AS_HELP_STRING([--enable-llc-part],

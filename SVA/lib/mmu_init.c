@@ -187,34 +187,19 @@ void * DMPDphys, void * DMPTphys, unsigned long ndmpdp, unsigned long ndm1g)
 
   for (i = 0; i < NPTEPG * NPDEPG * ndmpdp; i++) {
     ((pte_t *)DMPTphys)[i] = (uintptr_t) i << PAGE_SHIFT;
-    ((pte_t *)DMPTphys)[i] |= PG_W | PG_P
-#ifdef SVA_ASID_PG
-      ;
-#else
-      | PG_G;
-#endif
+    ((pte_t *)DMPTphys)[i] |= PG_W | PG_P | PG_G;
   }
 
   for (i = NPDEPG * ndm1g, j = 0; i < NPDEPG * ndmpdp; i++, j++) {
     ((pde_t *)DMPDphys)[j] = (uintptr_t)DMPTphys + ((uintptr_t)j << PAGE_SHIFT);
     /* Preset PG_M and PG_A because demotion expects it. */
-    ((pde_t *)DMPDphys)[j] |= PG_W | PG_P; /*| PG_PS |
-#ifdef SVA_ASID_PG
-      PG_M | PG_A;
-#else	
-      PG_G | PG_M | PG_A;
-#endif*/
+    ((pde_t *)DMPDphys)[j] |= PG_W | PG_P | PG_PS | PG_G | PG_M | PG_A;
   }
 
   for (i = 0/*384*/; i < 0 /*384*/ + ndm1g; i++) {
     ((pdpte_t *)DMPDPphys)[i] = (uintptr_t)(i /*- 384*/) << PDPSHIFT;
     /* Preset PG_M and PG_A because demotion expects it. */
-    ((pdpte_t *)DMPDPphys)[i] |= PG_W | PG_P | PG_PS |
-#ifdef SVA_ASID_PG
-      PG_M | PG_A;
-#else	
-      PG_G | PG_M | PG_A;
-#endif
+    ((pdpte_t *)DMPDPphys)[i] |= PG_W | PG_P | PG_PS | PG_G | PG_M | PG_A;
   }
   for (j = 0; i < /*384 +*/ ndmpdp; i++, j++) {
     ((pdpte_t *)DMPDPphys)[i] = (uintptr_t)DMPDphys + (uintptr_t)(j << PAGE_SHIFT);
@@ -756,18 +741,6 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
   declare_kernel_code_pages(btext, etext);
 
   unsigned long initial_cr3 = PG_ENTRY_FRAME(*kpml4Mapping);
-#ifdef SVA_ASID_PG
-  /* Enable processor support for PCIDs. */
-  write_cr4(read_cr4() | CR4_PCIDE);
-
-  /*
-   * Set the PCID field (bits 0-11) in the initial CR3 value to 1 so that we
-   * will start in the kernel's version of the address space (which does not
-   * include certain protected regions like ghost memory and SVA internal
-   * memory).
-   */
-  initial_cr3 = (initial_cr3 & ~0xfff) | 0x1;
-#endif
 
   /*
    * Increment the refcount of the initial top-level page table page to
