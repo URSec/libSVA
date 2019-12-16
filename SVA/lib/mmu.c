@@ -618,6 +618,12 @@ uintptr_t getPhysicalAddr(void* v) {
   uintptr_t paddr;
 
   /*
+   * We don't verify that the kernel isn't changing mappings in its direct map
+   * if SVA is using its own direct map, so we can't trust that kernel direct
+   * map virtual addresses are actually what we expect them to be.
+   */
+#ifndef SVA_DMAP
+  /*
    * If the pointer is within the kernel's direct map, use a simple
    * bit-masking operation to convert the virtual address to a physical
    * address.
@@ -625,6 +631,7 @@ uintptr_t getPhysicalAddr(void* v) {
   if (vaddr >= KERNDMAPSTART && vaddr < KERNDMAPEND) {
        return getPhysicalAddrKDMAP(v);
   }
+#endif
 
   /*
    * If the virtual address falls within the SVA VM's direct map, use a simple

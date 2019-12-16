@@ -92,8 +92,6 @@ extern void sva_declare_dmap_page(uintptr_t frame);
 /**
  * Unmark the specified frame as a page table.
  *
- * Restores write access to the page in the kernel's direct map.
- *
  * @param frame The frame that will no longer be a page table.
  */
 extern void sva_remove_page(uintptr_t frame);
