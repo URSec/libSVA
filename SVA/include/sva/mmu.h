@@ -96,21 +96,6 @@ static inline bool isCanonical(uintptr_t vaddr) {
 
 /*
  *****************************************************************************
- * SVA utility functions needed by multiple compilation units
- *****************************************************************************
- */
-
-static inline void
-print_regs(void) {
-  printf("Printing Active Reg Values:\n");
-  printf("\tEFER: 0x%lx\n", read_efer());
-  printf("\t CR0: 0x%lx\n", read_cr0());
-  printf("\t CR3: 0x%lx\n", read_cr3());
-  printf("\t CR4: 0x%lx\n", read_cr4());
-}
-
-/*
- *****************************************************************************
  * MMU declare, update, and verification helper routines
  *****************************************************************************
  */
@@ -160,82 +145,6 @@ void update_mapping(page_entry_t* pte, page_entry_t new_pte);
  * @param level The level of page table that `frame` will become
  */
 void sva_declare_page(uintptr_t frame, frame_type_t level);
-
-/*
- * Function: readOnlyPage
- *
- * Description:
- *  This function determines whether or not the given page descriptor
- *  references a page that should be marked as read only. We set this for pages
- *  of type: l4,l3,l2,l1, code, and TODO: is this all of them?
- *
- * Inputs:
- *  pg  - page descriptor to check
- *
- * Return:
- *  - 0 denotes not a read only page
- *  - 1 denotes a read only page
- */
-static inline int
-readOnlyPageType(frame_desc_t *pg) {
-  return  (pg->type == PGT_L4)
-           || (pg->type == PGT_L3)
-           || (pg->type == PGT_L2)
-#if 0
-           || (pg->type == PGT_L1)
-#endif
-           || (pg->type == PGT_CODE)
-           || (pg->type == PGT_SVA)
-           ;
-}
-
-/*
- * Function: mapPageReadOnly
- *
- * Description:
- *  This function determines if the particular page-translation-page entry in
- *  combination with the new mapping necessitates setting the new mapping as
- *  read only. The first thing to check is whether or not the new page needs to
- *  be marked as read only. The second issue is to distinguish between the case
- *  when the new read only page is being inserted as a page-translation-page
- *  reference or as the lookup value for a given VA by the MMU. The latter case
- *  is the only we mark as read only, which will protect the page from writes
- *  if the WP bit in CR0 is set.
- *
- * Inputs:
- *  ptePG    - The page descriptor of the page that we are inserting into the
- *             page table.  We will use this to determine if we are adding
- *             a page table page.
- *
- *  mapping - The mapping that will be used to insert the page.  This is used
- *            for cases in which what would ordinarily be a page table page is
- *            a large data page.
- *
- * Return value:
- *  0 - The mapping can safely be made writeable.
- *  1 - The mapping should be read-only.
- */
-static inline unsigned char
-mapPageReadOnly(frame_desc_t * ptePG, page_entry_t mapping) {
-  frame_desc_t* mapping_pgDesc = get_frame_desc(mapping);
-  SVA_ASSERT(mapping_pgDesc != NULL,
-    "SVA: FATAL: Attempt to map non-existant frame\n");
-  if (readOnlyPageType(mapping_pgDesc)){
-    /*
-     * L1 pages should always be mapped read-only.
-     */
-    if (isL1Pg(ptePG))
-      return 1;
-
-    /*
-     * L2 and L3 pages should be mapped read-only unless they are data pages.
-     */
-    if ((isL2Pg(ptePG) || isL3Pg(ptePG)) && !isHugePage(mapping, ptePG->type))
-      return 1;
-  }
-
-  return 0;
-}
 
 /**
  * Turn on write protection to prevent writes to page tables.

@@ -94,15 +94,6 @@ struct PTInfo __svadata PTPages[1024];
 /* Cache of page table pages */
 extern unsigned char __svadata SVAPTPages[1024][FRAME_SIZE];
 
-void printPageType(unsigned char* p) {
-  frame_desc_t* pageDesc = get_frame_desc(getPhysicalAddr(p));
-  if (pageDesc == NULL) {
-    printf("SVA: page type: %p: nonexistant\n", p);
-  } else {
-    printf ("SVA: page type: %p: %s\n", p, frame_type_name(pageDesc->type));
-  }
-}
-
 /*
  *****************************************************************************
  * Define helper functions for MMU operations
@@ -155,8 +146,6 @@ frame_type_t frame_type_from_pte(page_entry_t pte, frame_type_t pt_type) {
   }
 }
 
-/* Functions for aiding in declare and updating of page tables */
-
 void page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
   uint64_t tsc_tmp = 0;
   if (tsc_read_enable_sva)
@@ -165,22 +154,6 @@ void page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
 #ifdef SVA_DMAP
   uintptr_t ptePA = getPhysicalAddr(page_entry);
   page_entry_t* page_entry_svadm = (page_entry_t*)getVirtual(ptePA);
-
-#if 0
-  frame_desc_t *ptePG = get_frame_desc(ptePA);
-
-  /*
-   * If we are setting a mapping within SVA's direct map, ensure it is a
-   * writable mapping.
-   *
-   * (EJJ 8/28/18: Why is this code needed? I don't see anywhere in the SVA
-   * source code where page_entry_store() would be called such that
-   * ptePG->dmap would be true. It appears that SVA doesn't utilize
-   * page_entry_store() when it sets up its direct map.)
-   */
-  if (ptePG->dmap) 
-    newVal |= PG_W;
-#endif
 
   /* Write the new value to the page_entry */
   *page_entry_svadm = newVal;
@@ -410,28 +383,6 @@ void sva_mm_flush_tlb(void* address) {
 }
 
 void initDeclaredPage(uintptr_t frame) {
-#if 0
-  /*
-   * Get the direct map virtual address of the physical address.
-   */
-  unsigned char* vaddr = getVirtualKernelDMAP(frame);
-
-  /*
-   * Get a pointer to the page table entry that maps the physical page into the
-   * direct map.
-   */
-  page_entry_t* page_entry = get_pgeVaddr((uintptr_t)vaddr);
-  if (page_entry != NULL && isPresent(*page_entry)) {
-    /*
-     * Make the direct map entry for the page read-only to ensure that the OS
-     * goes through SVA to make page table changes.
-     *
-     * This change will take effect when we do a global TLB flush below.
-     */
-    __do_mmu_update(page_entry, setMappingReadOnly(*page_entry));
-  }
-#endif
-
   /*
    * Do a global TLB flush (including for EPT if SVA-VMX is active) to
    * ensure that there are no stale mappings to this page that the OS
@@ -449,7 +400,7 @@ void initDeclaredPage(uintptr_t frame) {
    * There are two places in SVA's codebase this is the case:
    *  - Here, in initDeclaredPage(), when we need to ensure that the OS
    *    *only* has access to a declared PTP through its entry in the kernel's
-   *    DMAP (which SVA has made read-only).
+   *    DMAP (which SVA has verified is read-only).
    *
    *  - In get_frame_from_os() (secmem.c), when we need to ensure that a
    *    frame the OS gave us for use as secure/ghost memory isn't accessible
@@ -1579,54 +1530,6 @@ void sva_declare_l4_page(uintptr_t frame) {
   record_tsc(sva_declare_l4_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
-static inline page_entry_t * 
-printPTES (uintptr_t vaddr) {
-  /* Pointer to the page table entry for the virtual address */
-  page_entry_t *pge = 0;
-
-  /* Get the base of the pml4 to traverse */
-  cr3_t cr3 = get_root_pagetable();
-  if (PG_ENTRY_FRAME(cr3) == 0)
-    return NULL;
-
-  /* Get the VA of the pml4e for this vaddr */
-  pml4e_t* pml4e = get_pml4eVaddr(cr3, vaddr);
-
-  if (isPresent(*pml4e)) {
-    /* Get the VA of the pdpte for this vaddr */
-    pdpte_t* pdpte = get_pdpteVaddr(*pml4e, vaddr);
-    if (isPresent(*pdpte)) {
-      /* 
-       * The PDPE can be configurd in large page mode. If it is then we have the
-       * entry corresponding to the given vaddr If not then we go deeper in the
-       * page walk.
-       */
-      if (isHugePage(*pdpte, PGT_L3)) {
-        pge = pdpte;
-      } else {
-        /* Get the pde associated with this vaddr */
-        pde_t* pde = get_pdeVaddr(*pdpte, vaddr);
-        if (isPresent(*pde)) {
-          /* 
-           * As is the case with the pdpte, if the pde is configured for large
-           * page size then we have the corresponding entry. Otherwise we need
-           * to traverse one more level, which is the last. 
-           */
-          if (isHugePage(*pde, PGT_L2)) {
-            pge = pde;
-          } else {
-            pge = get_pteVaddr(*pde, vaddr);
-            printf("SVA: PTE: %lx %lx %lx %lx\n", *pml4e, *pdpte, *pde, *pge);
-          }
-        }
-      }
-    }
-  }
-
-  /* Return the entry corresponding to this vaddr */
-  return pge;
-}
-
 /*
  * Function: sva_remove_page()
  *
@@ -1733,16 +1636,6 @@ sva_remove_page (uintptr_t paddr) {
    * entry that refers to this physical page frame).
    */
   frame_morph(pgDesc, PGT_FREE);
-
-#if 0
-  /*
-   * Make the page writeable again in the kernel's direct map. Be sure to
-   * flush entries pointing to it in the TLBs so that the change takes
-   * effect right away.
-   */
-  do_mmu_update(pte_kdmap, setMappingReadWrite(*pte_kdmap));
-  sva_mm_flush_tlb(getVirtualKernelDMAP(paddr));
-#endif
 
   /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
