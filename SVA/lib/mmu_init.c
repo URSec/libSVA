@@ -672,7 +672,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
               uintptr_t etext) {
   uint64_t tsc_tmp = 0;
   if (tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+    tsc_tmp = sva_read_tsc();
 
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
@@ -1169,7 +1169,7 @@ void create_sva_direct_map(pml4e_t *first_dmap_entry, size_t num_dmap_entries) {
 void sva_mmu_init(void) {
   uint64_t tsc_tmp = 0;
   if (tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+    tsc_tmp = sva_read_tsc();
 
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
@@ -1218,6 +1218,6 @@ void sva_mmu_init(void) {
   /* Restore interrupts. */
   sva_exit_critical(rflags);
 
-  record_tsc(sva_mmu_init_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  record_tsc(sva_mmu_init_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 #endif /* XEN */

@@ -1,11 +1,11 @@
-/*===- mmu.h - SVA Execution Engine  =-------------------------------------===
+/*===- mmu.h - SVA Execution Engine  =---------------------------------------===
  *
  *                        Secure Virtual Architecture
  *
  * This file was developed by the LLVM research group and is distributed under
  * the University of Illinois Open Source License. See LICENSE.TXT for details.
  *
- *===----------------------------------------------------------------------===
+ *===------------------------------------------------------------------------===
  *
  * Copyright (c) 2003 Peter Wemm.
  * Copyright (c) 1993 The Regents of the University of California.
@@ -37,11 +37,11 @@
  *
  * $FreeBSD: release/9.0.0/sys/amd64/include/cpufunc.h 223796 2011-07-05 18:42:10Z jkim $
  *
- *===----------------------------------------------------------------------===
+ *===------------------------------------------------------------------------===
  *
  * SVA MMU control definitions and utilities.
  *
- *===----------------------------------------------------------------------===
+ *===------------------------------------------------------------------------===
  */
 
 #ifndef SVA_MMU_H
@@ -72,8 +72,26 @@ extern bool mmuIsInitialized;
 #define RFPROC      (1<<4)  /* change child (else changes curproc) */
 #define RFMEM       (1<<5)  /* share `address space' */
 
-extern pml4e_t mapSecurePage (uintptr_t v, uintptr_t paddr);
-extern uintptr_t unmapSecurePage (struct SVAThread *, unsigned char * v);
+/**
+ * Map a single frame of secure memory into the specified virtual address.
+ *
+ * @param vaddr The virtual address into which to map the frame
+ * @param paddr The physical address of the frame to map
+ * @return      The value of the L4 entry mapping the secure memory region
+ */
+extern pml4e_t mapSecurePage(uintptr_t vaddr, uintptr_t paddr);
+
+/**
+ * Unmap a single frame of secure memory from the specified virtual address.
+ *
+ * @param threadp A pointer to the SVA Thread for which we should release the
+ *                frame of secure memory
+ * @param vaddr   The virtual address to unmap
+ * @return        The physical address of the unmapped page, or `PADDR_INVALID`
+ *                if an error occured
+ */
+extern uintptr_t unmapSecurePage(struct SVAThread* threadp, uintptr_t vaddr);
+
 extern uintptr_t alloc_frame(void);
 extern void free_frame(uintptr_t paddr);
 

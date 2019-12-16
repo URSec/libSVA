@@ -1,17 +1,17 @@
-/*===- mmu.c - SVA Execution Engine  =-------------------------------------===
- * 
+/*===- mmu.c - SVA Execution Engine  =---------------------------------------===
+ *
  *                        Secure Virtual Architecture
  *
  * This file was developed by the LLVM research group and is distributed under
  * the University of Illinois Open Source License. See LICENSE.TXT for details.
- * 
- *===----------------------------------------------------------------------===
+ *
+ *===------------------------------------------------------------------------===
  *
  * Note: We try to use the term "frame" to refer to a page of physical memory
  *       and a "page" to refer to the virtual addresses mapped to the page of
  *       physical memory.
  *
- *===----------------------------------------------------------------------===
+ *===------------------------------------------------------------------------===
  */
 
 #include <string.h>
@@ -27,14 +27,14 @@
 #include "sva/state.h"
 #include "sva/util.h"
 
-/* 
+/*
  * Defines for #if #endif blocks for commenting out lines of code
  */
 /* Used to denote unimplemented code */
-#define NOT_YET_IMPLEMENTED 0   
+#define NOT_YET_IMPLEMENTED 0
 
 /* Used to denote obsolete code that hasn't been deleted yet */
-#define OBSOLETE            0   
+#define OBSOLETE            0
 
 /* Define whether to enable DEBUG blocks #if statements */
 #define DEBUG               0
@@ -47,12 +47,6 @@
  * Function prototype declarations.
  *****************************************************************************
  */
-
-/*
- * SVA direct mapping related functions
- */
-static inline uintptr_t getPhysicalAddrKDMAP (void * v);
-static inline uintptr_t getPhysicalAddrSVADMAP (void * v);
 
 /*
  *****************************************************************************
@@ -149,7 +143,7 @@ frame_type_t frame_type_from_pte(page_entry_t pte, frame_type_t pt_type) {
 void page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
   uint64_t tsc_tmp = 0;
   if (tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+    tsc_tmp = sva_read_tsc();
 
 #ifdef SVA_DMAP
   uintptr_t ptePA = getPhysicalAddr(page_entry);
@@ -166,10 +160,10 @@ void page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
   *page_entry = newVal;
 
   /* Reenable page protection */
-  protect_paging();    
+  protect_paging();
 #endif
 
-  record_tsc(page_entry_store_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  record_tsc(page_entry_store_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
 /**
@@ -196,7 +190,7 @@ static inline bool pte_can_change(page_entry_t* page_entry) {
   uintptr_t ptePAddr = getPhysicalAddr(page_entry);
   frame_desc_t *ptePG = get_frame_desc(ptePAddr);
 #endif
- 
+
   /*
    * If MMU checks are disabled, allow the page table entry to be modified.
    */
@@ -300,7 +294,7 @@ updateNewPageData(page_entry_t mapping, frame_type_t type, size_t count) {
   }
 }
 
-/*
+/**
  * Update the metadata for a page that is having its mapping removed.
  *
  * @param mapping An x86_64 page table entry describing the old mapping of the
@@ -581,26 +575,26 @@ int walk_page_table(cr3_t cr3, uintptr_t vaddr, pml4e_t** pml4e,
   return 1;
 }
 
-/*
- * Function: getPhysicalAddrDMAP()
+/**
+ * Find the corresponding physical address for a virtual address which must be
+ * in the kernel's direct map.
  *
- * Description:
- *  Find the physical page number of the specified virtual address based on kernel direct mapping.
+ * @param v A virtual address in the kernel's direct map
+ * @return  The physical address to which `v` maps
  */
-static inline uintptr_t
-getPhysicalAddrKDMAP (void * v) {
- return  ((uintptr_t) v & ~KERNDMAPSTART);
+static inline uintptr_t getPhysicalAddrKDMAP(void* v) {
+  return (uintptr_t)v & ~KERNDMAPSTART;
 }
 
-/*
- * Function: getPhysicalAddrSVADMAP()
+/**
+ * Find the corresponding physical address for a virtual address which must be
+ * in SVA's direct map.
  *
- * Description:
- *  Find the physical page number of the specified virtual address based on SVA direct mapping.
+ * @param v A virtual address in SVA's direct map
+ * @return  The physical address to which `v` maps
  */
-static inline uintptr_t
-getPhysicalAddrSVADMAP (void * v) {
- return  ((uintptr_t) v & ~SVADMAPSTART);
+static inline uintptr_t getPhysicalAddrSVADMAP(void* v) {
+  return (uintptr_t)v & ~SVADMAPSTART;
 }
 
 bool getPhysicalAddrFromPML4E(void* v, pml4e_t* pml4e, uintptr_t* paddr) {
@@ -654,12 +648,11 @@ uintptr_t getPhysicalAddr(void* v) {
   }
 }
 
-/*
- * Function: allocPTPage()
+/**
+ * Allocate and initialize a frame for use as a secure memory page table.
  *
- * Description:
- *  This function allocates a page table page, initializes it, and returns it
- *  to the caller.
+ * @param level The level of page table to allocate
+ * @return      The index in `PTPages` of the allocated page table
  */
 static unsigned int allocPTPage(frame_type_t level) {
   /* Index into the page table information array */
@@ -721,14 +714,12 @@ static unsigned int allocPTPage(frame_type_t level) {
   return 0;
 }
 
-/*
- * Function: freePTPage()
+/**
+ * Free a page table frame allocated with `allocPTPage`.
  *
- * Description:
- *  Return an SVA VM page table page back to the operating system for use.
+ * @param ptindex The index in `PTPages` of the frame to be freed
  */
-void
-freePTPage (unsigned int ptindex) {
+void freePTPage(unsigned int ptindex) {
   /*
    * Mark the entry in the page table page array as available.
    */
@@ -738,23 +729,14 @@ freePTPage (unsigned int ptindex) {
    * Change the type of the page table page.
    */
   frame_morph(get_frame_desc(PTPages[ptindex].paddr), PGT_FREE);
-
-  return;
 }
 
-/*
- * Function: updateUses()
+/**
+ * Increment the number of uses of a secure memory page table.
  *
- * Description:
- *  This function will update the number of present entries within a page table
- *  page that was allocated by the SVA VM.
- *
- * Inputs:
- *  ptp - A pointer to the page table page.  This does not need to be a page
- *        table page owned by the SVA VM.
+ * @param ptp A page table which is used to map secure memory
  */
-static void
-updateUses (uintptr_t * ptp) {
+static void updateUses(uintptr_t* ptp) {
   /* Page table page array index */
   unsigned int ptindex;
 
@@ -762,7 +744,7 @@ updateUses (uintptr_t * ptp) {
    * Find the physical address to which this virtual address is mapped.  We'll
    * use it to determine if this is an SVA VM page.
    */
-  uintptr_t paddr = getPhysicalAddr (ptp) & 0xfffffffffffff000u;
+  uintptr_t paddr = PG_ENTRY_FRAME(getPhysicalAddr(ptp));
 
   /*
    * Look for the page table page with the specified physical address.  If we
@@ -773,28 +755,19 @@ updateUses (uintptr_t * ptp) {
       ++PTPages[ptindex].uses;
     }
   }
-
-  return;
 }
 
-/*
- * Function: releaseUse()
+/**
+ * Decrement the number of uses of a secure memory page table.
  *
- * Description:
- *  This function will decrement the number of present entries within a page
- *  table page allocated by the SVA VM.
+ * The return value indicates whether or not the page table should be freed
+ * (via `freePTPage`).
  *
- * Inputs:
- *  pde - A pointer to the page table page.  This does not need to be an SVA VM
- *        page table page.
- *
- * Return value:
- *  0 - The page is not a SVA VM page table page, or the page still has live
- *      references in it.
- *  Otherwise, the index into the page table array will be returned.
+ * @param ptp A page table which is used to map secure memory
+ * @return    If the frame should not be freed: 0.
+ *            If the frame should be freed: The index of the frame in `PTPages`
  */
-static unsigned int
-releaseUse (uintptr_t * ptp) {
+static unsigned int releaseUse(uintptr_t* ptp) {
   /* Page table page array index */
   unsigned int ptindex;
 
@@ -819,21 +792,7 @@ releaseUse (uintptr_t * ptp) {
   return 0;
 }
 
-/*
- * Function: mapSecurePage()
- *
- * Description:
- *  Map a single frame of secure memory into the specified virtual address.
- *
- * Inputs:
- *  vaddr - The virtual address into which to map the physical page frame.
- *  paddr - The physical address of the page frame to map.
- *
- * Return value:
- *  The value of the PML4E entry mapping the secure memory region is returned.
- */
-uintptr_t
-mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
+uintptr_t mapSecurePage(uintptr_t vaddr, uintptr_t paddr) {
   /* PML4e value for the secure memory region */
   pml4e_t pml4eVal;
   /*
@@ -976,30 +935,16 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
   return pml4eVal;
 }
 
-/*
- * Function: unmapSecurePage()
- *
- * Description:
- *  Unmap a single frame of secure memory from the specified virtual address.
- *
- * Inputs:
- *  threadp - A pointer to the SVA Thread for which we should release the frame
- *            of secure memory.
- *  v       - The virtual address to unmap.
- *
- * Return value:
- *  The physical address of the unmapped page on success, 0 otherwise
- *
- * TODO:
- *  Implement code that will tell other processors to invalidate their TLB
- *  entries for this page.
- */
-uintptr_t
-unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
+uintptr_t unmapSecurePage(struct SVAThread* threadp, uintptr_t vaddr) {
+  /*
+   * TODO:
+   *  Implement code that will tell other processors to invalidate their TLB
+   *  entries for this page.
+   */
+
   /*
    * Get the PML4E of the page table associated with the specified thread.
    */
-  uintptr_t vaddr = (uintptr_t) v;
   uintptr_t paddr = 0;
   pdpte_t* pdpte = get_pdpteVaddr(threadp->secmemPML4e, vaddr);
   if (!isPresent(*pdpte)) {
@@ -1043,12 +988,12 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
   unprotect_paging();
 #endif
   paddr = PG_L1_FRAME(*pte);
-  *pte = 0;
+  *pte = ZERO_MAPPING;
 
   /*
    * Invalidate any TLBs in the processor.
    */
-  sva_mm_flush_tlb(v);
+  sva_mm_flush_tlb((void*)vaddr);
 
   frame_drop(pageDesc, PGT_GHOST);
 
@@ -1070,13 +1015,13 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
   unsigned int ptindex;
   if ((ptindex = releaseUse(pte))) {
     freePTPage(ptindex);
-    *pde = 0;
+    *pde = ZERO_MAPPING;
     if ((ptindex = releaseUse(pde))) {
       freePTPage(ptindex);
-      *pdpte = 0;
+      *pdpte = ZERO_MAPPING;
       if ((ptindex = releaseUse(pdpte))) {
         freePTPage(ptindex);
-        threadp->secmemPML4e = 0;
+        threadp->secmemPML4e = ZERO_MAPPING;
 #if 0
         if ((ptindex = releaseUse(getVirtual(*thread->secmemPML4e)))) {
           freePTPage(ptindex);
@@ -1093,21 +1038,10 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
   return paddr;
 }
 
-/*   Function: ghostmemCOW()
- *   
- *   Description: 
- *   Copy the parent's page table of ghost memory to the child. 
- *   Write protect these page table entries for both the parent and the child.
- *
- *   Inputs:
- *   oldThread - the SVAThread variable of the parent process
- *   newThread - the SVAThread variable of the child process   
- */
-void
-ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
+void ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
   uintptr_t vaddr_start, vaddr_end, size;
 
-  vaddr_start = (uintptr_t) SECMEMSTART;
+  vaddr_start = (uintptr_t)SECMEMSTART;
   size = oldThread->secmemSize;
   vaddr_end = vaddr_start + size;
 
@@ -1224,25 +1158,15 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
   }
 }
 
-/*
- * Intrinsic: sva_mm_load_pgtable()
- *
- * Description:
- *  Set the current page table.  This implementation will also enable paging.
- *
- * Inputs:
- *  pg - The physical address of the top-level page table page.
- */
-void
-sva_mm_load_pgtable (cr3_t pg_ptr) {
+void sva_mm_load_pgtable(cr3_t pg_ptr) {
   if (!mmuIsInitialized) {
     write_cr3(pg_ptr);
     return;
   }
 
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
 
   /*
    * Switch to the user/SVA page tables so that we can access SVA memory
@@ -1261,18 +1185,6 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
    * trust the system software to be honest.)
    */
   uintptr_t new_pml4 = PG_ENTRY_FRAME(pg_ptr);
-
-  /*
-   * Check that the new page table is an L4 page table page.
-   */
-  if ((mmuIsInitialized) && (!disableMMUChecks)) {
-    frame_desc_t* pml4Desc = get_frame_desc(new_pml4);
-    SVA_ASSERT(pml4Desc != NULL,
-      "SVA: FATAL: Using non-existant frame as root page table\n");
-    SVA_ASSERT(pml4Desc->type == PGT_L4,
-      "SVA: Loading non-L4 page into CR3: %lx %x\n",
-      new_pml4, get_frame_desc(new_pml4)->type);
-  }
 
   /*
    * Ensure that the secure memory region is still mapped within the new set
@@ -1321,47 +1233,24 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
 
-  record_tsc(sva_mm_load_pgtable_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  record_tsc(sva_mm_load_pgtable_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
 cr3_t sva_mm_save_pgtable(void) {
   return read_cr3();
 }
 
-/*
- * Function: sva_load_cr0
- *
- * Description:
- *  SVA Intrinsic to load the cr0 value. We need to make sure write protection
- *  is enabled. 
- */
-void 
-sva_load_cr0 (unsigned long val) {
+void sva_load_cr0(unsigned long val) {
     uint64_t tsc_tmp = 0;
-    if(tsc_read_enable_sva)
-       tsc_tmp = sva_read_tsc();
-
+    if (tsc_read_enable_sva)
+      tsc_tmp = sva_read_tsc();
 
     val |= CR0_WP;
     write_cr0(val);
 
-
-    record_tsc(sva_load_cr0_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    record_tsc(sva_load_cr0_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
-/*
- * PCID-related functions: 
- * kernel pcid is 1, and user/SVA pcid is 0
- */
-
-/*
- * Function: usersva_to_kernel_pcid()
- *
- * Description:
- *  Switch to the kernel's version of the current process's address space
- *  (which does not include certain protected regions like ghost memory and
- *  SVA internal memory).
- */
 void usersva_to_kernel_pcid(void) {
 #ifdef SVA_LLC_PART
   /* Switch to the OS cache partition. */
@@ -1369,14 +1258,6 @@ void usersva_to_kernel_pcid(void) {
 #endif
 }
 
-/*
- * Function: kernel_to_usersva_pcid()
- *
- * Description:
- *  Switch to the user/SVA version of the current process's address space
- *  (which includes certain protected regions, like ghost memory and SVA
- *  internal memory, that are not present in the kernel's version).
- */
 void kernel_to_usersva_pcid(void) {
 #ifdef SVA_LLC_PART
   /* Switch to the SVA cache partition. */
@@ -1385,22 +1266,9 @@ void kernel_to_usersva_pcid(void) {
 }
 
 #ifdef FreeBSD
-/*
- * Instrinsic: sva_update_l4_dmap
- *
- * Description:
- *  This function updates the pml4 entries of a process with the SVA direct mapping.
- *
- * Input:
- *  pml4pg - the virtual address of the pml4 page table page to be updated
- *  index  - the index of the SVA direct mapping pml4 entry
- *  val    - the page table entry to be populated in
- */
-
-void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val)
-{
+void sva_update_l4_dmap(void* pml4pg, int index, page_entry_t val) {
   if(index < NDMPML4E)
-  sva_update_l4_mapping(&(((pdpte_t *)pml4pg)[DMPML4I + index]), val);
+    sva_update_l4_mapping(&(((pml4e_t*)pml4pg)[DMPML4I + index]), val);
 }
 #endif /* FreeBSD */
 
@@ -1499,8 +1367,8 @@ void sva_declare_page(uintptr_t frame, frame_type_t level) {
 
 void sva_declare_l1_page(uintptr_t frame) {
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
 
   sva_declare_page(frame, PGT_L1);
 
@@ -1509,8 +1377,8 @@ void sva_declare_l1_page(uintptr_t frame) {
 
 void sva_declare_l2_page(uintptr_t frame) {
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
 
   sva_declare_page(frame, PGT_L2);
 
@@ -1519,8 +1387,8 @@ void sva_declare_l2_page(uintptr_t frame) {
 
 void sva_declare_l3_page(uintptr_t frame) {
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
 
   sva_declare_page(frame, PGT_L3);
 
@@ -1529,37 +1397,23 @@ void sva_declare_l3_page(uintptr_t frame) {
 
 void sva_declare_l4_page(uintptr_t frame) {
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
 
   sva_declare_page(frame, PGT_L4);
 
   record_tsc(sva_declare_l4_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
-/*
- * Function: sva_remove_page()
- *
- * Description:
- *  This function informs the SVA VM that the system software no longer wants
- *  to use the specified page as a page table page.
- *
- *  This intrinsic should be used to undeclare EPT PTPs as well as regular
- *  PTPs.
- *
- * Inputs:
- *  paddr - The physical address of the page table page.
- */
-void
-sva_remove_page (uintptr_t paddr) {
+void sva_remove_page(uintptr_t paddr) {
   if (!mmuIsInitialized) {
     return;
   }
 
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
-  
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
+
   kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
@@ -1623,6 +1477,7 @@ sva_remove_page (uintptr_t paddr) {
       } else {
         bool isLeaf = isLeafEntry(ptp_vaddr[i], pgDesc->type);
         size_t count = isLeaf ? getMappedSize(pgDesc->type) / FRAME_SIZE : 1;
+        frame_type_t ty = frame_type_from_pte(ptp_vaddr[i], pgDesc->type);
         /*
          * NB: We don't want to actually change the data in the page table, as
          * the kernel may be relying on being able to access it for its own
@@ -1630,9 +1485,7 @@ sva_remove_page (uintptr_t paddr) {
          * reference has been dropped.  Since this page is about to become a
          * data page, there is no safety concern with leaving the entry intact.
          */
-        updateOrigPageData(ptp_vaddr[i],
-                           frame_type_from_pte(ptp_vaddr[i], pgDesc->type),
-                           count);
+        updateOrigPageData(ptp_vaddr[i], ty, count);
       }
     }
   }
@@ -1647,31 +1500,17 @@ sva_remove_page (uintptr_t paddr) {
   /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
-  record_tsc(sva_remove_page_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  record_tsc(sva_remove_page_2_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
-/* 
- * Function: sva_remove_mapping()
- *
- * Description:
- *  This function clears an entry in a page table page. It is agnostic to the
- *  level of page table (and whether we are dealing with an extended or
- *  regular page table). The particular needs for each page table level/type
- *  are handled in the update_mapping function.
- *
- * Inputs:
- *  pteptr - The location within the page table page for which the translation
- *           should be removed.
- */
-void
-sva_remove_mapping(page_entry_t * pteptr) {
+void sva_remove_mapping(page_entry_t* pteptr) {
   if (!mmuIsInitialized) {
     *pteptr = ZERO_MAPPING;
     return;
   }
 
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
+  if (tsc_read_enable_sva)
     tsc_tmp = sva_read_tsc();
 
   kernel_to_usersva_pcid();
@@ -1684,7 +1523,7 @@ sva_remove_mapping(page_entry_t * pteptr) {
   /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
-  record_tsc(sva_remove_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  record_tsc(sva_remove_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
 /**
@@ -1737,8 +1576,8 @@ void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
 
 void sva_update_l1_mapping(pte_t* l1e, pte_t new_l1e) {
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
 
   sva_update_mapping(l1e, new_l1e, PGT_L1);
 
@@ -1747,8 +1586,8 @@ void sva_update_l1_mapping(pte_t* l1e, pte_t new_l1e) {
 
 void sva_update_l2_mapping(pde_t* l2e, pde_t new_l2e) {
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
 
   sva_update_mapping(l2e, new_l2e, PGT_L2);
 
@@ -1757,8 +1596,8 @@ void sva_update_l2_mapping(pde_t* l2e, pde_t new_l2e) {
 
 void sva_update_l3_mapping(pdpte_t* l3e, pdpte_t new_l3e) {
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
 
   sva_update_mapping(l3e, new_l3e, PGT_L3);
 
@@ -1767,8 +1606,8 @@ void sva_update_l3_mapping(pdpte_t* l3e, pdpte_t new_l3e) {
 
 void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e) {
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
 
   sva_update_mapping(l4e, new_l4e, PGT_L4);
 
@@ -1803,21 +1642,13 @@ static void protect_code_page(uintptr_t vaddr, page_entry_t perms) {
   invlpg(vaddr);
 }
 
-/*
- * Remove write-protection from a code page.
- *
- * This is a hack which is intended to support limited uses of runtime-generated
- * code which have not been fully ported.
- *
- * @param vaddr The virtual address for which to change protections
- */
 void sva_unprotect_code_page(void* vaddr) {
   SVA_ASSERT(mmuIsInitialized,
     "SVA: FATAL: sva_unprotect_code_page called before MMU init\n");
 
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
 
   unsigned long flags = sva_enter_critical();
   kernel_to_usersva_pcid();
@@ -1827,24 +1658,16 @@ void sva_unprotect_code_page(void* vaddr) {
   usersva_to_kernel_pcid();
   sva_exit_critical(flags);
 
-  record_tsc(sva_update_l1_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  record_tsc(sva_update_l1_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
-/*
- * Re-add write-protection to a code page.
- *
- * This is a hack which is intended to support limited uses of runtime-generated
- * code which have not been fully ported.
- *
- * @param vaddr The virtual address for which to change protections
- */
 void sva_protect_code_page(void* vaddr) {
   SVA_ASSERT(mmuIsInitialized,
     "SVA: FATAL: sva_unprotect_code_page called before MMU init\n");
 
   uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
 
   unsigned long flags = sva_enter_critical();
   kernel_to_usersva_pcid();
@@ -1854,7 +1677,7 @@ void sva_protect_code_page(void* vaddr) {
   usersva_to_kernel_pcid();
   sva_exit_critical(flags);
 
-  record_tsc(sva_update_l1_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  record_tsc(sva_update_l1_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
 uintptr_t sva_get_physical_address(uintptr_t vaddr) {

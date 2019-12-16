@@ -1,16 +1,16 @@
-/*===- state.h - SVA Interrupts   -----------------------------------------===
- * 
+/*===- state.h - SVA Interrupts   -------------------------------------------===
+ *
  *                     The LLVM Compiler Infrastructure
  *
  * This file was developed by the LLVM research group and is distributed under
  * the University of Illinois Open Source License. See LICENSE.TXT for details.
- * 
- *===----------------------------------------------------------------------===
+ *
+ *===------------------------------------------------------------------------===
  *
  * This header files defines functions and macros used by the SVA Execution
  * Engine for managing processor state.
  *
- *===----------------------------------------------------------------------===
+ *===------------------------------------------------------------------------===
  */
 
 #ifndef _SVA_STATE_H
@@ -21,7 +21,14 @@
 #include "sva/keys.h"
 #include "sva/offsets.h"
 
+/**
+ * Switch to the kernel's cache domain.
+ */
 extern void usersva_to_kernel_pcid(void);
+
+/**
+ * Switch to the SVA cache domain.
+ */
 extern void kernel_to_usersva_pcid(void);
 
 /* Processor privilege level */
@@ -312,7 +319,7 @@ struct CPUState {
   struct invoke_frame * gip;
 
   /* Pointer to thread that was the last one to use the Floating Point Unit */
-  struct SVAThread * prevFPThread;  
+  struct SVAThread * prevFPThread;
 
   /* Flags whether the floating point unit has been used */
   unsigned char fp_used;
@@ -368,7 +375,7 @@ sva_was_privileged (void) {
   __asm__ __volatile__ ("movq %1, %0\n"
                        : "=r" (currentIC)
                        : "m" ((cpup->newCurrentIC)));
-  
+
   /*
    * Get the code segment out of the interrupt context.
    */
@@ -398,6 +405,16 @@ hasGhostMemory (void) {
     return 1;
   return 0;
 }
+
+/**
+ * Copy the parent's page table of ghost memory to the child. Write protect
+ * these page table entries for both the parent and the child.
+ *
+ * @param oldThread The SVAThread for the parent process
+ * @param newThread The SVAThread for the child process
+ */
+extern void ghostmemCOW(struct SVAThread* oldThread,
+                        struct SVAThread* newThread);
 
 #if 0
 /* Prototypes for Execution Engine Functions */

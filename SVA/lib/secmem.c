@@ -639,7 +639,7 @@ ghostFree (struct SVAThread * threadp, unsigned char * p, intptr_t size) {
         /*
          * Unmap the memory from the secure memory virtual address space.
          */
-        unmapSecurePage(threadp, ptr);
+        unmapSecurePage(threadp, (uintptr_t)ptr);
 
         /*
          * Release the memory to the operating system.  Note that we must first
