@@ -848,7 +848,7 @@ sva_freevm(int vmid) {
    * Decrement the refcount for the VM's top-level extended-page-table page
    * to reflect the fact that this VM is no longer using it.
    */
-  page_desc_t *ptpDesc = getPageDescPtr(vm_descs[vmid].eptp);
+  frame_desc_t *ptpDesc = get_frame_desc(vm_descs[vmid].eptp);
   /*
    * Check that the refcount isn't already zero (in which case we'd
    * underflow). If so, our frame metadata has become inconsistent (as a

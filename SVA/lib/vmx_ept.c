@@ -39,72 +39,7 @@
  */
 void
 sva_declare_l1_eptpage(uintptr_t frameAddr) {
-  /*
-   * Switch to the user/SVA page tables so that we can access SVA memory
-   * regions.
-   */
-  kernel_to_usersva_pcid();
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
-
-  /* Get the page_desc for the newly declared page frame. */
-  page_desc_t *pgDesc = getPageDescPtr(frameAddr);
-
-  /*
-   * Make sure that this is already an L1 EPT page, an unused page, or a
-   * kernel data page.
-   */
-  switch (pgDesc->type) {
-    case PGT_EPTL1:
-    case PGT_FREE:
-    case PGT_DATA:
-      break;
-
-    default:
-      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
-      panic("SVA: Declaring EPT L1 for wrong page: "
-          "frameAddr = %lx, pgDesc=%p, type=%x\n",
-          frameAddr, pgDesc, pgDesc->type);
-      break;
-  }
-
-  /*
-   * A page can only be declared as a page table page if its reference count
-   * is less than 2.
-   *
-   * (i.e., the kernel shouldn't have it mapped anywhere except in its direct
-   * map)
-   */
-  SVA_ASSERT((pgRefCount(pgDesc) <= 2), "sva_declare_l1_eptpage: "
-      "more than one virtual addresses are still using this page!");
-
-  /* 
-   * Declare the page as an EPT L1 page (unless it is already one).
-   */
-  if (pgDesc->type != PGT_EPTL1) {
-    /*
-     * Mark this page frame as an EPT L1 page frame.
-     */
-    pgDesc->type = PGT_EPTL1;
-
-#if 0
-    /*
-     * Reset the virtual address which can point to this page table page.
-     */
-    pgDesc->pgVaddr = 0;
-#endif
-
-    /* 
-     * Initialize the page data and page entry. Note that we pass a general
-     * page_entry_t to the function as it enables reuse of code for each of the
-     * entry declaration functions. 
-     */
-    initDeclaredPage(frameAddr);
-  }
-
-  /* Restore interrupts and return to the kernel page tables. */
-  sva_exit_critical(rflags);
-  usersva_to_kernel_pcid();
+  sva_declare_page(frameAddr, PGT_EPTL1);
 }
 
 /*
@@ -121,72 +56,7 @@ sva_declare_l1_eptpage(uintptr_t frameAddr) {
  */
 void
 sva_declare_l2_eptpage(uintptr_t frameAddr) {
-  /*
-   * Switch to the user/SVA page tables so that we can access SVA memory
-   * regions.
-   */
-  kernel_to_usersva_pcid();
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
-
-  /* Get the page_desc for the newly declared page frame. */
-  page_desc_t *pgDesc = getPageDescPtr(frameAddr);
-
-  /*
-   * Make sure that this is already an L2 EPT page, an unused page, or a
-   * kernel data page.
-   */
-  switch (pgDesc->type) {
-    case PGT_EPTL2:
-    case PGT_FREE:
-    case PGT_DATA:
-      break;
-
-    default:
-      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
-      panic("SVA: Declaring EPT L2 for wrong page: "
-          "frameAddr = %lx, pgDesc=%p, type=%x\n",
-          frameAddr, pgDesc, pgDesc->type);
-      break;
-  }
-
-  /*
-   * A page can only be declared as a page table page if its reference count
-   * is less than 2.
-   *
-   * (i.e., the kernel shouldn't have it mapped anywhere except in its direct
-   * map)
-   */
-  SVA_ASSERT((pgRefCount(pgDesc) <= 2), "sva_declare_l2_eptpage: "
-      "more than one virtual addresses are still using this page!");
-
-  /* 
-   * Declare the page as an EPT L2 page (unless it is already one).
-   */
-  if (pgDesc->type != PGT_EPTL2) {
-    /*
-     * Mark this page frame as an EPT L2 page frame.
-     */
-    pgDesc->type = PGT_EPTL2;
-
-#if 0
-    /*
-     * Reset the virtual address which can point to this page table page.
-     */
-    pgDesc->pgVaddr = 0;
-#endif
-
-    /* 
-     * Initialize the page data and page entry. Note that we pass a general
-     * page_entry_t to the function as it enables reuse of code for each of the
-     * entry declaration functions. 
-     */
-    initDeclaredPage(frameAddr);
-  }
-
-  /* Restore interrupts and return to the kernel page tables. */
-  sva_exit_critical(rflags);
-  usersva_to_kernel_pcid();
+  sva_declare_page(frameAddr, PGT_EPTL2);
 }
 
 /*
@@ -203,72 +73,7 @@ sva_declare_l2_eptpage(uintptr_t frameAddr) {
  */
 void
 sva_declare_l3_eptpage(uintptr_t frameAddr) {
-  /*
-   * Switch to the user/SVA page tables so that we can access SVA memory
-   * regions.
-   */
-  kernel_to_usersva_pcid();
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
-
-  /* Get the page_desc for the newly declared page frame. */
-  page_desc_t *pgDesc = getPageDescPtr(frameAddr);
-
-  /*
-   * Make sure that this is already an L3 EPT page, an unused page, or a
-   * kernel data page.
-   */
-  switch (pgDesc->type) {
-    case PGT_EPTL3:
-    case PGT_FREE:
-    case PGT_DATA:
-      break;
-
-    default:
-      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
-      panic("SVA: Declaring EPT L3 for wrong page: "
-          "frameAddr = %lx, pgDesc=%p, type=%x\n",
-          frameAddr, pgDesc, pgDesc->type);
-      break;
-  }
-
-  /*
-   * A page can only be declared as a page table page if its reference count
-   * is less than 2.
-   *
-   * (i.e., the kernel shouldn't have it mapped anywhere except in its direct
-   * map)
-   */
-  SVA_ASSERT((pgRefCount(pgDesc) <= 2), "sva_declare_l3_eptpage: "
-      "more than one virtual addresses are still using this page!");
-
-  /* 
-   * Declare the page as an EPT L3 page (unless it is already one).
-   */
-  if (pgDesc->type != PGT_EPTL3) {
-    /*
-     * Mark this page frame as an EPT L2 page frame.
-     */
-    pgDesc->type = PGT_EPTL3;
-
-#if 0
-    /*
-     * Reset the virtual address which can point to this page table page.
-     */
-    pgDesc->pgVaddr = 0;
-#endif
-
-    /* 
-     * Initialize the page data and page entry. Note that we pass a general
-     * page_entry_t to the function as it enables reuse of code for each of the
-     * entry declaration functions. 
-     */
-    initDeclaredPage(frameAddr);
-  }
-
-  /* Restore interrupts and return to the kernel page tables. */
-  sva_exit_critical(rflags);
-  usersva_to_kernel_pcid();
+  sva_declare_page(frameAddr, PGT_EPTL3);
 }
 
 /*
@@ -285,72 +90,7 @@ sva_declare_l3_eptpage(uintptr_t frameAddr) {
  */
 void
 sva_declare_l4_eptpage(uintptr_t frameAddr) {
-  /*
-   * Switch to the user/SVA page tables so that we can access SVA memory
-   * regions.
-   */
-  kernel_to_usersva_pcid();
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
-
-  /* Get the page_desc for the newly declared page frame. */
-  page_desc_t *pgDesc = getPageDescPtr(frameAddr);
-
-  /*
-   * Make sure that this is already an L4 EPT page, an unused page, or a
-   * kernel data page.
-   */
-  switch (pgDesc->type) {
-    case PGT_EPTL4:
-    case PGT_FREE:
-    case PGT_DATA:
-      break;
-
-    default:
-      printf("SVA: %p %p\n", page_desc, page_desc + numPageDescEntries);
-      panic("SVA: Declaring EPT L4 for wrong page: "
-          "frameAddr = %lx, pgDesc=%p, type=%x\n",
-          frameAddr, pgDesc, pgDesc->type);
-      break;
-  }
-
-  /*
-   * A page can only be declared as a page table page if its reference count
-   * is less than 2.
-   *
-   * (i.e., the kernel shouldn't have it mapped anywhere except in its direct
-   * map)
-   */
-  SVA_ASSERT((pgRefCount(pgDesc) <= 2), "sva_declare_l4_eptpage: "
-      "more than one virtual addresses are still using this page!");
-
-  /* 
-   * Declare the page as an EPT L4 page (unless it is already one).
-   */
-  if (pgDesc->type != PGT_EPTL4) {
-    /*
-     * Mark this page frame as an EPT L2 page frame.
-     */
-    pgDesc->type = PGT_EPTL4;
-
-#if 0
-    /*
-     * Reset the virtual address which can point to this page table page.
-     */
-    pgDesc->pgVaddr = 0;
-#endif
-
-    /* 
-     * Initialize the page data and page entry. Note that we pass a general
-     * page_entry_t to the function as it enables reuse of code for each of the
-     * entry declaration functions. 
-     */
-    initDeclaredPage(frameAddr);
-  }
-
-  /* Restore interrupts and return to the kernel page tables. */
-  sva_exit_critical(rflags);
-  usersva_to_kernel_pcid();
+  sva_declare_page(frameAddr, PGT_EPTL4);
 }
 
 /*
@@ -394,7 +134,9 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
    * Ensure that the PTE pointer points to an EPT page table. If it does not,
    * report an error.
    */
-  page_desc_t *ptDesc = getPageDescPtr(getPhysicalAddr(eptePtr));
+  frame_desc_t *ptDesc = get_frame_desc(getPhysicalAddr(eptePtr));
+  SVA_ASSERT(ptDesc != NULL,
+    "SVA: FATAL: EPT page table frame at %p doesn't exist\n", eptePtr);
   if (!disableMMUChecks) {
     switch(ptDesc->type) {
       case PGT_EPTL1:
@@ -415,7 +157,7 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
    * Update the page table with the new mapping. The __update_mapping()
    * function is responsible for doing any further checks.
    */
-  __update_mapping(eptePtr, val);
+  update_mapping(eptePtr, val);
 
   /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
@@ -521,38 +263,16 @@ load_eptable_internal(
    * sva_declare_l4_eptpage()).
    */
   uintptr_t epml4t_paddr = getPhysicalAddr(epml4t);
-  page_desc_t *ptpDesc = getPageDescPtr(epml4t_paddr);
-  if ((ptpDesc->type != PGT_EPTL4) && !disableMMUChecks && usevmx) {
-    panic("SVA: MMU: Attempted to load an extended page table that wasn't "
-        "registered with SVA as an EPML4 frame! "
-        "vaddr: %p; paddr: 0x%lx; SVA frame type: %x\n",
-        epml4t, epml4t_paddr, ptpDesc->type);
-  }
+  frame_desc_t *ptpDesc = get_frame_desc(epml4t_paddr);
+  SVA_ASSERT(ptpDesc != NULL,
+    "SVA: FATAL: EPT root page table frame at %p doesn't exist\n", epml4t);
 
   /*
    * Increment the reference count for the new top-level extended PTP to
-   * reflect that it is now referenced by this VM.
-   *
-   * Check that we aren't overflowing the counter.
+   * reflect that it is now referenced by this VM. Also checks that this is in
+   * fact an EPT root page table.
    */
-  pgRefCountInc(ptpDesc, false);
-
-  /*
-   * Decrement the reference count for the old PTP.
-   *
-   * Skip this if this is the first time we are loading the EPTP for this VM
-   * (i.e., there is no old PTP).
-   */
-  if (!is_initial_setting) {
-    page_desc_t *old_ptpDesc = getPageDescPtr(vm_descs[vmid].eptp);
-
-    /*
-     * Check that the refcount isn't already zero (in which case we'd
-     * underflow). If so, our frame metadata has become inconsistent (as a
-     * reference clearly exists).
-     */
-    pgRefCountDec(old_ptpDesc, false);
-  }
+  frame_take(ptpDesc, PGT_EPTL4);
 
   /*
    * Construct the value to load into the VMCS's Extended Page Table Pointer
@@ -585,6 +305,18 @@ load_eptable_internal(
 
   /* Store the EPTP value in the VM descriptor. */
   vm_descs[vmid].eptp = eptp_val;
+
+  /*
+   * Decrement the reference count for the old PTP.
+   *
+   * Skip this if this is the first time we are loading the EPTP for this VM
+   * (i.e., there is no old PTP).
+   */
+  if (!is_initial_setting) {
+    frame_desc_t *old_ptpDesc = get_frame_desc(vm_descs[vmid].eptp);
+
+    frame_drop(old_ptpDesc, PGT_EPTL4);
+  }
 }
 
 /*
