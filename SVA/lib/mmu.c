@@ -1159,11 +1159,6 @@ void ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
 }
 
 void sva_mm_load_pgtable(cr3_t pg_ptr) {
-  if (!mmuIsInitialized) {
-    write_cr3(pg_ptr);
-    return;
-  }
-
   uint64_t tsc_tmp = 0;
   if (tsc_read_enable_sva)
     tsc_tmp = sva_read_tsc();
@@ -1324,10 +1319,6 @@ static void validate_existing_entries(uintptr_t frame, frame_type_t level) {
 }
 
 void sva_declare_page(uintptr_t frame, frame_type_t level) {
-  if (!mmuIsInitialized) {
-    return;
-  }
-
   kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
@@ -1406,10 +1397,6 @@ void sva_declare_l4_page(uintptr_t frame) {
 }
 
 void sva_remove_page(uintptr_t paddr) {
-  if (!mmuIsInitialized) {
-    return;
-  }
-
   uint64_t tsc_tmp = 0;
   if (tsc_read_enable_sva)
     tsc_tmp = sva_read_tsc();
@@ -1504,11 +1491,6 @@ void sva_remove_page(uintptr_t paddr) {
 }
 
 void sva_remove_mapping(page_entry_t* pteptr) {
-  if (!mmuIsInitialized) {
-    *pteptr = ZERO_MAPPING;
-    return;
-  }
-
   uint64_t tsc_tmp = 0;
   if (tsc_read_enable_sva)
     tsc_tmp = sva_read_tsc();
@@ -1538,15 +1520,6 @@ void sva_remove_mapping(page_entry_t* pteptr) {
 void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
                         frame_type_t level)
 {
-  if (!mmuIsInitialized) {
-    /*
-     * MMU initialization has not been performed, so don't perform any safety
-     * checks.
-     */
-    *pte = new_pte;
-    return;
-  }
-
   kernel_to_usersva_pcid();
 
   /*

@@ -55,7 +55,7 @@
  */
 
 /* Flags whether the MMU has been initialized */
-bool mmuIsInitialized = 0;
+bool __svadata mmuIsInitialized = 0;
 
 /* Cache of page table pages */
 extern unsigned char __svadata SVAPTPages[1024][FRAME_SIZE];
