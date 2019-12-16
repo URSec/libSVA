@@ -145,11 +145,21 @@ void page_entry_store(page_entry_t* page_entry, page_entry_t newVal);
  * updated is inferred from the SVA frame type of the page table being
  * modified.
  *
- * @param pageEntryPtr  The page table entry to update
- * @param val           The new page table entry to validate and store to
- *                      `pageEntryPtr`
+ * @param pte     The page table entry to update
+ * @param new_pte The new page table entry to validate and store to `pte`
  */
-void __update_mapping(page_entry_t* pageEntryPtr, page_entry_t val);
+void update_mapping(page_entry_t* pte, page_entry_t new_pte);
+
+/**
+ * Mark the specified frame as a page table.
+ *
+ * Validates than any existing entries are safe, and that the frame is safe to
+ * turn into a page table (it's not mapped writable anywhere).
+ *
+ * @param frame The physical address of the frame that will become a page table
+ * @param level The level of page table that `frame` will become
+ */
+void sva_declare_page(uintptr_t frame, frame_type_t level);
 
 /*
  * Function: readOnlyPage
@@ -167,7 +177,7 @@ void __update_mapping(page_entry_t* pageEntryPtr, page_entry_t val);
  *  - 1 denotes a read only page
  */
 static inline int
-readOnlyPageType(page_desc_t *pg) {
+readOnlyPageType(frame_desc_t *pg) {
   return  (pg->type == PGT_L4)
            || (pg->type == PGT_L3)
            || (pg->type == PGT_L2)
@@ -206,8 +216,8 @@ readOnlyPageType(page_desc_t *pg) {
  *  1 - The mapping should be read-only.
  */
 static inline unsigned char
-mapPageReadOnly(page_desc_t * ptePG, page_entry_t mapping) {
-  page_desc_t* mapping_pgDesc = getPageDescPtr(mapping);
+mapPageReadOnly(frame_desc_t * ptePG, page_entry_t mapping) {
+  frame_desc_t* mapping_pgDesc = get_frame_desc(mapping);
   SVA_ASSERT(mapping_pgDesc != NULL,
     "SVA: FATAL: Attempt to map non-existant frame\n");
   if (readOnlyPageType(mapping_pgDesc)){

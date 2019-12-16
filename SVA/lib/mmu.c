@@ -94,47 +94,13 @@ struct PTInfo __svadata PTPages[1024];
 /* Cache of page table pages */
 extern unsigned char __svadata SVAPTPages[1024][FRAME_SIZE];
 
-/* Array describing the physical pages. Used by SVA's MMU and EPT intrinsics.
- * The index is the physical page number.
- *
- * There is an "extern" declaration for this object in mmu.h so that the EPT
- * intrinsics can see it.
- */
-page_desc_t __svadata page_desc[numPageDescEntries];
-
-/*
- * Description:
- *  Given a page table entry value, return the page description associate with
- *  the frame being addressed in the mapping.
- *
- *  Also accepts a physical address pointer to any location in the frame in
- *  lieu of a PTE value, since (either way) we will mask off the higher and
- *  lower bits to yield the 4 kB-aligned frame pointer.
- *
- * Inputs:
- *  mapping: the mapping with the physical address of the referenced frame
- *           (or a physical address pointing anywhere within the frame)
- *
- * Return value:
- *  Pointer to the page_desc for this frame, or `NULL` if the frame is beyond
- *  the maximum supported physical memory.
- */
-page_desc_t * getPageDescPtr(unsigned long mapping) {
-  unsigned long frameIndex = PG_ENTRY_FRAME(mapping) / FRAME_SIZE;
-  if (frameIndex >= numPageDescEntries)
-    return NULL;
-  return page_desc + frameIndex;
-}
-
-void
-printPageType (unsigned char * p) {
-  page_desc_t *pageDesc = getPageDescPtr(getPhysicalAddr(p));
+void printPageType(unsigned char* p) {
+  frame_desc_t* pageDesc = get_frame_desc(getPhysicalAddr(p));
   if (pageDesc == NULL) {
     printf("SVA: page type: %p: nonexistant\n", p);
   } else {
-    printf ("SVA: page type: %p: %x\n", p, pageDesc->type);
+    printf ("SVA: page type: %p: %s\n", p, frame_type_name(pageDesc->type));
   }
-  return;
 }
 
 /*
@@ -142,6 +108,52 @@ printPageType (unsigned char * p) {
  * Define helper functions for MMU operations
  *****************************************************************************
  */
+
+/**
+ * Get the type of frame that can be mapped by a page table entry.
+ *
+ * Note: this is designed to be used only for page table entries created by the
+ * kernel. It will not work for page table entries created by SVA.
+ *
+ * @param pte     A page table entry
+ * @param pt_type The type of the page table containing `pte`
+ * @return        The appropriate type for a frame mapped by `pte`
+ */
+frame_type_t frame_type_from_pte(page_entry_t pte, frame_type_t pt_type) {
+  bool isEPT = pt_type >= PGT_EPTL1 && pt_type <= PGT_EPTL4;
+
+  if (!isPresent_maybeEPT(pte, isEPT)) {
+    /*
+     * If the entry isn't present, then it doesn't map anything. Return
+     * `PGT_FREE` as a safe default.
+     */
+    return PGT_FREE;
+  }
+
+  if (isLeafEntry(pte, pt_type)) {
+    /*
+     * The kernel can only create executable mappings for user space, never for
+     * itself. EPT mappings are always safe in this regard because the kernel
+     * (which executes in VMX root mode) cannot use them.
+     */
+    SVA_ASSERT(isEPT || !isExecutable(pte) || isUserMapping(pte),
+      "SVA: FATAL: Attempt to create supervisor-mode code page "
+      "with mapping 0x%016lx\n", pte);
+
+    /*
+     * If the mapping is writable, force the frame type to `PGT_DATA`.
+     * Otherwise, the frame type is PGT_FREE, which can be used to map
+     * (read-only) any frame which is not used for secure memory.
+     */
+    return isWritable(pte) ? PGT_DATA : PGT_FREE;
+  } else {
+    /*
+     * If the entry is not a leaf entry, then the only thing it can map is a
+     * page table one level down.
+     */
+    return getSublevelType(pt_type);
+  }
+}
 
 /* Functions for aiding in declare and updating of page tables */
 
@@ -152,10 +164,10 @@ void page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
 
 #ifdef SVA_DMAP
   uintptr_t ptePA = getPhysicalAddr(page_entry);
-  unsigned long *page_entry_svadm = (unsigned long *) getVirtualSVADMAP(ptePA);
+  page_entry_t* page_entry_svadm = (page_entry_t*)getVirtual(ptePA);
 
 #if 0
-  page_desc_t *ptePG = getPageDescPtr(ptePA);
+  frame_desc_t *ptePG = get_frame_desc(ptePA);
 
   /*
    * If we are setting a mapping within SVA's direct map, ensure it is a
@@ -187,109 +199,39 @@ void page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
   record_tsc(page_entry_store_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
 
-/*
- *****************************************************************************
- * Page table page index and entry lookups 
- *****************************************************************************
- */
-
 /**
- * Check if the permissions on a page table entry are safe for a frame.
+ * Determine if a page table entry is allowed to be changed.
  *
- * NB: This assumes that the entry maps a normal virtual address (i.e. not one
- * in secure memory).
+ * Certain page table entries must not be modified. Specifically, all of the L4
+ * entries which map secure memory must not be modified in order to ensure the
+ * integrity of that data. Additionally, any entry which maps a kernel code
+ * page must not be modified in order to prevent the kernel from bypassing SFI
+ * checks.
  *
- * @param entry The page table entry to check
- * @param type  The type of the frame being mapped
- * @return      True if the permissions on `entry` are safe for a `type` frame,
- *              otherwise false.
+ * It also works for extended page table (EPT) updates.
+ *
+ * @param page_entry  The page table entry that is about to be changed.
+ * @return            Whether or not the page table entry may be changed.
  */
-static bool mappingIsSafe(page_entry_t entry, enum page_type_t type) {
-  switch (type) {
-  case PGT_FREE:
-    /* Safe as long as the mapping is read-only. */
-    return !isWritable(entry) && !isExecutable(entry);
-  case PGT_L1 ... PGT_L4:
-  case PGT_EPTL1 ... PGT_EPTL4:
-  case PGT_SML1 ... PGT_SML3:
-    /* Safe if neither writable nor executable. */
-    return !isWritable(entry) &&
-           (!isExecutable(entry) || isUserMapping(entry)); // Assume SMEP
-  case PGT_DATA:
-    /* Safe if only executable by user. */
-    return !isExecutable(entry) || isUserMapping(entry); // Assume SMEP
-  case PGT_CODE:
-    /* Safe if not writable. */
-    return !isWritable(entry);
-  case PGT_SVA:
-  case PGT_GHOST:
-  case PGT_UNUSABLE:
-    /* Never safe. */
-    return false;
-  default:
-    SVA_ASSERT_UNREACHABLE("SVA: Invalid page type %d\n", type);
-  }
-}
-
-/*
- * Function: pt_update_is_valid()
- *
- * Description:
- *  This function assesses a potential page table update for a valid mapping.
- *
- *  It also works for extended page table (EPT) updates.
- *
- *  NOTE: This function assumes that the page being mapped in has already been
- *  declared and has its intial page metadata captured as defined in the
- *  initial mapping of the page.
- *
- * Inputs:
- *  *page_entry  - VA pointer to the page entry being modified
- *  newVal       - Representes the new value to write including the reference
- *                 to the underlying mapping.
- *
- * Return:
- *  0  - The update is not valid and should not be performed.
- *  1  - The update is valid but should disable write access.
- *  2  - The update is valid and can be performed.
- */
-static inline unsigned char
-pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
+static inline bool pte_can_change(page_entry_t* page_entry) {
   /* Collect associated information for the existing mapping */
   unsigned long origPA = PG_ENTRY_FRAME(*page_entry);
-  page_desc_t *origPG = getPageDescPtr(origPA);
+  frame_desc_t *origPG = get_frame_desc(origPA);
 
-  /* Get associated information for the new page being mapped */
-  unsigned long newPA = PG_ENTRY_FRAME(newVal);
-  page_desc_t *newPG = getPageDescPtr(newPA);
-
+#if 0
   /* Get the page table page descriptor. */
   uintptr_t ptePAddr = getPhysicalAddr(page_entry);
-  page_desc_t *ptePG = getPageDescPtr(ptePAddr);
-
-  /* Is this an extended page table update? */
-  unsigned char isEPT = ptePG->type >= PGT_EPTL1 && ptePG->type <= PGT_EPTL4;
+  frame_desc_t *ptePG = get_frame_desc(ptePAddr);
+#endif
  
-  /* Return value */
-  unsigned char retValue = 2;
-
   /*
    * If MMU checks are disabled, allow the page table entry to be modified.
    */
-  if (disableMMUChecks)
-    return retValue;
+  if (disableMMUChecks) {
+    return true;
+  }
 
-  /*
-   * Determine if the page table pointer is within the kernel's direct map.
-   * If not, then it's an error.
-   *
-   * TODO: This check can cause a panic because the SVA VM does not set up
-   *       the kernel's direct map before starting the kernel. As a result,
-   *       we get page table addresses that don't fall into the direct map.
-   */
-  SVA_NOOP_ASSERT(isKernelDirectMap((uintptr_t)page_entry),
-                  "SVA: MMU: Not direct map\n");
-
+#if 0
   /*
    * Verify that we're not trying to modify the PML4 entry that controls the
    * secure memory virtual address space.
@@ -299,257 +241,36 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
   bool isSecMemL4Entry = isL4Pg(ptePG) &&
                          entryIdx >= PG_L4_ENTRY(SECMEMSTART) &&
                          entryIdx < PG_L4_ENTRY(SECMEMEND);
-  SVA_ASSERT(!isSecMemL4Entry,
-    "SVA: MMU: Kernel attempted to modify ghost memory pml4e!\n");
+  if (isSecMemL4Entry) {
+    return false;
+  }
+#endif
 
   /*
-   * Verify that we're not modifying any of the page tables that control the
-   * securem memory virtual address space. Ensuring that the page that we're
-   * writing into isn't a secure memory page table (along with the previous
-   * check) should suffice.
+   * We know that we are not attempting to modify a mapping in a secure memory
+   * page table, because we would have already failed if we were (secure memory
+   * page tables have their own type, and we would have errored out earlier
+   * when we checked that the page table type was correct for the type of
+   * update being performed.
    */
-  SVA_ASSERT(!isGhostPTP(ptePG),
-    "SVA: MMU: Kernel attempted to modify ghost memory mappings!\n");
 
-  /* 
-   * If we aren't mapping a new page then we can skip several checks, and in
-   * some cases we must, otherwise the checks will fail.
+  /*
+   * No need to check anything about the new mapping: the reference count
+   * system checks that for us.
    */
-  if (isPresent_maybeEPT(newVal, isEPT)) {
-    SVA_ASSERT(newPG != NULL,
-      "SVA: FATAL: Attempted to create mapping to non-existant frame 0x%lx"
-      "(PTE 0x%016lx)\n",
-      newPA / FRAME_SIZE, newVal);
 
-    /*
-     * Verify that we're not attempting to establish a mapping to a ghost PTP.
-     */
-    SVA_ASSERT(!isGhostPTP(newPG),
-      "SVA: MMU: Kernel attempted to map a ghost PTP!\n");
+  /*
+   * Don't allow existing kernel code mappings to be changed/removed.
+   * TODO: Also check this at higher levels.
+   */
+  if (origPG != NULL && isCodePg(origPG) && !isUserMapping(*page_entry)) {
+    return false;
+  }
 
-    /*
-     * If this is a last-level mapping (L1 or large page with PS bit set),
-     * verify that the mapping points to physical memory the OS is allowed to
-     * access.
-     *
-     * For non-last-level mappings, verify that the mappoing points to the
-     * appropriate next-level page table.
-     */
-    if (isLeafEntry(newVal, ptePG->type)) {
-      /*
-       * The OS is only allowed to create mappings to certain types of frames
-       * (e.g., unused, kernel data, or user data frames). Some frame types
-       * are allowed but are forced to be mapped non-writably (e.g. PTPs and
-       * code pages).
-       *
-       * All requests to add mappings to frame types not explicitly handled
-       * here are rejected by SVA. This is a "fail-closed" design that will
-       * reduce the risk of loopholes as we add frame types in ongoing SVA
-       * development.
-       */
-      switch (newPG->type) {
-        /* These mappings are allowed without restriction. */
-        case PGT_DATA:
-          break;
-        case PGT_FREE:
-          if (isWritable(newVal)) {
-            /* Make the page writable */
-            newPG->type = PGT_DATA;
-          }
-          break;
-
-          /* These are allowed, but forced to be non-writable. */
-        case PGT_CODE:
-          /*
-           * NOTE (EJJ 8/25/18): This code was included in this function
-           * before I refactored it. Based on the original comment, it
-           * *appeared* to be intended to *allow* writable mappings to code
-           * pages if they were in userspace. However, it was superseded by
-           * another check which explicitly made all code-page mappings
-           * non-writable (which is reflected in this switch table here in
-           * the refactored code).
-           *
-           * If not for the superseding check, I believe this would have been
-           * a security hole, since giving the kernel the power to make
-           * writable mappings in userspace to any code page is as good as
-           * allowing the kernel to make its own writable code page mappings.
-           *
-           * Perhaps what was intended (but incorrectly implemented) was to
-           * allow writable mappings to code pages which have been declare to
-           * SVA as being for use in userspace? (In any case, SVA doesn't
-           * presently have a frame type to represent that.)
-           *
-           * I've included the code here, commented-out, for posterity in
-           * case it existed for a reason which remains relevant. Please note
-           * that it will not simply "work" if you uncomment it, because this
-           * case falls through to "retValue = 1" (force non-writable) below,
-           * which matches the *actual* behavior of the pre-refactoring code
-           * (due to a superseding check which blanketly disallowed writable
-           * code-page mappings).
-           *
-           *    Original comment:
-           * New mappings to code pages are permitted as long as they are
-           * either for user-space pages or do not permit write access.
-           */
-#if 0
-          if (isCodePg(newPG)) {
-            SVA_ASSERT(!((newVal & (PG_W | PG_U)) == PG_W)
-              "SVA: Making kernel code writeable: %lx %lx\n", newVA, newVal);
-          }
-#endif
-        case PGT_L1:
-        case PGT_L2:
-        case PGT_L3:
-        case PGT_L4:
-          /* NOTE (EJJ 8/25/18): This code was commented-out in the original
-           * version of this function before I refactored it. I've left it
-           * that way and have not changed the comment below because I'm not
-           * entirely sure whether this code is still needed or worked
-           * correctly (given it was commented out).
-           */
-          /* 
-           * If the new page is a page table page, then we verify some page
-           * table page specific checks. 
-           *
-           * If we have a page table page being mapped in and it currently
-           * has a mapping to it, then we verify that the new VA from the new
-           * mapping matches the existing currently mapped VA.   
-           *
-           * This guarantees that we each page table page (and the
-           * translations within it) maps a singular region of the address
-           * space.
-           *
-           * Otherwise, this is the first mapping of the page, and we should
-           * record in what virtual address it is being placed.
-           */
-#if 0
-          if (pgRefCount(newPG) > 1) {
-            SVA_ASSERT(newPG->pgVaddr == page_entry,
-              "SVA: PG: %lx %lx: type=%x\n",
-              newPG->pgVaddr, page_entry, newPG->type);
-            SVA_ASSERT (newPG->pgVaddr == page_entry,
-                "MMU: Map PTP to second VA");
-          } else {
-            newPG->pgVaddr = page_entry;
-          }
-#endif
-        case PGT_EPTL1:
-        case PGT_EPTL2:
-        case PGT_EPTL3:
-        case PGT_EPTL4:
-          retValue = 1;
-          break;
-
-          /* These are explicitly disallowed. */
-        case PGT_GHOST:
-          /*
-           * Silently ignore the mapping request. This reduces porting effort
-           * because it's less likely to break something if the kernel
-           * accidentally attempts to map a ghost page (as long as the kernel
-           * doesn't actually try to access it).
-           */
-          printf("SVA: MMU: Kernel attempted to map a ghost page. "
-              "Ignoring and continuing...\n");
-          retValue = 0;
-          break;
-        case PGT_SVA:
-          SVA_ASSERT_UNREACHABLE(
-            "SVA: MMU: Kernel attempted to map an SVA page!\n");
-
-          /* All other mapping types are disallowed. */
-        default:
-          SVA_ASSERT_UNREACHABLE(
-            "SVA: MMU: Kernel attempted to map a page of unrecognized type! "
-            "paddr: 0x%lx; type: 0x%x\n", newPA, newPG->type);
-      }
-    } else { /* not an L1 or large page PTE */
-      /*
-       * This is a non-last-level mapping. Verify that it points to the
-       * appropriate type of next-level PTP.
-       */
-      switch (ptePG->type) {
-        case PGT_L4:
-#ifdef FreeBSD
-          /* 
-           * FreeBSD inserts a self mapping into the pml4, therefore it is
-           * valid to map in an L4 page into the L4.
-           *
-           * TODO: Consider the security implications of allowing an L4 to
-           *       map an L4.
-           */
-          SVA_ASSERT(isL3Pg(newPG) || isL4Pg(newPG), 
-              "SVA: MMU: Mapping non-L3/L4 page into L4.");
-#else
-          SVA_ASSERT(isL3Pg(newPG),
-              "SVA: MMU: Mapping non-L3 page into L4.");
-#endif
-          break;
-        case PGT_L3:
-          SVA_ASSERT(isL2Pg(newPG),
-              "SVA: MMU: Mapping non-L2 page into L3.");
-          break;
-        case PGT_L2:
-          SVA_ASSERT(isL1Pg(newPG),
-              "SVA: MMU: Mapping non-L1 page into L2.");
-          break;
-        /* L1 mappings are always last-level, no case needed.
-         * (We couldn't be in this "else" branch if it were true.)
-         */
-
-        case PGT_EPTL4:
-          SVA_ASSERT(isEPTL3Pg(newPG),
-              "SVA: MMU: Mapping non-L3 EPT page into EPT L4.");
-          break;
-        case PGT_EPTL3:
-          SVA_ASSERT(isEPTL2Pg(newPG),
-              "SVA: MMU: Mapping non-L2 EPT page into EPT L3.");
-          break;
-        case PGT_EPTL2:
-          SVA_ASSERT(isEPTL1Pg(newPG),
-              "SVA: MMU: Mapping non-L1 EPT page into EPT L1.");
-          break;
-        /* L1 mappings are always last-level, no case needed. */
-
-        default:
-          SVA_ASSERT_UNREACHABLE(
-              "SVA: MMU: attempted to use a page table update intrinsic on "
-              "a page that isn't a PTP!");
-          break;
-      }
-    } /* end else (not editing L1 or large-page PTP) */
-
-    /* Don't allow existing kernel code mappings to be changed/removed. */
-    if (origPA != newPA) {
-      if (origPG != NULL && isCodePg(origPG)) {
-        SVA_ASSERT(isUserMapping(*page_entry),
-          "SVA: MMU: Kernel attempted to modify "
-          "a kernel-space code page mapping!");
-      }
-    }
-
-    /*
-     * TODO: actually implement the checks described here. This comment has
-     * been around for a while but doesn't actually correspond to any code.
-     *
-     * If the new mapping is set for user access, but the VA being used is to
-     * kernel space, fail. Also capture in this check is if the new mapping is
-     * set for super user access, but the VA being used is to user space, fail.
-     *
-     * 3 things to assess for matches: 
-     *  - U/S Flag of new mapping
-     *  - Type of the new mapping frame
-     *  - Type of the PTE frame
-     * 
-     * Ensures the new mapping U/S flag matches the PT page frame type and the
-     * mapped in frame's page type, as well as no mapping kernel code pages
-     * into userspace.
-     */
-  } /* end if (new mapping is present) */
-
-  return retValue;
+  return true;
 }
 
-/*
+/**
  * Update the metadata for a page that is having a new mapping created to it.
  *
  * The goal is to manage any SVA page data that needs to be set for tracking
@@ -558,21 +279,20 @@ pt_update_is_valid (page_entry_t *page_entry, page_entry_t newVal) {
  *
  * @param mapping An x86_64 page table entry describing the new mapping of the
  *                page
- * @param isLeaf  True if the entry is a leaf mapping (L1 entry or PS bit set),
- *                otherwise false
+ * @param type    The type of the frames mapped by the new entry
  * @param count   The number of frames mapped by `mapping`
- * @param isEPT   Whether we are updating a mapping in an extended page table
  */
 static inline void
-updateNewPageData(page_entry_t mapping, bool isLeaf,
-                  size_t count, unsigned char isEPT) {
+updateNewPageData(page_entry_t mapping, frame_type_t type, size_t count) {
+  bool isEPT = type >= PGT_EPTL1 && type <= PGT_EPTL4;
+
   /*
    * If the new mapping is valid, update the counts for it.
    */
   if (isPresent_maybeEPT(mapping, isEPT)) {
     for (size_t i = 0; i < count; ++i) {
       uintptr_t newPA = PG_ENTRY_FRAME(mapping) + i * FRAME_SIZE;
-      page_desc_t *newPG = getPageDescPtr(newPA);
+      frame_desc_t *newPG = get_frame_desc(newPA);
       SVA_ASSERT(newPG != NULL,
         "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
 
@@ -590,15 +310,21 @@ updateNewPageData(page_entry_t mapping, bool isLeaf,
       }
 #endif
 
+      if (type == PGT_DATA && newPG->type == PGT_FREE) {
+        /*
+         * The frame is currently free, but we need to use it as data. Make the
+         * frame a data frame.
+         */
+        frame_morph(newPG, PGT_DATA);
+      }
+
       /*
        * Update the reference count for the new page frame. Check that we aren't
        * overflowing the counter.
        */
-      pgRefCountInc(newPG, isLeaf ? isWritable(mapping) : false);
+      frame_take(newPG, type);
     }
   }
-
-  return;
 }
 
 /*
@@ -606,14 +332,13 @@ updateNewPageData(page_entry_t mapping, bool isLeaf,
  *
  * @param mapping An x86_64 page table entry describing the old mapping of the
  *                page
- * @param isLeaf  True if the entry is a leaf mapping (L1 entry or PS bit set),
- *                otherwise false
+ * @param type    The type of the frames that were mapped by the old entry
  * @param count   The number of frames mapped by `mapping`
- * @param isEPT   Whether we are updating a mapping in an extended page table
  */
 static inline void
-updateOrigPageData(page_entry_t mapping, bool isLeaf,
-                   size_t count, unsigned char isEPT) {
+updateOrigPageData(page_entry_t mapping, frame_type_t type, size_t count) {
+  bool isEPT = type >= PGT_EPTL1 && type <= PGT_EPTL4;
+
   /*
    * Only decrement the reference count if the page has an existing valid
    * mapping.
@@ -621,59 +346,44 @@ updateOrigPageData(page_entry_t mapping, bool isLeaf,
   if (isPresent_maybeEPT(mapping, isEPT)) {
     for (size_t i = 0; i < count; ++i) {
       uintptr_t origPA = PG_ENTRY_FRAME(mapping) + i * FRAME_SIZE;
-      page_desc_t *origPG = getPageDescPtr(origPA);
+      frame_desc_t *origPG = get_frame_desc(origPA);
       SVA_ASSERT(origPG != NULL,
         "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
 
-      /*
-       * Check that the refcount isn't already below 2, which would mean it
-       * isn't mapped anywhere besides SVA's direct map. That shouldn't be the
-       * case for any present mapping that the OS is allowed to remove with an
-       * intrinsic that calls this code. If it is, SVA's frame metadata has
-       * somehow become inconsistent.
-       */
-      SVA_ASSERT(pgRefCount(origPG) >= 2,
-        "SVA: MMU: frame metadata inconsistency detected "
-        "(attempted to decrement refcount below 1)\n"
-        "[updateOrigPageData()] "
-        "refcount = %d\n",
-        pgRefCount(origPG));
-
-      pgRefCountDec(origPG, isLeaf ? isWritable(mapping) : false);
+      frame_drop(origPG, type);
+      if (origPG->type == PGT_DATA && origPG->type_count == 0) {
+        /*
+         * This was a data frame, and its type count is now 0. Make it a free
+         * frame.
+         */
+        frame_morph(origPG, PGT_FREE);
+      }
     }
   }
 }
 
-/*
- * Function: __do_mmu_update
+/**
+ * Perform a page table update and update reference counts.
  *
- * Description:
- *  This function manages metadata by updating the internal SVA reference
- *  counts for pages and then performs the actual update.
+ * Also works for extended page table (EPT) updates. Whether a regular or
+ * extended page table is being updated is inferred from the SVA frame type of
+ * the PTP being modified.
  *
- *  Also works for extended page table (EPT) updates. Whether a regular or
- *  extended page table is being updated is inferred from the SVA frame type
- *  of the PTP being modified.
+ * This function should only be called after it is known that it is safe to
+ * change the entry.
  *
- * Assumption:
- *  This function should only be called after the update has been validated
- *  to ensure it is safe (e.g. by pt_update_is_valid()). This is the case in
- *  the function's only current caller, __update_mapping().
- *
- * Inputs:
- *  *page_entry  - VA pointer to the page entry being modified
- *  mapping      - The new mapping to insert into page_entry
+ * @param pte     Pointer to the page entry being modified
+ * @param new_pte The new mapping to insert into `*pte`
  */
-static inline void
-__do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
-  /* Is this an extended page table update? */
-  uintptr_t ptePaddr = getPhysicalAddr(pteptr);
-  page_desc_t *ptePG = getPageDescPtr(ptePaddr);
-  bool oldIsLeaf = isLeafEntry(*pteptr, ptePG->type);
-  bool newIsLeaf = isLeafEntry(mapping, ptePG->type);
+static inline void do_mmu_update(page_entry_t* pte, page_entry_t new_pte) {
+  frame_desc_t* ptePG = get_frame_desc(getPhysicalAddr(pte));
+
+  bool oldIsLeaf = isLeafEntry(*pte, ptePG->type);
+  bool newIsLeaf = isLeafEntry(new_pte, ptePG->type);
   size_t oldCount = oldIsLeaf ? getMappedSize(ptePG->type) / FRAME_SIZE : 1;
   size_t newCount = newIsLeaf ? getMappedSize(ptePG->type) / FRAME_SIZE : 1;
-  unsigned char isEPT = ptePG->type >= PGT_EPTL1 && ptePG->type <= PGT_EPTL4;
+  frame_type_t oldType = frame_type_from_pte(*pte, ptePG->type);
+  frame_type_t newType = frame_type_from_pte(new_pte, ptePG->type);
 
   /*
    * If we have a new mapping as opposed to just changing the flags of an
@@ -681,12 +391,18 @@ __do_mmu_update (pte_t * pteptr, page_entry_t mapping) {
    * that we have passed the validation checks so these updates have been
    * vetted.
    */
-  updateOrigPageData(*pteptr, oldIsLeaf, oldCount, isEPT);
-  updateNewPageData(mapping, newIsLeaf, newCount, isEPT);
+  updateOrigPageData(*pte, oldType, oldCount);
+  updateNewPageData(new_pte, newType, newCount);
 
-  /* Perform the actual write to into the page table entry */
-  page_entry_store((page_entry_t *) pteptr, mapping);
-  return;
+  /* Perform the actual write to into the page table entry. */
+  page_entry_store(pte, new_pte);
+}
+
+void update_mapping(page_entry_t* pte, page_entry_t new_pte) {
+  SVA_ASSERT(pte_can_change(pte),
+    "SVA: FATAL: Bad update attempt for PTE at %p: 0x%016lx -> 0x%016lx\n",
+    pte, *pte, new_pte);
+  do_mmu_update(pte, new_pte);
 }
 
 void sva_mm_flush_tlb(void* address) {
@@ -694,6 +410,7 @@ void sva_mm_flush_tlb(void* address) {
 }
 
 void initDeclaredPage(uintptr_t frame) {
+#if 0
   /*
    * Get the direct map virtual address of the physical address.
    */
@@ -713,6 +430,7 @@ void initDeclaredPage(uintptr_t frame) {
      */
     __do_mmu_update(page_entry, setMappingReadOnly(*page_entry));
   }
+#endif
 
   /*
    * Do a global TLB flush (including for EPT if SVA-VMX is active) to
@@ -742,32 +460,6 @@ void initDeclaredPage(uintptr_t frame) {
     invept_allcontexts();
     invvpid_allcontexts();
   }
-}
-
-void __update_mapping(page_entry_t* pageEntryPtr, page_entry_t val) {
-  /*
-   * If the given page update is valid then store the new value to the page
-   * table entry, else raise an error.
-   */
-  switch (pt_update_is_valid((page_entry_t *) pageEntryPtr, val)) {
-    case 1:
-      val = setMappingReadOnly(val);
-      __do_mmu_update((page_entry_t *) pageEntryPtr, val);
-      break;
-
-    case 2:
-      __do_mmu_update((page_entry_t *) pageEntryPtr, val);
-      break;
-
-    case 0:
-      /* Silently ignore the request */
-      return;
-
-    default:
-      SVA_ASSERT_UNREACHABLE("##### SVA invalid page update!!!\n");
-  }
-
-  return;
 }
 
 /* Functions for finding the virtual address of page table components */
@@ -1011,7 +703,7 @@ uintptr_t getPhysicalAddr(void* v) {
  *  This function allocates a page table page, initializes it, and returns it
  *  to the caller.
  */
-static unsigned int allocPTPage(page_type_t level) {
+static unsigned int allocPTPage(frame_type_t level) {
   /* Index into the page table information array */
   unsigned int ptindex;
 
@@ -1060,7 +752,7 @@ static unsigned int allocPTPage(page_type_t level) {
     /*
      * Set the type of the page to be a ghost page table page.
      */
-    getPageDescPtr(getPhysicalAddr(p))->type = level;
+    frame_morph(get_frame_desc(getPhysicalAddr(p)), level);
 
     /*
      * Return the index in the table.
@@ -1087,7 +779,7 @@ freePTPage (unsigned int ptindex) {
   /*
    * Change the type of the page table page.
    */
-  getPageDescPtr(PTPages[ptindex].paddr)->type = PGT_FREE;
+  frame_morph(get_frame_desc(PTPages[ptindex].paddr), PGT_FREE);
 
   return;
 }
@@ -1190,15 +882,9 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    * Ensure that this page is not being used for something else. The refcount
    * should be 1, i.e., the page should only be present in SVA's direct map.
    */
-  page_desc_t *pgDesc = getPageDescPtr(paddr);
+  frame_desc_t *pgDesc = get_frame_desc(paddr);
   SVA_ASSERT(pgDesc != NULL,
     "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
-  SVA_ASSERT(pgRefCount(pgDesc) <= 1,
-    "SVA: Ghost page still in use somewhere else! "
-    "refcount = %d\n", pgRefCount(pgDesc));
-  SVA_ASSERT(!isPTP(pgDesc) && !isCodePg(pgDesc),
-    "SVA: Ghost page has wrong type! "
-    "type = %d\n", pgDesc->type);
 
   /*
    * Disable protections.
@@ -1301,6 +987,18 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
 #endif
 
   /*
+   * Mark the physical page frame as a ghost memory page frame. Also checks
+   * that this frame is safe to use for ghost memory.
+   */
+  frame_morph(pgDesc, PGT_GHOST);
+
+  /*
+   * Increment the refcount for the frame to reflect that it is in use by the
+   * ghost mapping we are creating.
+   */
+  frame_take(pgDesc, PGT_GHOST);
+
+  /*
    * Modify the PTE to install the physical to virtual page mapping.
    */
   *pte = PG_ENTRY_FRAME(paddr) | PG_P | PG_W | PG_U;
@@ -1309,19 +1007,6 @@ mapSecurePage (uintptr_t vaddr, uintptr_t paddr) {
    * Note that we've added another translation to the pde.
    */
   updateUses(pte);
-
-  /*
-   * Mark the physical page frame as a ghost memory page frame.
-   */
-  pgDesc->type = PGT_GHOST;
- 
-  /*
-   * Increment the refcount for the frame to reflect that it is in use by the
-   * ghost mapping we are creating.
-   *
-   * Check that we don't overflow the counter.
-   */
-  pgRefCountInc(pgDesc, true);
 
   /*
    * Re-enable page protections.
@@ -1390,33 +1075,8 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
   /*
    * Decrement the refcount for the frame to reflect that it is no longer in
    * use by the ghost mapping we are removing.
-   *
-   * Check that the refcount is at least two (i.e., the frame is mapped
-   * somewhere other than SVA's DMAP). If not, something has gone wrong
-   * (either SVA's frame metadata has become inconsistent, or the caller has
-   * improperly used this function to remove an entry in SVA's DMAP).
    */
-  page_desc_t *pageDesc = getPageDescPtr(PG_L1_FRAME(*pte));
-  SVA_ASSERT(pgRefCount(pageDesc) >= 2,
-    "SVA: MMU: frame metadata inconsistency detected "
-    "(attempted to remove ghost mapping with refcount < 2). "
-    "refcount = %d\n", pgRefCount(pageDesc));
-  pgRefCountDec(pageDesc, isWritable(*pte));
-
-  /*
-   * If we have removed the last ghost mapping to this frame, mark its type
-   * as regular internal SVA memory so it can be safely returned to the frame
-   * cache.
-   *
-   * This is what the frame's type was when we first obtained it from the
-   * frame cache (assuming that the preconditions on free_frame() have always
-   * been upheld). Now that we are done using it as ghost memory, we return
-   * it to this type.
-   */
-  if (pgRefCount(pageDesc) == 1) {
-    /* count == 1 means mapped only in SVA's DMAP */
-    pageDesc->type = PGT_SVA;
-  }
+  frame_desc_t *pageDesc = get_frame_desc(PG_L1_FRAME(*pte));
 
   /*
    * Modify the PTE so that the page is not present.
@@ -1431,6 +1091,16 @@ unmapSecurePage (struct SVAThread * threadp, unsigned char * v) {
    * Invalidate any TLBs in the processor.
    */
   sva_mm_flush_tlb(v);
+
+  frame_drop(pageDesc, PGT_GHOST);
+
+  /*
+   * If we have removed the last ghost mapping to this frame, mark the frame as
+   * free.
+   */
+  if (pageDesc->type_count == 0) {
+    frame_morph(pageDesc, PGT_FREE);
+  }
 
   /*
    * Go through and determine if any of the SVA VM pages tables are now unused.
@@ -1584,24 +1254,13 @@ ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
         if (!isPresent(*src_pte))
           continue;
 
-        page_desc_t *pgDesc = getPageDescPtr(*src_pte);
+        frame_desc_t *pgDesc = get_frame_desc(*src_pte);
 
-        SVA_ASSERT(pgDesc->type == PGT_GHOST,
-          "SVA: ghostmemCOW: page is not a ghost memory page!\n"
-          "vaddr = 0x%lx, src_pte = %p, *src_pte = 0x%lx, "
-          "src_pde = %p, *src_pde = 0x%lx\n",
-          vaddr_pte, src_pte, *src_pte, src_pde, *src_pde);
+        frame_take(pgDesc, PGT_GHOST);
 
         *src_pte &= ~PG_W;
         *pte = *src_pte;
         updateUses(pte);
-        /*
-         * We are taking a writable page, and making a new mapping to it while
-         * making both mappings unwritable, so we need to decrement the writable
-         * reference count and increment the total reference count.
-         */
-        pgRefCountDecWr(pgDesc);
-        pgRefCountInc(pgDesc, false);
       }
     }
   }
@@ -1649,12 +1308,12 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
    * Check that the new page table is an L4 page table page.
    */
   if ((mmuIsInitialized) && (!disableMMUChecks)) {
-    page_desc_t* pml4Desc = getPageDescPtr(new_pml4);
+    frame_desc_t* pml4Desc = get_frame_desc(new_pml4);
     SVA_ASSERT(pml4Desc != NULL,
       "SVA: FATAL: Using non-existant frame as root page table\n");
     SVA_ASSERT(pml4Desc->type == PGT_L4,
       "SVA: Loading non-L4 page into CR3: %lx %x\n",
-      new_pml4, getPageDescPtr(new_pml4)->type);
+      new_pml4, get_frame_desc(new_pml4)->type);
   }
 
   /*
@@ -1681,25 +1340,13 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
    * Increment the reference count for the new PML4 page that we're about to
    * point CR3 to, and decrement it for the old PML4 being switched out.
    */
-  page_desc_t *newpml4Desc = getPageDescPtr(new_pml4);
-  page_desc_t *oldpml4Desc = getPageDescPtr(read_cr3());
+  frame_desc_t *newpml4Desc = get_frame_desc(new_pml4);
+  frame_desc_t *oldpml4Desc = get_frame_desc(read_cr3());
 
   SVA_ASSERT(newpml4Desc != NULL,
-    "SVA: FATAL: Using non-existant frame as root page table\n");
-  pgRefCountInc(newpml4Desc, false);
-
-  /*
-   * Check that the refcount isn't already below 2, which would mean that it
-   * isn't mapped anywhere besides SVA's direct map. That shouldn't be the
-   * case for a PML4 that was (until now) in use by CR3. If it is, SVA's
-   * frame metadata has somehow become inconsistent.
-   */
-  SVA_ASSERT(pgRefCount(oldpml4Desc) >= 2,
-    "SVA: MMU: frame metadata inconsistency detected "
-    "(attempted to decrement refcount below 1)\n"
-    "[old CR3 being replaced] "
-    "refcount = %d\n", pgRefCount(oldpml4Desc));
-  pgRefCountDec(oldpml4Desc, false);
+    "SVA: FATAL: Using non-existant frame 0x%lx as root page table\n",
+    new_pml4 / FRAME_SIZE);
+  frame_take(newpml4Desc, PGT_L4);
 
 #ifdef SVA_ASID_PG
   /*
@@ -1707,22 +1354,17 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
    * exist).
    */
   if (newpml4Desc->other_pgPaddr) {
-    page_desc_t *kernel_newpml4Desc =
-      getPageDescPtr(newpml4Desc->other_pgPaddr);
+    frame_desc_t *kernel_newpml4Desc =
+      get_frame_desc(newpml4Desc->other_pgPaddr);
 
-    pgRefCountInc(kernel_newpml4Desc, false);
+    frame_take(kernel_newpml4Desc, PGT_L4);
   }
 
   if (oldpml4Desc->other_pgPaddr) {
-    page_desc_t *kernel_oldpml4Desc =
-      getPageDescPtr(oldpml4Desc->other_pgPaddr);
+    frame_desc_t *kernel_oldpml4Desc =
+      get_frame_desc(oldpml4Desc->other_pgPaddr);
 
-    SVA_ASSERT(pgRefCount(oldpml4Desc) >= 2,
-      "SVA: MMU: frame metadata inconsistency detected "
-      "(attempted to decrement refcount below 1)\n"
-      "[old kernel PML4 being replaced] "
-      "refcount = %d\n", pgRefCount(oldpml4Desc));
-    pgRefCountDec(kernel_oldpml4Desc, false);
+    frame_drop(kernel_oldpml4Desc, PGT_L4);
   }
 
   /*
@@ -1744,6 +1386,8 @@ sva_mm_load_pgtable (cr3_t pg_ptr) {
    * secure memory mapping in the PML4 that we updated above is in effect).
    */
   write_cr3(new_pml4);
+
+  frame_drop(oldpml4Desc, PGT_L4);
 
   /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
@@ -1800,7 +1444,7 @@ void usersva_to_kernel_pcid(void) {
    */
   if (!(old_cr3 & 0x1)) {
     /* Get the alternate PML4 address from SVA's page metadata. */
-    page_desc_t *pml4Desc = getPageDescPtr(old_cr3);
+    frame_desc_t *pml4Desc = get_frame_desc(old_cr3);
     unsigned long altpml4 = pml4Desc->other_pgPaddr;
 
     /*
@@ -1848,7 +1492,7 @@ void kernel_to_usersva_pcid(void) {
    */
   if (old_cr3 & 0x1 /* if PCID != 1, it will be 0 */) {
     /* Get the alternate PML4 address from SVA's page metadata. */
-    page_desc_t *pml4Desc = getPageDescPtr(old_cr3);
+    frame_desc_t *pml4Desc = get_frame_desc(old_cr3);
     unsigned long altpml4 = pml4Desc->other_pgPaddr;
 
     /*
@@ -1899,25 +1543,20 @@ void sva_update_l4_dmap(void * pml4pg, int index, page_entry_t val)
 /**
  * Validate that a leaf mapping is safe.
  *
- * @param entry   The leaf entry
- * @param frames  The number of frames mapped by `entry`
+ * @param entry The leaf entry
+ * @param level The level of page table which contains `entry`
  */
-static void validate_existing_leaf(page_entry_t entry, size_t frames) {
+static void validate_existing_leaf(page_entry_t entry, frame_type_t level) {
+  size_t frames = getMappedSize(level) / FRAME_SIZE;
+
   for (size_t i = 0; i < frames; ++i) {
     uintptr_t frame = PG_ENTRY_FRAME(entry) + i * FRAME_SIZE;
-    page_desc_t* pgDesc = getPageDescPtr(frame);
+    frame_desc_t* pgDesc = get_frame_desc(frame);
     SVA_ASSERT(pgDesc != NULL,
       "SVA: FATAL: New page table contains mapping to non-existant "
       "frame 0x%lx\n", frame / FRAME_SIZE);
 
-    if (pgDesc->type == PGT_FREE && isWritable(entry)) {
-      pgDesc->type = PGT_DATA;
-    }
-    SVA_ASSERT(mappingIsSafe(entry, pgDesc->type),
-      "SVA: FATAL: New page table contains unsafe mapping to frame 0x%lx "
-      "with type %d (entry is 0x%016lx)\n",
-      frame, pgDesc->type, entry);
-    pgRefCountInc(pgDesc, isWritable(entry));
+    frame_take(pgDesc, frame_type_from_pte(entry, level));
   }
 }
 
@@ -1931,41 +1570,28 @@ static void validate_existing_leaf(page_entry_t entry, size_t frames) {
  * @param frame The new page table frame
  * @param level The level of the new page table
  */
-static void validate_existing_entries(uintptr_t frame, enum page_type_t level) {
+static void validate_existing_entries(uintptr_t frame, frame_type_t level) {
   page_entry_t* entries = (page_entry_t*)getVirtual(frame);
 
   for (size_t i = 0; i < PG_ENTRIES; ++i) {
     if (isPresent(entries[i])) {
       if (isLeafEntry(entries[i], level)) {
-        validate_existing_leaf(entries[i], getMappedSize(level) / FRAME_SIZE);
+        validate_existing_leaf(entries[i], level);
       } else {
         uintptr_t entryFrame = PG_ENTRY_FRAME(entries[i]);
-        page_desc_t* pgDesc = getPageDescPtr(entryFrame);
+        frame_desc_t* pgDesc = get_frame_desc(entryFrame);
         SVA_ASSERT(pgDesc != NULL,
           "SVA: FATAL: New L%d table at 0x%lx contains mapping to non-existant "
           "frame 0x%lx\n",
           getIntLevel(level), frame / FRAME_SIZE, entryFrame / FRAME_SIZE);
 
-        if (pgDesc->type != getSublevelType(level)) {
-          SVA_ASSERT_UNREACHABLE(
-            "SVA: FATAL: Recursive page validation not yet supported\n");
-        }
-        pgRefCountInc(pgDesc, false);
+        frame_take(pgDesc, getSublevelType(level));
       }
     }
   }
 }
 
-/**
- * Mark the specified frame as a page table.
- *
- * Validates than any existing entries are safe, and will also remove write
- * access to the page from the kernel's direct map.
- *
- * @param frame The physical address of the frame that will become a page table
- * @param level The level of page table that `frame` will become
- */
-void sva_declare_page(uintptr_t frame, enum page_type_t level) {
+void sva_declare_page(uintptr_t frame, frame_type_t level) {
   if (!mmuIsInitialized) {
     return;
   }
@@ -1974,41 +1600,16 @@ void sva_declare_page(uintptr_t frame, enum page_type_t level) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
-  /* Get the page_desc for the newly declared page table */
-  page_desc_t *pgDesc = getPageDescPtr(frame);
+  /* Get the frame_desc for the newly declared page table */
+  frame_desc_t *pgDesc = get_frame_desc(frame);
   SVA_ASSERT(pgDesc != NULL,
-    "SVA: FATAL: Attempt to use non-existant frame %lx as L%d page table\n",
-    frame / FRAME_SIZE, getIntLevel(level));
-
-  /*
-   * Make sure that this frame is free.
-   */
-  SVA_ASSERT(pgDesc->type == PGT_FREE,
-    "SVA: FATAL: Declaring L%d page table for frame %lx with invalid type %d\n",
-    getIntLevel(level), frame / FRAME_SIZE, pgDesc->type);
-
-#ifdef SVA_DMAP
-  /*
-   * A page can only be declared as a page table page if its writable reference
-   * count is 2 or less.
-   */
-  SVA_ASSERT(pgRefCountWr(pgDesc) <= 2,
-    "SVA: FATAL: Cannot declare L%d page: "
-    "There are still %u writable mappings to frame 0x%ld!\n",
-    getIntLevel(level), pgRefCountWr(pgDesc), frame / FRAME_SIZE);
-#else
-#if 0
-  /* A page can only be declared as a page table page if its reference count is 0 or 1.*/
-  SVA_ASSERT((pgRefCount(pgDesc) <= 1),
-    "sva_declare_page: more than one virtual addresses "
-    "are still using this page!");
-#endif
-#endif
+    "SVA: FATAL: Attempt to use non-existant frame %lx as %s page table\n",
+    frame / FRAME_SIZE, frame_type_name(level));
 
   /*
    * Mark this page frame as a page table.
    */
-  pgDesc->type = level;
+  frame_morph(pgDesc, level);
 
 #if 0
   /*
@@ -2018,9 +1619,7 @@ void sva_declare_page(uintptr_t frame, enum page_type_t level) {
 #endif
 
   /*
-   * Initialize the page data and page entry. Note that we pass a general
-   * page_entry_t to the function as it enables reuse of code for each of the
-   * entry declaration functions.
+   * Initialize the new page table.
    */
   initDeclaredPage(frame);
 
@@ -2151,15 +1750,8 @@ sva_remove_page (uintptr_t paddr) {
 
   unsigned char isEPT; /* whether we are undeclaring an extended page table */
 
-  /*
-   * Get the last-level page table entry in the kernel's direct map that
-   * references this PTP.
-   */
-  page_entry_t *pte_kdmap =
-    get_pgeVaddr((uintptr_t)getVirtualKernelDMAP(paddr));
-
   /* Get the descriptor for the physical frame where this PTP resides. */
-  page_desc_t *pgDesc = getPageDescPtr(paddr);
+  frame_desc_t *pgDesc = get_frame_desc(paddr);
   SVA_ASSERT(pgDesc != NULL,
     "SVA: FATAL: Frame being removed doesn't exist\n");
 
@@ -2187,45 +1779,8 @@ sva_remove_page (uintptr_t paddr) {
 
     default:
       SVA_ASSERT_UNREACHABLE(
-        "SVA: undeclare bad page type: %lx %x\n", paddr, pgDesc->type);
-#if 0
-      /* Restore interrupts and return to kernel page tables */
-      sva_exit_critical(rflags);
-      usersva_to_kernel_pcid();
-      record_tsc(sva_remove_page_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-      return;
-#endif
-  }
-
-  /*
-   * Check that there are no references to this page (i.e., there is no page
-   * table entry that refers to this physical page frame).  If there is a
-   * mapping, then someone is still using it as a page table page.  In that
-   * case, raise an error.
-   *
-   * Note that we check for a reference count of 2 because all pages are
-   * always mapped into SVA's direct map, and PTPs in particular remain
-   * mapped in the kernel's direct map (albeit read-only, which we'll be
-   * un-setting below).
-   */
-  if (pgRefCount(pgDesc) >= 2) {
-#ifdef XEN
-    /*
-     * Xen PV guests have read-only mappings of page tables, which raises their
-     * reference count above 2. Ignore the error until we set up proper per-type
-     * reference counts.
-     */
-#if 0
-    printf("SVA: WARNING: undeclare page with outstanding references: "
-        "type=%d count=%d\n", pgDesc->type, pgRefCount(pgDesc));
-    printf("SVA: This should be fatal, but is allowed as a hack to support "
-           "PV guests.\n");
-#endif
-#else
-    SVA_ASSERT_UNREACHABLE(
-      "SVA: FATAL: undeclare page with outstanding references: "
-      "type=%d count=%d\n", pgDesc->type, pgRefCount(pgDesc));
-#endif
+        "SVA: FATAL: undeclare bad page type: %lx %s\n",
+        paddr, frame_type_name(pgDesc->type));
   }
 
   /*
@@ -2235,11 +1790,11 @@ sva_remove_page (uintptr_t paddr) {
    * (Note: PG_ENTRIES = # of entries in a PTP. We assume this is the same at
    * all levels of the paging hierarchy.)
    */
-  page_entry_t *ptp_vaddr = (page_entry_t *) getVirtualSVADMAP(paddr);
+  page_entry_t* ptp_vaddr = (page_entry_t*)getVirtual(paddr);
   for (unsigned long i = 0; i < PG_ENTRIES; i++) {
     if (isPresent_maybeEPT(ptp_vaddr[i], isEPT)) {
       /* Remove the mapping */
-      page_desc_t *mappedPg = getPageDescPtr(ptp_vaddr[i]);
+      frame_desc_t *mappedPg = get_frame_desc(ptp_vaddr[i]);
       if (isGhostPTP(mappedPg)) {
         /*
          * The method of removal for ghost PTP mappings is slightly
@@ -2248,7 +1803,7 @@ sva_remove_page (uintptr_t paddr) {
          */
         unsigned int ptindex = releaseUse(&ptp_vaddr[i]);
         freePTPage(ptindex);
-        ptp_vaddr[i] = 0;
+        ptp_vaddr[i] = ZERO_MAPPING;
       } else {
         bool isLeaf = isLeafEntry(ptp_vaddr[i], pgDesc->type);
         size_t count = isLeaf ? getMappedSize(pgDesc->type) / FRAME_SIZE : 1;
@@ -2259,21 +1814,29 @@ sva_remove_page (uintptr_t paddr) {
          * reference has been dropped.  Since this page is about to become a
          * data page, there is no safety concern with leaving the entry intact.
          */
-        updateOrigPageData(ptp_vaddr[i], isLeaf, count, isEPT);
+        updateOrigPageData(ptp_vaddr[i],
+                           frame_type_from_pte(ptp_vaddr[i], pgDesc->type),
+                           count);
       }
     }
   }
 
-  /* Mark the page frame as an unused page. */
-  pgDesc->type = PGT_FREE;
+  /*
+   * Mark the page frame as an unused page.  Note that this will also check
+   * that there are no references to this page (i.e., there is no page table
+   * entry that refers to this physical page frame).
+   */
+  frame_morph(pgDesc, PGT_FREE);
 
+#if 0
   /*
    * Make the page writeable again in the kernel's direct map. Be sure to
    * flush entries pointing to it in the TLBs so that the change takes
    * effect right away.
    */
-  __do_mmu_update(pte_kdmap, setMappingReadWrite(*pte_kdmap));
+  do_mmu_update(pte_kdmap, setMappingReadWrite(*pte_kdmap));
   sva_mm_flush_tlb(getVirtualKernelDMAP(paddr));
+#endif
 
 #ifdef SVA_ASID_PG
   /*
@@ -2295,10 +1858,7 @@ sva_remove_page (uintptr_t paddr) {
      * boot.)
      */
     if (other_cr3) {
-      page_desc_t *other_pgDesc = getPageDescPtr(other_cr3);
-      SVA_ASSERT(pgRefCount(other_pgDesc) <= 2,
-          "the kernel version pml4 page table page "
-          "still has reference.\n" );
+      frame_desc_t *other_pgDesc = get_frame_desc(other_cr3);
 
       /*
        * If any valid mappings remain within the PTP, explicitly remove
@@ -2309,13 +1869,14 @@ sva_remove_page (uintptr_t paddr) {
       for (int i = 0; i < PG_ENTRIES; i++) {
         if (isPresent_maybeEPT(other_pml4_vaddr[i], isEPT)) {
           /* Remove the mapping */
-          __update_mapping(&other_pml4_vaddr[i], ZERO_MAPPING);
+          update_mapping(&other_pml4_vaddr[i], ZERO_MAPPING);
         }
       }
 
       /* Mark the page frame as an unused page. */
       other_pgDesc->type = PGT_FREE;
 
+#if 0
       /*
        * Make the page writable again in the kernel's direct map. Be sure
        * to flush entries pointing to it in the TLBs so that the change
@@ -2323,8 +1884,9 @@ sva_remove_page (uintptr_t paddr) {
        */
       page_entry_t* other_pte =
         get_pgeVaddr((uintptr_t)getVirtualKernelDMAP(other_cr3));
-      __do_mmu_update(other_pte, setMappingReadWrite(*other_pte));
+      do_mmu_update(other_pte, setMappingReadWrite(*other_pte));
       sva_mm_flush_tlb(getVirtual(other_cr3));
+#endif
 
       other_pgDesc->other_pgPaddr = 0;
       pgDesc->other_pgPaddr = 0;
@@ -2350,7 +1912,7 @@ sva_remove_page (uintptr_t paddr) {
  */
 uintptr_t sva_get_kernel_pml4pg(uintptr_t paddr)
 {
-	page_desc_t *pgDesc = getPageDescPtr(paddr);
+	frame_desc_t *pgDesc = get_frame_desc(paddr);
         SVA_ASSERT(pgDesc != NULL,
           "SVA: FATAL: Frame doesn't exist\n");
 	uintptr_t other_paddr = pgDesc->other_pgPaddr & ~PML4_SWITCH_DISABLE;
@@ -2365,7 +1927,7 @@ uintptr_t sva_get_kernel_pml4pg(uintptr_t paddr)
  *  This function clears an entry in a page table page. It is agnostic to the
  *  level of page table (and whether we are dealing with an extended or
  *  regular page table). The particular needs for each page table level/type
- *  are handled in the __update_mapping function.
+ *  are handled in the update_mapping function.
  *
  * Inputs:
  *  pteptr - The location within the page table page for which the translation
@@ -2387,7 +1949,7 @@ sva_remove_mapping(page_entry_t * pteptr) {
   unsigned long rflags = sva_enter_critical();
 
   /* Update the page table mapping to zero */
-  __update_mapping(pteptr, ZERO_MAPPING);
+  update_mapping(pteptr, ZERO_MAPPING);
 
 #ifdef SVA_ASID_PG
   /*
@@ -2396,7 +1958,7 @@ sva_remove_mapping(page_entry_t * pteptr) {
    * copy.
    */
   uintptr_t ptePA = getPhysicalAddr(pteptr);
-  page_desc_t *ptePG = getPageDescPtr(ptePA);
+  frame_desc_t *ptePG = get_frame_desc(ptePA);
   SVA_ASSERT(ptePG != NULL,
     "SVA: FATAL: Page table frame doesn't exist\n");
 
@@ -2408,7 +1970,7 @@ sva_remove_mapping(page_entry_t * pteptr) {
         ((unsigned long) getVirtual(other_cr3)
          | ((unsigned long) pteptr & vmask));
 
-      __update_mapping(other_pteptr, ZERO_MAPPING);
+      update_mapping(other_pteptr, ZERO_MAPPING);
     }
   }
 #endif
@@ -2419,7 +1981,7 @@ sva_remove_mapping(page_entry_t * pteptr) {
   record_tsc(sva_remove_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
 
-
+#ifdef SVA_ASID_PG
 /* 
  * Function: sva_update_l1_mapping_checkglobal()
  *
@@ -2459,7 +2021,7 @@ sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned lon
    * Ensure that the PTE pointer points to an L1 page table.  If it does not,
    * then report an error.
    */
-  page_desc_t * ptDesc = getPageDescPtr (getPhysicalAddr(pteptr));
+  frame_desc_t * ptDesc = get_frame_desc (getPhysicalAddr(pteptr));
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: Page table frame doesn't exist\n");
   SVA_ASSERT(disableMMUChecks || ptDesc->type == PGT_L1,
@@ -2468,7 +2030,7 @@ sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned lon
   /*
    * Update the page table with the new mapping.
    */
-  __update_mapping(pteptr, val);
+  update_mapping(pteptr, val);
 
   /* Restore interrupts */
   sva_exit_critical (rflags);
@@ -2478,6 +2040,7 @@ sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned lon
   record_tsc(sva_update_l1_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
   return;
 }
+#endif /* SVA_ASID_PG */
 
 /**
  * Update a page table entry.
@@ -2489,7 +2052,7 @@ sva_update_l1_mapping_checkglobal(pte_t * pteptr, page_entry_t val, unsigned lon
  * @param level   The level of page table which contains `pte`
  */
 void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
-                        enum page_type_t level)
+                        frame_type_t level)
 {
   if (!mmuIsInitialized) {
     /*
@@ -2508,20 +2071,18 @@ void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
   unsigned long rflags = sva_enter_critical();
 
   /*
-   * Ensure that the PTE pointer points to an L1 page table.  If it does not,
-   * then report an error.
+   * Ensure that the PTE pointer points to the specified level of page table.
+   * If it does not, then report an error.
    */
-  page_desc_t * ptDesc = getPageDescPtr(getPhysicalAddr(pte));
+  frame_desc_t* ptDesc = get_frame_desc(getPhysicalAddr(pte));
   SVA_ASSERT(ptDesc != NULL,
-    "SVA: FATAL: L%d page table frame doesn't exist\n", getIntLevel(level));
+    "SVA: FATAL: %s page table frame at %p doesn't exist\n",
+    frame_type_name(level), pte);
   SVA_ASSERT(disableMMUChecks || ptDesc->type == level,
-    "SVA: MMU: update_l%d bad type: %p %lx: %x\n",
-    level, pte, new_pte, ptDesc->type);
+    "SVA: FATAL: Attempt update %s entry at %p, but frame type is %s\n",
+    frame_type_name(level), pte, frame_type_name(ptDesc->type));
 
-  /*
-   * Update the page table with the new mapping.
-   */
-  __update_mapping(pte, new_pte);
+  update_mapping(pte, new_pte);
 
   /* Restore interrupts */
   sva_exit_critical(rflags);
@@ -2577,7 +2138,7 @@ void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e) {
     uintptr_t index = (uintptr_t)l4e & vmask;
     pml4e_t* kernel_pml4ePtr =
       (pml4e_t*)((uintptr_t)getVirtual(other_cr3) | index);
-    page_desc_t* kernel_ptDesc = getPageDescPtr(other_cr3);
+    frame_desc_t* kernel_ptDesc = get_frame_desc(other_cr3);
     SVA_ASSERT(disableMMUChecks || kernel_ptDesc->type == PGT_L4,
       "SVA: MMU: update_l4 kernel or sva version pte not an L4: %lx %lx: %x\n",
       kernel_pml4ePtr, new_l4e, kernel_ptDesc->type);
@@ -2587,7 +2148,7 @@ void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e) {
     {
         new_l4e = other_cr3 | (new_l4e & 0xfff);
     }
-    __update_mapping(kernel_pml4ePtr, new_l4e);
+    update_mapping(kernel_pml4ePtr, new_l4e);
   }
 #endif
 
@@ -2613,7 +2174,7 @@ static void protect_code_page(uintptr_t vaddr, page_entry_t perms) {
     "SVA: FATAL: Attempt to change permissions on unmapped page 0x%016lx\n",
     vaddr);
 
-  page_desc_t* pgDesc = getPageDescPtr(*leaf_entry);
+  frame_desc_t* pgDesc = get_frame_desc(*leaf_entry);
   SVA_ASSERT(pgDesc != NULL,
     "SVA: FATAL: Page table entry maps invalid frame\n");
   SVA_ASSERT(pgDesc->type = PGT_CODE,
@@ -2679,6 +2240,7 @@ void sva_protect_code_page(void* vaddr) {
   record_tsc(sva_update_l1_mapping_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
 }
 
+#ifdef SVA_ASID_PG
 /*
  * Intrisic: sva_create_kernel_pml4pg()
  *
@@ -2725,10 +2287,10 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
   orig_phys = PG_ENTRY_FRAME(orig_phys);
   kernel_phys = PG_ENTRY_FRAME(kernel_phys);
 
-  page_desc_t *kernel_ptDesc = getPageDescPtr(kernel_phys);
+  frame_desc_t *kernel_ptDesc = get_frame_desc(kernel_phys);
   SVA_ASSERT(kernel_ptDesc != NULL,
     "SVA: FATAL: Attempt to use non-existant frame as a root page table\n");
-  page_desc_t *usersva_ptDesc = getPageDescPtr(orig_phys);
+  frame_desc_t *usersva_ptDesc = get_frame_desc(orig_phys);
   SVA_ASSERT(usersva_ptDesc != NULL,
     "SVA: FATAL: Attempt to use non-existant frame as a root page table\n");
 
@@ -2752,7 +2314,6 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
     "type = %d; Kernel PML4 paddr = 0x%lx\n",
     orig_phys, usersva_ptDesc->type, kernel_phys);
 
-#ifdef SVA_ASID_PG
   /*
    * If the kernel already set up a kernel PML4 for this user/SVA PML4, don't
    * let it do so again.
@@ -2776,7 +2337,6 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
    */
   kernel_ptDesc->other_pgPaddr = orig_phys;
   usersva_ptDesc->other_pgPaddr = kernel_phys | PML4_SWITCH_DISABLE;
-#endif /* SVA_ASID_PG */
 
   /*
    * If (and only if) the PML4 being bifurcated is the one currently loaded
@@ -2785,7 +2345,7 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
    * was loaded).
    */
   if (orig_phys == PG_ENTRY_FRAME(read_cr3())) {
-    pgRefCountInc(kernel_ptDesc, false);
+    frame_take(kernel_ptDesc, PGT_L4);
   }
 
   /* 
@@ -2798,6 +2358,7 @@ void sva_create_kernel_pml4pg(uintptr_t orig_phys, uintptr_t kernel_phys) {
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
 }
+#endif /* SVA_ASID_PG */
 
 uintptr_t sva_get_physical_address(uintptr_t vaddr) {
   return getPhysicalAddr((void*)vaddr);
@@ -2863,7 +2424,7 @@ void sva_set_kernel_pml4pg_ready(uintptr_t orig_phys) {
    * Unset the PML4_SWITCH_DISABLE bit in the user/SVA PML4's pointer to its
    * kernel counterpart.
    */
-  page_desc_t *usersva_ptDesc = getPageDescPtr(orig_phys);
+  frame_desc_t *usersva_ptDesc = get_frame_desc(orig_phys);
   SVA_ASSERT(usersva_ptDesc != NULL,
     "SVA: FATAL: Attempt to use non-existant frame as a root page table\n");
   usersva_ptDesc->other_pgPaddr =
