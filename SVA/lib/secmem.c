@@ -140,13 +140,13 @@ frame_dequeue(void) {
  *  all mappings to the frame. In this situation, the OS is "lying" to us,
  *  and is refusing to let us allocate secure memory.
  *
- *  The frame will be marked in SVA's page_desc structure as having type
+ *  The frame will be marked in SVA's frame_desc structure as having type
  *  PGT_SVA, so that SVA's MMU checks will preclude the OS from establishing
  *  any other mappings to it in the future.
  *
  *  Frames returned by this function are suitable for use as ghost memory
  *  backing or SVA internal memory. If they are to be used for ghost memory,
- *  their page_desc type should be set to PGT_GHOST.
+ *  their frame_desc type should be set to PGT_GHOST.
  *
  * Return value:
  *  The physical address of the frame acquired.
@@ -215,18 +215,11 @@ get_frame_from_os(void) {
    * We can use SVA's refcount for this because all non-direct mappings are
    * established through intrinsics that update it.
    */
-  page_desc_t * page = getPageDescPtr(paddr);
+  frame_desc_t * page = get_frame_desc(paddr);
   SVA_ASSERT(page != NULL,
     "SVA: FATAL: Kernel gave us a frame which doesn't exist\n");
-  if (pgRefCount(page) > 1) {
-    panic("SVA: OS gave us a frame for secure memory which is still mapped "
-        "somewhere else (in %d places). The OS is lying to us and has been "
-        "terminated with extreme prejudice. Frame physical address: 0x%lx\n",
-        pgRefCount(page) - 1, paddr);
-  }
 
-  /* Set the page_desc entry for this frame to type PGT_SVA. */
-  page->type = PGT_SVA;
+  frame_morph(page, PGT_FREE);
 #endif /* end #ifndef XEN */
 
   /*
@@ -268,7 +261,7 @@ get_frame_from_os(void) {
  * Description:
  *  Return a frame acquired with get_frame_from_os().
  *
- *  The frame's page type in SVA's page_desc structure will be returned to
+ *  The frame's page type in SVA's frame_desc structure will be returned to
  *  PGT_FREE, so that the OS is once again free to establish its own mappings
  *  to it.
  *
@@ -278,7 +271,7 @@ get_frame_from_os(void) {
 static inline void return_frame_to_os(uintptr_t paddr) {
 #ifndef XEN
   /* FIXME: re-enable this code for Xen once MMU has been ported */
-  page_desc_t * page = getPageDescPtr(paddr);
+  frame_desc_t * page = get_frame_desc(paddr);
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: Returning non-existant frame to kernel\n");
   page->type = PGT_FREE;
@@ -355,7 +348,7 @@ release_frames(void) {
  *  The front end function for allocating a physical frame.
  *
  * Postconditions:
- *  1. The frame returned will have its type set to PGT_SVA in SVA's page_desc
+ *  1. The frame returned will have its type set to PGT_SVA in SVA's frame_desc
  *  structure, i.e., it is protected by the MMU checks to ensure that the OS
  *  cannot establish its own mapping to access the frame. Only SVA can add a
  *  mapping to it.
@@ -392,7 +385,7 @@ alloc_frame(void) {
  *  The front end function for freeing a physical frame.
  *
  * Preconditions:
- *  1. The frame's type should be set to PGT_SVA in SVA's page_desc structure.
+ *  1. The frame's type should be set to PGT_SVA in SVA's frame_desc structure.
  *
  *  2. No mappings to the frame should exist except in SVA's direct map.
  *     
@@ -663,7 +656,7 @@ ghostFree (struct SVAThread * threadp, unsigned char * p, intptr_t size) {
          * mappings point to this frame. Zero the frame before returning it
          * to the frame cache (and thence to the OS).
          */
-        if (pgRefCount(getPageDescPtr(paddr)) == 1) {
+        if (get_frame_desc(paddr)->type_count == 0) {
           /*
            * Zero out the contents of the ghost memory.
            */
@@ -748,7 +741,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
     pte_t* pte = get_pteVaddr(*pde, vaddr);
     uintptr_t paddr = PG_L1_FRAME(*pte);
 
-    page_desc_t* pgDesc_old = getPageDescPtr(paddr);
+    frame_desc_t* pgDesc_old = get_frame_desc(paddr);
     SVA_ASSERT(pgDesc_old != NULL,
       "SVA: FATAL: Ghost memory mapped to non-existant frame\n");
     if (pgDesc_old->type != PGT_GHOST)
@@ -759,13 +752,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
      * If only one process maps this page, directly grant this process write
      * permission.  Otherwise, perform a copy-on-write.
      */
-    /*
-     * Ghost pages are mapped in SVA's direct map in addition to the
-     * processes that they belong to, so count == 2 means only one process
-     * maps this page.
-     */
-    if (pgRefCount(pgDesc_old) == 2) {
-      pgRefCountIncWr(pgDesc_old);
+    if (pgDesc_old->type_count == 1) {
       *pte |= PG_W;
     } else {
       /*
@@ -780,16 +767,9 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
        */
       uintptr_t paddr_new = alloc_frame();
       void *vaddr_new = getVirtualSVADMAP(paddr_new);
-      page_desc_t *pgDesc_new = getPageDescPtr(paddr_new);
+      frame_desc_t *pgDesc_new = get_frame_desc(paddr_new);
       SVA_ASSERT(pgDesc_new != NULL,
         "SVA: FATAL: New ghost memory allocation is a non-existant frame\n");
-      /* count == 1 means only mapped in SVA's DMAP */
-      if (pgRefCount(pgDesc_new) > 1) {
-        panic("SVA: Ghost page still in use somewhere else!\n");
-      }
-      if (isPTP(pgDesc_new) || isCodePg(pgDesc_new)) {
-        panic("SVA: Ghost page has wrong type!\n");
-      }
 
       /*
        * Copy the page contents to the new process's copy.
@@ -801,28 +781,17 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
 
       /*
        * Set the frame type and increment the refcount for the new process's
-       * copy. Check that we aren't overflowing the counter.
+       * copy. This will also make sure the kernel doesn't still have any
+       * mappings to this frame.
        */
-      pgDesc_new->type = PGT_GHOST;
-      pgRefCountInc(pgDesc_new, true);
+      frame_morph(pgDesc_new, PGT_GHOST);
+      frame_take(pgDesc_new, PGT_GHOST);
 
       /*
        * Decrement the refcount for the old copy to reflect that it is no
        * longer being shared by the process that got the new copy.
        */
-      pgRefCountDec(pgDesc_old, false);
-      /*
-       * Check that we haven't underflowed the counter. There should be at
-       * least two outstanding references to the old copy:
-       *  1. By SVA's DMAP (always should be true)
-       *  2. By the process keeping the old copy
-       * If this is not true, something has gone wrong.
-       */
-      if (pgRefCount(pgDesc_old) < 2) {
-        panic("SVA: MMU: frame metadata inconsistency detected "
-            "(fewer than 2 references remaining after ghost COW) "
-            "refcount = %d", pgRefCount(pgDesc_old));
-      }
+      frame_drop(pgDesc_old, PGT_GHOST);
     }
     return;
   }
