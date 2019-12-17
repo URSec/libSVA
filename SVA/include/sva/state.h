@@ -427,14 +427,41 @@ extern void sva_load_kstackp (sva_sp_t);
 extern sva_sp_t sva_save_kstackp (void);
 #endif
 
-extern void sva_iunwind (void);
-extern unsigned int sva_invoke (uintptr_t arg1,
-                                uintptr_t arg2,
-                                uintptr_t arg3,
-                                uintptr_t * retvalue,
-                                void (*f)(uintptr_t, uintptr_t, uintptr_t));
-extern uintptr_t
-sva_invokestrncpy (char * dst, const char * src, uintptr_t count);
+/*
+ *******************************************************************************
+ * Exception handling intrinsics
+ *******************************************************************************
+ */
+
+extern void sva_iunwind(void);
+
+extern unsigned int sva_invoke(uintptr_t arg1,
+                               uintptr_t arg2,
+                               uintptr_t arg3,
+                               uintptr_t* retvalue,
+                               void (*f)(uintptr_t, uintptr_t, uintptr_t));
+
+/**
+ * Safely copy `count` bytes from `src` to `dst`.
+ *
+ * @param dst   The destination buffer
+ * @param src   The source buffer
+ * @param count The number of bytes to copy
+ * @return      The number of bytes actually copied
+ */
+extern size_t sva_invokememcpy(char* dst, const char* src, size_t count);
+
+/**
+ * Safely copy up to `count` bytes from `src` to `dst`, stoping after the first
+ * 0 byte.
+ *
+ * @param dst   The destination buffer
+ * @param src   The source buffer
+ * @param count The maximum number of bytes to copy
+ * @return      The number of bytes actually copied (not including the
+ *              terminator), or -1 if a fault occured.
+ */
+extern size_t sva_invokestrncpy(char* dst, const char* src, size_t count);
 
 /*****************************************************************************
  * Global State

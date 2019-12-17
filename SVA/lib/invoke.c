@@ -119,6 +119,66 @@ void sva_iunwind(void) {
   record_tsc(sva_iunwind_2_api, sva_read_tsc() - tsc_tmp);
 }
 
+size_t sva_invokememcpy(char* dst, const char* src, size_t count) {
+  /*
+   * Make sure we aren't copying from secure memory.
+   */
+  sva_check_buffer((uintptr_t)src, count);
+
+  /*
+   * Make sure we aren't copying to secure memory.
+   */
+  sva_check_buffer((uintptr_t)dst, count);
+
+  /// Our invoke frame.
+  struct invoke_frame frame;
+
+  /*
+   * Get the pointer to the most recent invoke frame.
+   */
+  struct CPUState* cpup = getCPUState();
+  struct invoke_frame* gip = cpup->gip;
+
+  /*
+   * Mark the frame as having its fixup address stored in `%rbx`.
+   */
+  frame.cpinvoke = INVOKE_FIXUP;
+  frame.next = gip;
+
+  /*
+   * Make it the top invoke frame.
+   */
+  cpup->gip = &frame;
+
+  size_t remaining;
+
+  asm volatile (
+    /*
+     * Set our fixup target.
+     */
+    "lea 1f(%%rip), %%rbx\n\t"
+
+    /*
+     * Perform the memcpy.
+     */
+    "rep movsb\n"
+
+    /*
+     * The fixup target. In this case, there is nothing to do.
+     */
+    "1:\n\t"
+    : "+D"(dst), "+S"(src), "=c"(remaining)
+    : "c"(count)
+    : "rbx", "memory");
+
+  /*
+   * Pop off the invoke frame.
+   */
+  cpup->gip = frame.next;
+
+  return count - remaining;
+}
+
 /*
  * Intrinsic: sva_invokestrncpy()
  *
