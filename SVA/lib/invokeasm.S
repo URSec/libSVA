@@ -46,23 +46,8 @@
  *  0 - Regular return
  *  1 - Stack was unwound.
  */
-sva_invoke:
-  
-  
-#ifdef SVA_LLC_PART
-  pushq %rax
-  pushq %rcx
-  pushq %rdx
-
-  movl $COS_MSR, %ecx
-  movl $0, %edx
-  movl $SVA_COS, %eax
-  wrmsr
-
-  popq  %rdx
-  popq  %rcx
-  popq  %rax
-#endif
+ENTRY(sva_invoke)
+  cache_part_switch sva stack
 
   /*
    * Create the new invoke frame.  Note that we save the registers that
@@ -90,20 +75,7 @@ sva_invoke:
    */
   movq %rcx, %rbx
 
-#ifdef SVA_LLC_PART
-  pushq %rax
-  pushq %rcx
-  pushq %rdx
-
-  movl $COS_MSR, %ecx
-  movl $0, %edx
-  movl $OS_COS, %eax
-  wrmsr
-
-  popq  %rdx
-  popq  %rcx
-  popq  %rax
-#endif
+  cache_part_switch os stack
 
   /*
    * Call the function.
@@ -112,27 +84,14 @@ sva_invoke:
    */
   CALLQ(*%r8)
 
-#ifdef SVA_LLC_PART
-  pushq %rax
-  pushq %rcx
-  pushq %rdx 
+  /* Store the return value into the memory location */
+  movq %rax, (%rbx)
 
-  movl $COS_MSR, %ecx
-  movl $0, %edx
-  movl $SVA_COS, %eax
-  wrmsr
-
-  popq  %rdx
-  popq  %rcx
-  popq  %rax
-#endif
+  cache_part_switch sva
 
   /*
    * Regular Return
    */
-
-  /* Store the return value into the memory location */
-  movq %rax, (%rbx)
 
   /* Restore the saved registers */
   popq %rbp
@@ -146,19 +105,7 @@ sva_invoke:
   movq %gs:TLS_CPUSTATE, %rax
   popq CPU_GIP(%rax)
 
-#ifdef SVA_LLC_PART
-  pushq %rcx
-  pushq %rdx
-
-  movl $COS_MSR, %ecx
-  movl $0, %edx
-  movl $OS_COS, %eax
-  wrmsr
-
-  popq %rdx
-  popq %rcx
-#endif
-
+  cache_part_switch os
 
   /* Set the return value */
   movq $0, %rax
@@ -168,11 +115,12 @@ sva_invoke:
 
   /* Return */
   RETQ
+END(sva_invoke)
 
   /*
    * Exceptional (unwind) return path
    */
-sva_invoke_except:
+ENTRY(sva_invoke_except)
   /*
    * Move the stack pointer back to the most recently created invoke frame.
    */
@@ -203,3 +151,4 @@ sva_invoke_except:
   /* Return 1 to the caller */
   movq $1, %rax
   RETQ
+END(sva_invoke_except)
