@@ -13,12 +13,11 @@
  *===----------------------------------------------------------------------===
  */
 
-#include "sva/types.h"
-#include "sva/mmu.h"
-#include "sva/util.h"
+#include <sva/types.h>
+#include <sva/mmu.h>
+#include <sva/util.h>
 
-void
-sva_check_buffer (uintptr_t start, uintptr_t len) {
+void sva_check_buffer(uintptr_t start, size_t len) {
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
      tsc_tmp = sva_read_tsc();
@@ -28,30 +27,29 @@ sva_check_buffer (uintptr_t start, uintptr_t len) {
    */
   uintptr_t end = start + len;
 
-  /*
-   * Treat the beginning of the ghost memory as address zero.  We have
-   * overlap if either the first or last byte of the buffer, when normalized
-   * to ghost memory, falls within the range of ghost memory.
-   */
-  uintptr_t secmemlen = (SECMEMEND - SECMEMSTART);
-  uintptr_t nstart = start - SECMEMSTART;
-  uintptr_t nend   = end   - SECMEMSTART;
-  if ((nstart <= secmemlen) || (nend <= secmemlen)) {
-    panic ("SVA: Invalid buffer access: %lx %lx\n", start, end);
-  }
+  SVA_ASSERT(!isInSecureMemory(start) && !isInSecureMemory(end) &&
+             (start - SECMEMSTART <= end - SECMEMSTART),
+    "SVA: FATAL: Invalid buffer access: 0x%016lx 0x%016lx\n", start, end);
 
+#ifdef FreeBSD
   /*
    * Check whether the pointer is within SVA internal memory.
    */
   extern char _svastart[];
   extern char _svaend[];
-  uintptr_t svamemlen = (_svaend - _svastart);
-  uintptr_t sstart = start - (uintptr_t) _svastart;
-  uintptr_t send   = end   - (uintptr_t) _svastart;
-  if ((sstart <= svamemlen) || (send <= svamemlen)) {
-    panic ("SVA: Invalid buffer access: %lx %lx\n", start, end);
-  }
-  record_tsc(sva_check_buffer_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  size_t svamemlen = _svaend - _svastart;
+
+  /*
+   * Treat the beginning of the ghost memory as address zero.  We have
+   * overlap if either the first or last byte of the buffer, when normalized
+   * to ghost memory, falls within the range of ghost memory.
+   */
+  uintptr_t sstart = start - (uintptr_t)_svastart;
+  uintptr_t send   = end   - (uintptr_t)_svastart;
+  SVA_ASSERT(sstart >= svamemlen && send >= svamemlen && sstart <= send,
+    "SVA: FATAL: Invalid buffer access: %lx %lx\n", start, end);
+#endif
+
+  record_tsc(sva_check_buffer_api, sva_read_tsc() - tsc_tmp);
 }
 

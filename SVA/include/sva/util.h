@@ -124,6 +124,14 @@ sva_check_memory_read (void * memory, unsigned int size) {
   return;
 } 
 
+/**
+ * Check that a memory region does not overlap with secure memory.
+ *
+ * @param start The start of the memory region to check
+ * @param len   The length of the memory region to check
+ */
+void sva_check_buffer(uintptr_t start, size_t len);
+
 static inline void
 sva_check_memory_write (void * memory, unsigned int size) {
   volatile unsigned char value1;
