@@ -70,7 +70,7 @@ struct invoke_frame {
   /* Pointer to the next invoke frame in the list */
   struct invoke_frame * next;
 
-  uintptr_t cpinvoke;
+  long cpinvoke;
 };
 
 /* Constants for the different Interrupt Context flags in the valid field */

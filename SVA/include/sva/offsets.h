@@ -97,6 +97,7 @@
 #define INVOKE_MEMCPY_B 2
 #define INVOKE_STRNCPY  3
 #define INVOKE_MEMSET   2
+#define INVOKE_FIXUP    4
 
 /*
  * Entries in the Interrupt Descriptor Table (IDT)

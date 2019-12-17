@@ -1,4 +1,4 @@
-/*===- invoke.c - SVA Execution Engine  ----------------------------------===
+/*===- invoke.c - SVA Execution Engine  -------------------------------------===
  * 
  *                     The LLVM Compiler Infrastructure
  *
@@ -10,7 +10,7 @@
  * Portions Copyright 1997 Andi Kleen <ak@muc.de>.
  * Portions Copyright 1997 Linus Torvalds.
  * 
- *===----------------------------------------------------------------------===
+ *===------------------------------------------------------------------------===
  *
  * The code from the Linux kernel was brought in and modified on 2006/05/09.
  * The code was primarily used for its fast strncpy() and strnlen()
@@ -18,14 +18,15 @@
  * operations were modified for sva_invokestrncpy() and possibly modified for
  * sva_invokestrnlen().
  *
- *===----------------------------------------------------------------------===
+ *===------------------------------------------------------------------------===
  *
  * This is the code for the SVA Execution Engine that manages invoke/unwind
  * functionality.
  *
- *===----------------------------------------------------------------------===
+ *===------------------------------------------------------------------------===
  */
 
+#include <sva/assert.h>
 #include <sva/state.h>
 #include <sva/util.h>
 #include <sva/callbacks.h>
@@ -37,33 +38,27 @@
  * Description:
  *  Unwind the stack specifed by the interrupt context.
  */
-void
-sva_iunwind (void) {
-  
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
-
-  kernel_to_usersva_pcid();
-
-  /* Current processor status flags */
-  uintptr_t rflags;
-
+void sva_iunwind(void) {
   /* Assembly code that finishes the unwind */
   extern void sva_invoke_except(void);
-  extern void sva_memcpy_except(void);
+
+  uint64_t tsc_tmp = 0;
+  if (tsc_read_enable_sva)
+    tsc_tmp = sva_read_tsc();
+
+  kernel_to_usersva_pcid();
 
   /*
    * Disable interrupts.
    */
-  rflags = sva_enter_critical();
+  uintptr_t rflags = sva_enter_critical();
 
   /*
    * Get the pointer to the most recent invoke frame and interrupt context.
    */
-  struct CPUState * cpup    = getCPUState();
-  struct invoke_frame * gip = cpup->gip;
-  sva_icontext_t * ip       = cpup->newCurrentIC;
+  struct CPUState* cpup = getCPUState();
+  struct invoke_frame* gip = cpup->gip;
+  sva_icontext_t* ip = cpup->newCurrentIC;
 
   /*
    * Do nothing if there is no invoke stack.
@@ -72,9 +67,9 @@ sva_iunwind (void) {
     /*
      * Re-enable interrupts.
      */
-    sva_exit_critical (rflags);
+    sva_exit_critical(rflags);
     usersva_to_kernel_pcid(); 
-    record_tsc(sva_iunwind_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    record_tsc(sva_iunwind_1_api, sva_read_tsc() - tsc_tmp);
     return;
   }
 
@@ -93,7 +88,7 @@ sva_iunwind (void) {
    */
   switch (gip->cpinvoke) {
     case INVOKE_NORMAL:
-      ip->rip = (uintptr_t) sva_invoke_except;
+      ip->rip = (uintptr_t)sva_invoke_except;
       break;
 
 #if 0
@@ -104,19 +99,24 @@ sva_iunwind (void) {
     case INVOKE_STRNCPY:
       ip->rip = gip->rbx;
       break;
-
-    default:
-      panic ("SVA: Other Invoke Frames Unsupported!\n");
+    case INVOKE_FIXUP:
+      /*
+       * Fixup address stored in `%rbx`
+       */
+      ip->rip = ip->rbx;
       break;
+    default:
+      SVA_ASSERT_UNREACHABLE(
+        "SVA: Internal error: Invalid invoke frame type %ld\n",
+        gip->cpinvoke);
   }
 
   /*
    * Re-enable interrupts.
    */
-  sva_exit_critical (rflags);
+  sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
-  record_tsc(sva_iunwind_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  record_tsc(sva_iunwind_2_api, sva_read_tsc() - tsc_tmp);
 }
 
 /*
