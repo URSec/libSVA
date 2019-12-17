@@ -53,3 +53,6 @@ void sva_check_buffer(uintptr_t start, size_t len) {
   record_tsc(sva_check_buffer_api, sva_read_tsc() - tsc_tmp);
 }
 
+void __attribute__((noreturn)) abort(void) {
+  SVA_ASSERT_UNREACHABLE("SVA: FATAL: CFI check failure\n");
+}
