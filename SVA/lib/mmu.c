@@ -28,27 +28,6 @@
 #include "sva/util.h"
 
 /*
- * Defines for #if #endif blocks for commenting out lines of code
- */
-/* Used to denote unimplemented code */
-#define NOT_YET_IMPLEMENTED 0
-
-/* Used to denote obsolete code that hasn't been deleted yet */
-#define OBSOLETE            0
-
-/* Define whether to enable DEBUG blocks #if statements */
-#define DEBUG               0
-
-/* Define whether or not the mmu_init code assumes virtual addresses */
-#define USE_VIRT            0
-
-/*
- *****************************************************************************
- * Function prototype declarations.
- *****************************************************************************
- */
-
-/*
  *****************************************************************************
  * Define paging structures and related constants local to this source file
  *****************************************************************************
