@@ -171,6 +171,7 @@ size_t sva_invokememcpy(char* dst, const char* src, size_t count) {
 
   size_t remaining;
 
+  stac();
   asm volatile (
     /*
      * Set our fixup target.
@@ -189,6 +190,7 @@ size_t sva_invokememcpy(char* dst, const char* src, size_t count) {
     : "+D"(dst), "+S"(src), "=c"(remaining)
     : "c"(count)
     : "rbx", "memory");
+  clac();
 
   invoke_frame_teardown(&frame);
 
@@ -208,6 +210,7 @@ size_t sva_invokememset(char* dst, char val, size_t count) {
 
   size_t remaining;
 
+  stac();
   asm volatile (
     /*
      * Set our fixup target.
@@ -226,6 +229,7 @@ size_t sva_invokememset(char* dst, char val, size_t count) {
     : "+D"(dst), "=c"(remaining)
     : "a"(val), "c"(count)
     : "rbx", "memory");
+  clac();
 
   invoke_frame_teardown(&frame);
 
@@ -274,6 +278,7 @@ uintptr_t sva_invokestrncpy(char* dst, const char* src, size_t count) {
   invoke_frame_setup(&frame);
 
   /* Perform the strncpy */
+  stac();
   __asm__ __volatile__(
     " leaq 2f(%%rip), %%rbx\n"
     "0: lodsb\n"
@@ -290,6 +295,7 @@ uintptr_t sva_invokestrncpy(char* dst, const char* src, size_t count) {
     : "=d"(res), "=c"(count), "=&a" (__d0), "=&S" (__d1), "=&D" (__d2)
     : "i"(0), "0"(count), "1"(count), "3"(src), "4"(dst)
     : "rbx", "memory");
+  clac();
 
   invoke_frame_teardown(&frame);
 

@@ -110,6 +110,26 @@ static inline void wrgsbase(uintptr_t base) {
   asm volatile ("wrgsbase %0" :: "r"(base));
 }
 
+/**
+ * Set the alignment check flag.
+ *
+ * With SMAP enabled, also disallows supervisor-mode access to user-mode
+ * virtual addresses.
+ */
+static inline void stac(void) {
+  asm volatile ("stac" ::: "memory");
+}
+
+/**
+ * Clear the alignment check flag.
+ *
+ * With SMAP enabled, also allows supervisor-mode access to user-mode virtual
+ * addresses.
+ */
+static inline void clac(void) {
+  asm volatile ("clac" ::: "memory");
+}
+
 static inline void
 sva_check_memory_read (void * memory, unsigned int size) {
   volatile unsigned char value;
