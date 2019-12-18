@@ -42,11 +42,11 @@ extern bool sva_iunwind(void);
  * @return          0 if `f` returned successfully;
  *                  1 if control flow was unwound
  */
-extern unsigned int sva_invoke(uintptr_t arg1,
-                               uintptr_t arg2,
-                               uintptr_t arg3,
-                               uintptr_t* retvalue,
-                               void (*f)(uintptr_t, uintptr_t, uintptr_t));
+extern int sva_invoke(uintptr_t arg1,
+                      uintptr_t arg2,
+                      uintptr_t arg3,
+                      uintptr_t* retvalue,
+                      uintptr_t (*f)(uintptr_t, uintptr_t, uintptr_t));
 
 /**
  * Safely copy `count` bytes from `src` to `dst`.

@@ -21,31 +21,6 @@
 
 .bundle_align_mode 5
 
-.global sva_invoke
-.type sva_invoke, @function
-
-.global sva_invoke_except
-.type sva_invoke_except, @function
-
-
-/*
- * Intrinsic: sva_invoke()
- *
- * Description:
- *  Mimic the LLVM invoke instruction.
- *
- * Inputs:
- *  %rdi - First argument to the function to call
- *  %rsi - Second argument to the function to call
- *  %rdx - Third argument to the function to call
- *  %rcx - Pointer to variable into which the function return value will be
- *         stored
- *  %r8  - Pointer to the function to invoke
- *
- * Return value:
- *  0 - Regular return
- *  1 - Stack was unwound.
- */
 ENTRY(sva_invoke)
   cache_part_switch sva stack
 
