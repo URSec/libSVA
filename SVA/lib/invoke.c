@@ -26,18 +26,13 @@
  *===------------------------------------------------------------------------===
  */
 
+#include <sva/invoke.h>
 #include <sva/assert.h>
 #include <sva/state.h>
 #include <sva/util.h>
 #include <sva/callbacks.h>
 #include <sva/offsets.h>
 
-/*
- * Intrinsic: sva_unwind ()
- *
- * Description:
- *  Unwind the stack specifed by the interrupt context.
- */
 void sva_iunwind(void) {
   /* Assembly code that finishes the unwind */
   extern void sva_invoke_except(void);
@@ -179,36 +174,20 @@ size_t sva_invokememcpy(char* dst, const char* src, size_t count) {
   return count - remaining;
 }
 
-/*
- * Intrinsic: sva_invokestrncpy()
- *
- * Description:
- *  Copy a zero terminated string from one location to another.
- *
- * Inputs:
- *  dst   - The destination string.  It cannot overlap src.
- *  src   - The source string
- *  count - The maximum number of bytes to copy.
- *
- * Outputs:
- *  dst   - The destination string
- *
- * Return value:
- *  Return the number of bytes copied (not counting the string terminator),
- *  or -1 if a fault occurred.
- *
- * NOTE:
- *  This function contains inline assembly code from the original i386 Linux
- *  2.4.22 kernel code.  I believe it originates from the
- *  __do_strncpy_from_user() macro in arch/i386/lib/usercopy.c.
- *
- * TODO:
- *  It is not clear whether this version will be as fast as the x86_64 version
- *  in FreeBSD 9.0; this version is an x86_64 port of the original Linux 2.4.22
- *  code for 32-bit processors.
- */
-uintptr_t
-sva_invokestrncpy (char * dst, const char * src, uintptr_t count) {
+uintptr_t sva_invokestrncpy(char* dst, const char* src, size_t count) {
+  /*
+   * NOTE:
+   *  This function contains inline assembly code from the original i386 Linux
+   *  2.4.22 kernel code.  I believe it originates from the
+   *  __do_strncpy_from_user() macro in arch/i386/lib/usercopy.c.
+   */
+
+  /*
+   * TODO:
+   *  It is not clear whether this version will be as fast as the x86_64 version
+   *  in FreeBSD 9.0; this version is an x86_64 port of the original Linux 2.4.22
+   *  code for 32-bit processors.
+   */
 
   uint64_t tsc_tmp = 0;
   if(tsc_read_enable_sva)
