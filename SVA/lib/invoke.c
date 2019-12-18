@@ -195,6 +195,43 @@ size_t sva_invokememcpy(char* dst, const char* src, size_t count) {
   return count - remaining;
 }
 
+size_t sva_invokememset(char* dst, char val, size_t count) {
+  /*
+   * Make sure we aren't copying to secure memory.
+   */
+  sva_check_buffer((uintptr_t)dst, count);
+
+  /// Our invoke frame.
+  struct invoke_frame frame;
+
+  invoke_frame_setup(&frame);
+
+  size_t remaining;
+
+  asm volatile (
+    /*
+     * Set our fixup target.
+     */
+    "lea 1f(%%rip), %%rbx\n\t"
+
+    /*
+     * Perform the memset.
+     */
+    "rep stosb\n"
+
+    /*
+     * The fixup target. In this case, there is nothing to do.
+     */
+    "1:\n\t"
+    : "+D"(dst), "=c"(remaining)
+    : "a"(val), "c"(count)
+    : "rbx", "memory");
+
+  invoke_frame_teardown(&frame);
+
+  return count - remaining;
+}
+
 uintptr_t sva_invokestrncpy(char* dst, const char* src, size_t count) {
   /*
    * NOTE:

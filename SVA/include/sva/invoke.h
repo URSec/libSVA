@@ -57,6 +57,16 @@ extern unsigned int sva_invoke(uintptr_t arg1,
 extern size_t sva_invokememcpy(char* dst, const char* src, size_t count);
 
 /**
+ * Safely set `count` bytes at `dst` to `val`.
+ *
+ * @param dst   The destination buffer
+ * @param val   The value to store
+ * @param count The number of bytes to write
+ * @return      The number of bytes actually written
+ */
+size_t sva_invokememset(char* dst, char val, size_t count);
+
+/**
  * Safely copy up to `count` bytes from `src` to `dst`, stoping after the first
  * 0 byte.
  *
