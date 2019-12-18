@@ -275,7 +275,7 @@ uintptr_t sva_invokestrncpy(char* dst, const char* src, size_t count) {
 
   /* Perform the strncpy */
   __asm__ __volatile__(
-    " movq $2f, %%rbx\n"
+    " leaq 2f(%%rip), %%rbx\n"
     "0: lodsb\n"
     " stosb\n"
     " testb %%al,%%al\n"
