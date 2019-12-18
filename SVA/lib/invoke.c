@@ -33,6 +33,45 @@
 #include <sva/callbacks.h>
 #include <sva/offsets.h>
 
+/**
+ * Initialize and install an invoke frame.
+ *
+ * @param frame The invoke frame to create
+ */
+static void invoke_frame_setup(struct invoke_frame* frame) {
+  struct CPUState* cpup = getCPUState();
+
+  /*
+   * Get the pointer to the most recent invoke frame.
+   */
+  struct invoke_frame* gip = cpup->gip;
+
+  /*
+   * Mark the frame as having its fixup address stored in `%rbx`.
+   */
+  frame->cpinvoke = INVOKE_FIXUP;
+  frame->next = gip;
+
+  /*
+   * Make it the top invoke frame.
+   */
+  cpup->gip = frame;
+}
+
+/**
+ * Uninstall an invoke frame
+ *
+ * @param frame The invoke frame to destroy
+ */
+static void invoke_frame_teardown(struct invoke_frame* frame) {
+  struct CPUState* cpup = getCPUState();
+
+  /*
+   * Pop off the invoke frame.
+   */
+  cpup->gip = frame->next;
+}
+
 void sva_iunwind(void) {
   /* Assembly code that finishes the unwind */
   extern void sva_invoke_except(void);
@@ -128,22 +167,7 @@ size_t sva_invokememcpy(char* dst, const char* src, size_t count) {
   /// Our invoke frame.
   struct invoke_frame frame;
 
-  /*
-   * Get the pointer to the most recent invoke frame.
-   */
-  struct CPUState* cpup = getCPUState();
-  struct invoke_frame* gip = cpup->gip;
-
-  /*
-   * Mark the frame as having its fixup address stored in `%rbx`.
-   */
-  frame.cpinvoke = INVOKE_FIXUP;
-  frame.next = gip;
-
-  /*
-   * Make it the top invoke frame.
-   */
-  cpup->gip = &frame;
+  invoke_frame_setup(&frame);
 
   size_t remaining;
 
@@ -166,10 +190,7 @@ size_t sva_invokememcpy(char* dst, const char* src, size_t count) {
     : "c"(count)
     : "rbx", "memory");
 
-  /*
-   * Pop off the invoke frame.
-   */
-  cpup->gip = frame.next;
+  invoke_frame_teardown(&frame);
 
   return count - remaining;
 }
