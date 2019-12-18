@@ -35,6 +35,8 @@
 #define RETTARGET endbr64
 
 /* Macro for return */
+#ifdef FreeBSD
+
 #define RETQ  movq  (%rsp), %rcx ; \
               movl  $0xffffff80, %edx ; \
               shlq   $32, %rdx ; \
@@ -46,7 +48,25 @@
               xchg %bx, %bx ; \
               23: movq $0xfea, %rax;
 
+#else
+
+.macro RETQ
+  /*
+   * NB: We can only use registers which are caller-saved and whihc are not
+   * used to pass return values. This gives us `%rsi`, `%rdi`, and `%r8` -
+   * `%r11`.
+   */
+  popq %rsi
+  andq $-32, %rsi
+  cmpl $CHECKLABEL, (%rsi)
+  jne  1001f
+  jmpq *%rsi
+1001:
+  call abort@plt
+.endm
+
+#endif
+
 #endif /* __ASSEMBLER__ */
 
 #endif /* SVA_CFI_H */
-              /* addq  $0x8, %rcx ; \ */
