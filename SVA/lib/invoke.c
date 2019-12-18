@@ -72,7 +72,7 @@ static void invoke_frame_teardown(struct invoke_frame* frame) {
   cpup->gip = frame->next;
 }
 
-void sva_iunwind(void) {
+bool sva_iunwind(void) {
   /* Assembly code that finishes the unwind */
   extern void sva_invoke_except(void);
 
@@ -104,7 +104,7 @@ void sva_iunwind(void) {
     sva_exit_critical(rflags);
     usersva_to_kernel_pcid(); 
     record_tsc(sva_iunwind_1_api, sva_read_tsc() - tsc_tmp);
-    return;
+    return false;
   }
 
   /*
@@ -151,6 +151,7 @@ void sva_iunwind(void) {
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
   record_tsc(sva_iunwind_2_api, sva_read_tsc() - tsc_tmp);
+  return true;
 }
 
 size_t sva_invokememcpy(char* dst, const char* src, size_t count) {

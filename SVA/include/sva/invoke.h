@@ -24,8 +24,10 @@
  *
  * Does not unwind immediately: instead, modifies the current exception context
  * to return to the most recent invoke.
+ *
+ * @return  True if there was an invoke frame to unwind to, otherwise false
  */
-extern void sva_iunwind(void);
+extern bool sva_iunwind(void);
 
 /**
  * Call a function and set an invoke point.
