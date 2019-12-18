@@ -270,22 +270,12 @@ uintptr_t sva_invokestrncpy(char* dst, const char* src, size_t count) {
     record_tsc(sva_invokestrncpy_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
     return 0;
   }
-  /*
-   * Get the pointer to the most recent invoke frame.
-   */
-  struct CPUState * cpup    = getCPUState();
-  struct invoke_frame * gip = cpup->gip;
 
-  /* Mark the frame as being used for a memcpy */
-  frame.cpinvoke = INVOKE_STRNCPY;
-  frame.next = gip;
-
-  /* Make it the top invoke frame */
-  cpup->gip = &frame;
+  invoke_frame_setup(&frame);
 
   /* Perform the strncpy */
   __asm__ __volatile__(
-    " movq $2f, %5\n"
+    " movq $2f, %%rbx\n"
     "0: lodsb\n"
     " stosb\n"
     " testb %%al,%%al\n"
@@ -297,15 +287,11 @@ uintptr_t sva_invokestrncpy(char* dst, const char* src, size_t count) {
     " jmp 3f\n"
     "1: subq %1,%0\n"
     "3:\n"
-    : "=d"(res), "=c"(count), "=&a" (__d0), "=&S" (__d1),
-      "=&D" (__d2), "=m" (frame.rbx)
+    : "=d"(res), "=c"(count), "=&a" (__d0), "=&S" (__d1), "=&D" (__d2)
     : "i"(0), "0"(count), "1"(count), "3"(src), "4"(dst)
-    : "memory");
+    : "rbx", "memory");
 
-  /*
-   * Pop off the invoke frame.
-   */
-  cpup->gip = frame.next;
+  invoke_frame_teardown(&frame);
 
   usersva_to_kernel_pcid();
   record_tsc(sva_invokestrncpy_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
