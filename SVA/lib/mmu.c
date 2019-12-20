@@ -785,9 +785,8 @@ uintptr_t mapSecurePage(uintptr_t vaddr, uintptr_t paddr) {
   /*
    * Disable protections.
    */
-#ifndef SVA_DMAP
   unprotect_paging();
-#endif
+
   /*
    * Get the PML4E of the current page table.  If there isn't one in the
    * table, add one.
@@ -907,9 +906,7 @@ uintptr_t mapSecurePage(uintptr_t vaddr, uintptr_t paddr) {
   /*
    * Re-enable page protections.
    */
-#ifndef SVA_DMAP
   protect_paging();
-#endif
 
   return pml4eVal;
 }
@@ -963,9 +960,7 @@ uintptr_t unmapSecurePage(struct SVAThread* threadp, uintptr_t vaddr) {
   /*
    * Modify the PTE so that the page is not present.
    */
-#ifndef SVA_DMAP
   unprotect_paging();
-#endif
   paddr = PG_L1_FRAME(*pte);
   *pte = ZERO_MAPPING;
 
@@ -1010,10 +1005,9 @@ uintptr_t unmapSecurePage(struct SVAThread* threadp, uintptr_t vaddr) {
     }
   }
 
-#ifndef SVA_DMAP
   /* Re-enable protection of page table pages */
   protect_paging();
-#endif
+
   return paddr;
 }
 

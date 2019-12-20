@@ -166,16 +166,22 @@ void sva_declare_page(uintptr_t frame, frame_type_t level);
 
 /**
  * Turn on write protection to prevent writes to page tables.
+ *
+ * Has no effect if SVA is using its own direct map.
  */
 static inline void protect_paging(void) {
+#ifndef SVA_DMAP
   write_cr0(read_cr0() | CR0_WP);
 
   if(tsc_read_enable_sva)
     wp_num++;
+#endif
 }
 
 /**
  * Turn off write protection to allow updates to page tables.
+ *
+ * Has no effect if SVA is using its own direct map.
  *
  * If SVA is not configured to use its own direct map, it will perform updates
  * to page tables through the kernel's direct map. However, in order to prevent
@@ -189,10 +195,12 @@ static inline void protect_paging(void) {
  * disabled).
  */
 static inline void unprotect_paging(void) {
+#ifndef SVA_DMAP
   write_cr0(read_cr0() & ~CR0_WP);
 
   if(tsc_read_enable_sva)
     wp_num++;
+#endif
 }
 
 void usersva_to_kernel_pcid(void);
