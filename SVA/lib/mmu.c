@@ -1366,6 +1366,26 @@ void sva_declare_l4_page(uintptr_t frame) {
 
   sva_declare_page(frame, PGT_L4);
 
+  /*
+   * Install SVA's L4 entries into the new page table.
+   */
+  pml4e_t* current_l4_table = (pml4e_t*)getVirtual(get_root_pagetable());
+  pml4e_t* new_l4_table = (pml4e_t*)getVirtual(frame);
+
+  unprotect_paging();
+  for (size_t i = PG_L4_ENTRY(SECMEMSTART); i < PG_L4_ENTRY(SVADMAPEND); ++i) {
+    pml4e_t l4e = current_l4_table[i];
+    if (isPresent(l4e)) {
+      /*
+       * TODO: Should be PGT_SML3, but the init code currently doesn't set
+       * those types.
+       */
+      frame_take(get_frame_desc(PG_ENTRY_FRAME(l4e)), PGT_L3);
+    }
+    new_l4_table[i] = l4e;
+  }
+  protect_paging();
+
   record_tsc(sva_declare_l4_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
 }
 
