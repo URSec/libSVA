@@ -164,11 +164,8 @@ static inline bool pte_can_change(page_entry_t* page_entry) {
   unsigned long origPA = PG_ENTRY_FRAME(*page_entry);
   frame_desc_t *origPG = get_frame_desc(origPA);
 
-#if 0
   /* Get the page table page descriptor. */
-  uintptr_t ptePAddr = getPhysicalAddr(page_entry);
-  frame_desc_t *ptePG = get_frame_desc(ptePAddr);
-#endif
+  frame_desc_t *ptePG = get_frame_desc(getPhysicalAddr(page_entry));
 
   /*
    * If MMU checks are disabled, allow the page table entry to be modified.
@@ -177,7 +174,6 @@ static inline bool pte_can_change(page_entry_t* page_entry) {
     return true;
   }
 
-#if 0
   /*
    * Verify that we're not trying to modify the PML4 entry that controls the
    * secure memory virtual address space.
@@ -190,7 +186,6 @@ static inline bool pte_can_change(page_entry_t* page_entry) {
   if (isSecMemL4Entry) {
     return false;
   }
-#endif
 
   /*
    * We know that we are not attempting to modify a mapping in a secure memory
