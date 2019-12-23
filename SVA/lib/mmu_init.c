@@ -925,6 +925,9 @@ static page_entry_t lower_permissions(page_entry_t entry,
           perms &= ~PG_NX;
           break;
         case PGT_SVA:
+        case PGT_SML3:
+        case PGT_SML2:
+        case PGT_SML1:
           if (!isInSecureMemory(vaddr)) {
             perms = 0;
           }
@@ -1042,6 +1045,9 @@ import_existing_mappings(page_entry_t entry,
           case PGT_L3:
           case PGT_L2:
           case PGT_L1:
+          case PGT_SML3:
+          case PGT_SML2:
+          case PGT_SML1:
             if (type == PGT_SVA) {
               SVA_ASSERT_UNREACHABLE(
                 "SVA: FATAL: Page table frame also mapped as SVA data\n");
@@ -1068,7 +1074,7 @@ import_existing_mappings(page_entry_t entry,
             break;
           case PGT_SVA:
             SVA_ASSERT_UNREACHABLE(
-              "SVA: FATAL: Kernel mapped frame 0x%lx used for SVA memory at 0x%016lx\n",
+              "SVA: FATAL: Kernel mapped SVA memory frame 0x%lx at 0x%016lx\n",
               &desc[i] - frame_desc, vaddr);
             break;
           default:
@@ -1107,6 +1113,28 @@ import_existing_mappings(page_entry_t entry,
       default:
         SVA_ASSERT_UNREACHABLE(
           "SVA: FATAL: Frame shouldn't have this type yet\n");
+      }
+    }
+
+    bool isSecMemPageTable = isGhostVA(vaddr);
+#ifdef SVA_DMAP
+    isSecMemPageTable |= isSVADirectMap(vaddr);
+#endif
+
+    if (isSecMemPageTable) {
+      switch (ty) {
+      case PGT_L3:
+        ty = PGT_SML3;
+        break;
+      case PGT_L2:
+        ty = PGT_SML2;
+        break;
+      case PGT_L1:
+        ty = PGT_SML1;
+        break;
+      default:
+        // No change
+        break;
       }
     }
 

@@ -1368,11 +1368,7 @@ void sva_declare_l4_page(uintptr_t frame) {
   for (size_t i = PG_L4_ENTRY(SECMEMSTART); i < PG_L4_ENTRY(SVADMAPEND); ++i) {
     pml4e_t l4e = current_l4_table[i];
     if (isPresent(l4e)) {
-      /*
-       * TODO: Should be PGT_SML3, but the init code currently doesn't set
-       * those types.
-       */
-      frame_take(get_frame_desc(PG_ENTRY_FRAME(l4e)), PGT_L3);
+      frame_take(get_frame_desc(PG_ENTRY_FRAME(l4e)), PGT_SML3);
     }
     new_l4_table[i] = l4e;
   }
@@ -1438,6 +1434,9 @@ void sva_remove_page(uintptr_t paddr) {
       /* Remove the mapping */
       frame_desc_t *mappedPg = get_frame_desc(ptp_vaddr[i]);
       if (isGhostPTP(mappedPg)) {
+#ifdef XEN
+        updateOrigPageData(ptp_vaddr[i], mappedPg->type, 1);
+#else
         /*
          * The method of removal for ghost PTP mappings is slightly
          * different than for ordinary mappings created by the OS (SVA has
@@ -1445,6 +1444,7 @@ void sva_remove_page(uintptr_t paddr) {
          */
         unsigned int ptindex = releaseUse(&ptp_vaddr[i]);
         freePTPage(ptindex);
+#endif
         ptp_vaddr[i] = ZERO_MAPPING;
       } else {
         bool isLeaf = isLeafEntry(ptp_vaddr[i], pgDesc->type);
