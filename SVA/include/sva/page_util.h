@@ -477,4 +477,14 @@ static inline size_t getMappedSize(frame_type_t level) {
   }
 }
 
+/**
+ * Determine if an index into an L4 page table is a secure memory entry.
+ *
+ * @param idx An index into an L4 page table
+ * @return    Whether `idx` is an index for a secure memory L4 entry
+ */
+static inline bool isSecMemL4Entry(size_t idx) {
+  return idx >= PG_L4_ENTRY(SECMEMSTART) && idx < PG_L4_ENTRY(SECMEMEND);
+}
+
 #endif /* SVA_PAGE_UTIL_H */

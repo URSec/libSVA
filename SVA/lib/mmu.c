@@ -180,10 +180,7 @@ static inline bool pte_can_change(page_entry_t* page_entry) {
    */
   size_t entryIdx =
     ((uintptr_t)page_entry & (FRAME_SIZE - 1)) / sizeof(*page_entry);
-  bool isSecMemL4Entry = isL4Pg(ptePG) &&
-                         entryIdx >= PG_L4_ENTRY(SECMEMSTART) &&
-                         entryIdx < PG_L4_ENTRY(SECMEMEND);
-  if (isSecMemL4Entry) {
+  if (isL4Pg(ptePG) && isSecMemL4Entry(entryIdx)) {
     return false;
   }
 
