@@ -151,6 +151,16 @@ void frame_take_force(frame_desc_t* frame, frame_type_t type);
 void frame_drop(frame_desc_t* frame, frame_type_t type);
 
 /**
+ * Drop a reference to a frame which had its type reset by `frame_take_force`.
+ *
+ * When a frame has its type changed by `frame_take_force`, this should be used
+ * to drop any remaining unsafe references.
+ *
+ * @param frame The frame to which the caller is dropping a reference
+ */
+void frame_drop_force(frame_desc_t* frame);
+
+/**
  * Get the name of a frame type.
  *
  * @param type  A frame type

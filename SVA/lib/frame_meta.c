@@ -236,3 +236,12 @@ void frame_drop(frame_desc_t* frame, frame_type_t type) {
   }
   frame_ref_dec(frame);
 }
+
+void frame_drop_force(frame_desc_t* frame) {
+  /*
+   * Only decrement the reference count: the type count is reset by
+   * `frame_take_force`, so any references we are dropping are not contributing
+   * to the type count.
+   */
+  frame_ref_dec(frame);
+}

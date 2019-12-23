@@ -949,7 +949,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
          * count.
          */
         for (size_t i = 0; i < count; ++i) {
-          frame_drop(&desc[i], PGT_FREE);
+          frame_drop_force(&desc[i]);
         }
 
         entry = 0;
