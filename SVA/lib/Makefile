@@ -23,6 +23,12 @@ OFILES = init.o secmem.o handlers.o mmu.o mmu_init.o interrupt.o state.o \
 libsva.a: $(OFILES)
 	$(AR) -r $@ $(OFILES)
 
+%.o: %.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c "$<" -o "$@"
+
+%.o: %.S
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -c "$<" -o "$@"
+
 clean:
 	rm -f *.a *.o *.i
 
