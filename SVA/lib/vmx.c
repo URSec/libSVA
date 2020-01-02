@@ -104,6 +104,8 @@ static vmx_host_state_t __svadata host_state = {
   /* The other fields don't need to be explicitly initialized. */
 };
 
+static int run_vm(unsigned char use_vmresume);
+
 /*
  * Function: cpuid_1_ecx()
  *

@@ -519,7 +519,6 @@ static inline unsigned char cpu_supports_vmx(void);
 static inline unsigned char cpu_permit_vmx(void);
 static inline unsigned char check_cr0_fixed_bits(void);
 static inline unsigned char check_cr4_fixed_bits(void);
-static int run_vm(unsigned char use_vmresume);
 static inline void update_vmcs_ctrls();
 static inline void save_restore_guest_state(unsigned char saverestore);
 static inline int read_write_vmcs_field(
