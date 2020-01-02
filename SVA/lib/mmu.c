@@ -592,26 +592,22 @@ uintptr_t getPhysicalAddr(void* v) {
    * if SVA is using its own direct map, so we can't trust that kernel direct
    * map virtual addresses are actually what we expect them to be.
    */
-#ifndef SVA_DMAP
-  /*
-   * If the pointer is within the kernel's direct map, use a simple
-   * bit-masking operation to convert the virtual address to a physical
-   * address.
-   */
-  if (vaddr >= KERNDMAPSTART && vaddr < KERNDMAPEND) {
+  if (!sva_dmap && vaddr >= KERNDMAPSTART && vaddr < KERNDMAPEND) {
+      /*
+       * If the pointer is within the kernel's direct map, use a simple
+       * bit-masking operation to convert the virtual address to a physical
+       * address.
+       */
        return getPhysicalAddrKDMAP(v);
   }
-#endif
 
   /*
    * If the virtual address falls within the SVA VM's direct map, use a simple
    * bit-masking operation to find the physical address.
    */
-#ifdef SVA_DMAP
-  if (vaddr >= SVADMAPSTART && vaddr <= SVADMAPEND) {
+  if (sva_dmap && vaddr >= SVADMAPSTART && vaddr <= SVADMAPEND) {
        return getPhysicalAddrSVADMAP(v);
   }
-#endif
 
   /*
    * Get the currently active page table.

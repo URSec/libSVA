@@ -18,6 +18,7 @@
 
 #include <limits.h>
 #include <sva/asmconfig.h>
+#include <sva/types.h>
 
 /* Determine whether VMX features are enabled */
 //#ifdef SVA_VMX
@@ -63,6 +64,14 @@ static unsigned char disableMMUChecks = 0;
 #else
 static unsigned char disableMMUChecks = 1;
 #endif
+
+/* Enable/Disable SVA direct map */
+#ifdef SVA_DMAP
+static const bool sva_dmap = 1;
+#else
+static const bool sva_dmap = 0;
+#endif
+
 
 /* Enable copying of the Interrupt Context to Trapframe for Debugging */
 static unsigned char copyICToTrapFrame = 0;
