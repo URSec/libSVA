@@ -89,8 +89,7 @@ struct procMap {
  *  An index value less than numProcessors that can be used to index into
  *  per-CPU SVA data structures.
  */
-static unsigned int
-getProcessorID() {
+static inline unsigned int getProcessorID(void) {
   /* Map logical processor ID to an array in the SVA data structures */
   extern struct procMap svaProcMap[numProcessors];
 
