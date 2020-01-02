@@ -9,12 +9,18 @@ include ../../make.conf
 
 CPPFLAGS += -I../include -include sva/compiler.h
 
-CFLAGS += -O2 -fno-strict-aliasing -fno-omit-frame-pointer -fno-exceptions -ffreestanding -fpic -fno-common -sva -fno-sva-sfi
-CFLAGS += -msoft-float -mno-mmx -mno-sse -mno-avx -mno-aes -mcmodel=medium -mno-red-zone
+OPT_FLAGS += -O2 -fno-strict-aliasing -fno-omit-frame-pointer
 
-ASFLAGS += -ffreestanding -fpic -fno-common -sva
-ASFLAGS += -msoft-float -mno-mmx -mno-sse -mno-avx -mno-aes -mcmodel=kernel -mno-red-zone
+TARGET_FLAGS += -sva -fno-sva-sfi					\
+		-ffreestanding -fno-exceptions -fpic -fno-common	\
+		-msoft-float -mno-mmx -mno-sse -mno-avx -mno-aes	\
+		-mno-red-zone -mcmodel=medium
 
+CFLAGS += -std=gnu11
+CFLAGS += $(OPT_FLAGS)
+CFLAGS += $(TARGET_FLAGS)
+
+ASFLAGS += $(TARGET_FLAGS)
 
 OFILES = init.o secmem.o handlers.o mmu.o mmu_init.o interrupt.o state.o \
          frame_meta.o debug.o stateasm.o invoke.o invokeasm.o checks.o keys.o \
