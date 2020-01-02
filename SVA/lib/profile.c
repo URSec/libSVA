@@ -15,7 +15,10 @@
  */
 
 
+#include <sva/asmconfig.h>
 #include <sva/self_profile.h>
+
+#ifdef SVA_SELF_PROFILE
 
 /* Global variables used for profiling */
 bool tsc_read_enable = 0;
@@ -31,3 +34,5 @@ void init_sva_counter(void) {
   wp_num = 0;
   as_num = 0;
 }
+
+#endif

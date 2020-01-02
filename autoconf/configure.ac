@@ -88,6 +88,16 @@ AC_ARG_ENABLE(pg-defenses,
                              esac],
                              AC_DEFINE(NOSVA_PG_DEF))
 
+dnl Enable Self-Profiling
+AC_ARG_ENABLE(self-profile,
+              AS_HELP_STRING([--enable-self-profile],
+                             [Enable self-profiling(default is NO)]),
+                             [case "${enableval}" in
+                              yes) AC_DEFINE(SVA_SELF_PROFILE) ;;
+                              no)  AC_DEFINE(NOSVA_SELF_PROFILE) ;;
+                              *)   AC_MSG_ERROR([bad value ${enableval} for --enable-self-profile]) ;;
+                             esac],
+                             AC_DEFINE(NOSVA_SELF_PROFILE))
 
 dnl
 dnl Include the command-line option to configure the targets used by LLVM

@@ -630,15 +630,14 @@ SHELL'
 ac_subst_files=''
 ac_user_opts='
 enable_option_checking
-enable_vmx
 enable_vg
 enable_vg_random
 enable_mpx
 enable_mmuchecks
 enable_sva_dmap
-enable_asid
 enable_llc_part
 enable_pg_defenses
+enable_self_profile
 enable_targets
 '
       ac_precious_vars='build_alias
@@ -1253,17 +1252,16 @@ Optional Features:
   --disable-option-checking  ignore unrecognized --enable/--with options
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
-  --enable-vmx            Enable VMX for hardware virtualization support (default is NO)
   --enable-vg             Enable Virtual Ghost (default is NO)
   --enable-vg-random      Enable Ghost Memory allocation randomization
                           (default is NO)
   --enable-mpx            Enable MPX for SFI (default is NO)
   --enable-mmuchecks      Enable SVA MMU Checks (default is YES)
   --enable-sva-dmap       Enable SVA Direct Map Feature (default is NO)
-  --enable-asid           Enable SVA ASID Feature (default is NO)
   --enable-llc-part       Enable SVA LLC partitioning Feature (default is NO)
   --enable-pg-defenses    Enable defenses against page table side-channels
                           (default is NO)
+  --enable-self-profile   Enable self-profiling(default is NO)
 
 
 Report bugs to <jtcriswel@gmail.com>.
@@ -1694,19 +1692,6 @@ ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $
 ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 
-# Check whether --enable-vmx was given.
-if test "${enable_vmx+set}" = set; then :
-  enableval=$enable_vmx; case "${enableval}" in
-                             	yes) $as_echo "#define SVA_VMX 1" >>confdefs.h
- ;;
-                             	no)  $as_echo "#define NOSVA_VMX 1" >>confdefs.h
- ;;
-                             	*)   as_fn_error $? "bad value ${enableval} for --enable-vmx" "$LINENO" 5 ;;
-                             esac
-else
-  $as_echo "#define NOSVA_VMX 1" >>confdefs.h
-
-fi
 
 
 # Check whether --enable-vg was given.
@@ -1790,21 +1775,6 @@ else
 fi
 
 
-# Check whether --enable-asid was given.
-if test "${enable_asid+set}" = set; then :
-  enableval=$enable_asid; case "${enableval}" in
-                             	yes) $as_echo "#define SVA_ASID_PG 1" >>confdefs.h
- ;;
-                             	no)  $as_echo "#define NOSVA_ASID_PG 1" >>confdefs.h
- ;;
-                             	*)   as_fn_error $? "bad value ${enableval} for --enable-sva-dmap" "$LINENO" 5 ;;
-                             esac
-else
-  $as_echo "#define NOSVA_ASID_PG 1" >>confdefs.h
-
-fi
-
-
 # Check whether --enable-llc-part was given.
 if test "${enable_llc_part+set}" = set; then :
   enableval=$enable_llc_part; case "${enableval}" in
@@ -1834,6 +1804,20 @@ else
 
 fi
 
+
+# Check whether --enable-self-profile was given.
+if test "${enable_self_profile+set}" = set; then :
+  enableval=$enable_self_profile; case "${enableval}" in
+                              yes) $as_echo "#define SVA_SELF_PROFILE 1" >>confdefs.h
+ ;;
+                              no)  $as_echo "#define NOSVA_SELF_PROFILE 1" >>confdefs.h
+ ;;
+                              *)   as_fn_error $? "bad value ${enableval} for --enable-self-profile" "$LINENO" 5 ;;
+                             esac
+else
+  $as_echo "#define NOSVA_SELF_PROFILE 1" >>confdefs.h
+
+fi
 
 
 # Check whether --enable-targets was given.

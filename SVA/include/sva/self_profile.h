@@ -18,8 +18,11 @@
 #ifndef SVA_SELF_PROFILE_H
 #define SVA_SELF_PROFILE_H
 
+#include <sva/asmconfig.h>
 #include <sva/types.h>
 #include <sva/util.h>
+
+#ifdef SVA_SELF_PROFILE
 
 enum SVA_OS_NAME {
   sva_trapframe_api,
@@ -119,5 +122,15 @@ void init_sva_counter(void);
 
 #define SVA_PROF_EXIT_MULTI(name, variant)                              \
   (record_tsc(sva_##name##_##variant##_api, sva_read_tsc() - tsc_tmp))
+
+#else
+
+#define SVA_PROF_ENTER() ((void)0)
+
+#define SVA_PROF_EXIT(name) ((void)0)
+
+#define SVA_PROF_EXIT_MULTI(name, variant) ((void)0)
+
+#endif
 
 #endif /* SVA_SELF_PROFILE_H */

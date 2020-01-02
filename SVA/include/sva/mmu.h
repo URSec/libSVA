@@ -173,8 +173,10 @@ static inline void protect_paging(void) {
 #ifndef SVA_DMAP
   write_cr0(read_cr0() | CR0_WP);
 
+#ifdef SVA_SELF_PROFILE
   if(tsc_read_enable_sva)
     wp_num++;
+#endif
 #endif
 }
 
@@ -198,8 +200,10 @@ static inline void unprotect_paging(void) {
 #ifndef SVA_DMAP
   write_cr0(read_cr0() & ~CR0_WP);
 
+#ifdef SVA_SELF_PROFILE
   if(tsc_read_enable_sva)
     wp_num++;
+#endif
 #endif
 }
 

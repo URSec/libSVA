@@ -40,5 +40,7 @@
 /* Let the configure script determine if we enable the page table side-channel defenses for ghost memory*/
 #undef SVA_PG_DEF
 
+/* Let the configure script determine if we enable profiling. */
+#undef SVA_SELF_PROFILE
 
 #endif
