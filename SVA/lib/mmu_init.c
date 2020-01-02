@@ -46,7 +46,11 @@
 #if DEBUG
 #define sva_dbg(...) printf(__VA_ARGS__)
 #else
-#define sva_dbg(...)
+/*
+ * Silence unused variable warnings for variables that are only used as
+ * arguments to this macro.
+ */
+#define sva_dbg(...) ({ if (false) { printf(__VA_ARGS__); } })
 #endif
 
 /*

@@ -72,6 +72,8 @@ void init_thread_key (struct SVAThread * thread) {
   if (uniqueFirstChar == 0x7E) {
     keyI++; uniqueFirstChar = 0x22; 
   } 
+#else
+  (void)thread;
 #endif
 #endif
 }

@@ -263,8 +263,7 @@ register_x86_trap (int number, void (*trap)(void)) {
  * Description:
  *  This function captures FP traps and flags use of the FP unit accordingly.
  */
-static void
-fptrap (unsigned int vector) {
+static void fptrap(unsigned int __attribute__((unused)) vector) {
   /*
    * Currently, we only support user-space applications using the floating
    * point unit.  If the kernel uses the floating point unit, panic the
@@ -359,6 +358,8 @@ init_procID (void) {
  */
 static void
 init_interrupt_table (unsigned int procID) {
+  (void)procID;
+
   for (int index = 0; index < 256; index++) {
     interrupt_table[index] = default_interrupt;
   }
@@ -378,6 +379,8 @@ init_interrupt_table (unsigned int procID) {
  */
 static void
 init_idt (unsigned int procID) {
+  (void)procID;
+
   /* Argument to lidt/sidt taken from FreeBSD. */
   static struct region_descriptor {
     unsigned long rd_limit:16;    /* segment extent */

@@ -841,7 +841,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
 }
 
 void
-trap_pfault_ghost(unsigned trapno, void * trapAddr) {
+trap_pfault_ghost(unsigned __attribute__((unused)) trapno, void * trapAddr) {
   struct CPUState * cpup = getCPUState();
   sva_icontext_t * p = cpup->newCurrentIC;
   uintptr_t vaddr = PG_L1_DOWN(trapAddr);

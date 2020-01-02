@@ -64,8 +64,8 @@
  * TODO: this will be removed. It is only used for temporarily obtaining
  * performance numbers.
  */
-static inline void
-SVA_NOOP_ASSERT (int res, char * st) {
+static inline void SVA_NOOP_ASSERT(int res, char* st) {
+  (void)st;
   if (!res) res++;
 }
 

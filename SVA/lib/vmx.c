@@ -623,6 +623,11 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
     sva_check_memory_read(initial_ctrls, sizeof(struct sva_vmx_vm_ctrls));
     sva_check_memory_read(initial_state, sizeof(struct sva_vmx_guest_state));
   }
+#else
+  /* Silence unused parameter warnings. */
+  (void)initial_ctrls;
+  (void)initial_state;
+  (void)initial_eptable;
 #endif
 
   /*

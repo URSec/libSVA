@@ -286,6 +286,8 @@ sva_ipush_function1 (void (*newf)(int), uintptr_t param) {
  */
 static inline void
 checkIntegerForLoad (sva_integer_state_t * p) {
+  (void)p;
+
 #if 0
   /* Current code segment */
   unsigned int cs;
@@ -482,6 +484,9 @@ flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
       oldThread->secmemSize > 0 && newThread->secmemSize > 0 &&
       oldThread->secmemPML4e != newThread->secmemPML4e)
     wbinvd();
+#else
+  /* Silence an unused parameter warning. */
+  (void)newThread;
 #endif
 }
 

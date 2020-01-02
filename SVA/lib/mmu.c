@@ -348,6 +348,12 @@ void sva_mm_flush_tlb(void* address) {
 
 void initDeclaredPage(uintptr_t frame) {
   /*
+   * Currently, we don't actually do anything with the frame itself. The
+   * parameter is vestigial.
+   */
+  (void)frame;
+
+  /*
    * Do a global TLB flush (including for EPT if SVA-VMX is active) to
    * ensure that there are no stale mappings to this page that the OS
    * neglected to flush.
