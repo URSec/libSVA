@@ -440,6 +440,7 @@ sva_icontext (struct trapframe * tf) {
 
 static void
 print_icontext (char * s, sva_icontext_t * p) {
+  printf ("SVA: in %s\n", s);
   printf ("rip: 0x%lx   rsp: %p   rbp: 0x%lx \n", p->rip, p->rsp, p->rbp);
   printf ("rax: 0x%lx   rbx: 0x%lx   rcx: 0x%lx \n", p->rax, p->rbx, p->rcx);
   printf ("rdx: 0x%lx   rsi: 0x%lx   rdi: 0x%lx \n", p->rdx, p->rsi, p->rdi);
