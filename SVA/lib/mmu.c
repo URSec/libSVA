@@ -18,14 +18,15 @@
 
 #include "icat.h"
 
-#include "sva/types.h"
-#include "sva/callbacks.h"
-#include "sva/config.h"
-#include "sva/mmu.h"
-#include "sva/mmu_intrinsics.h"
-#include "sva/x86.h"
-#include "sva/state.h"
-#include "sva/util.h"
+#include <sva/types.h>
+#include <sva/callbacks.h>
+#include <sva/config.h>
+#include <sva/mmu.h>
+#include <sva/mmu_intrinsics.h>
+#include <sva/x86.h>
+#include <sva/self_profile.h>
+#include <sva/state.h>
+#include <sva/util.h>
 
 /*
  *****************************************************************************
@@ -120,9 +121,7 @@ frame_type_t frame_type_from_pte(page_entry_t pte, frame_type_t pt_type) {
 }
 
 void page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
 #ifdef SVA_DMAP
   uintptr_t ptePA = getPhysicalAddr(page_entry);
@@ -142,7 +141,7 @@ void page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
   protect_paging();
 #endif
 
-  record_tsc(page_entry_store_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(page_entry_store);
 }
 
 /**
@@ -1124,9 +1123,7 @@ void ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
 }
 
 void sva_mm_load_pgtable(cr3_t pg_ptr) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   /*
    * Switch to the user/SVA page tables so that we can access SVA memory
@@ -1193,7 +1190,7 @@ void sva_mm_load_pgtable(cr3_t pg_ptr) {
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
 
-  record_tsc(sva_mm_load_pgtable_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(mm_load_pgtable);
 }
 
 cr3_t sva_mm_save_pgtable(void) {
@@ -1201,14 +1198,12 @@ cr3_t sva_mm_save_pgtable(void) {
 }
 
 void sva_load_cr0(unsigned long val) {
-    uint64_t tsc_tmp = 0;
-    if (tsc_read_enable_sva)
-      tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
-    val |= CR0_WP;
-    write_cr0(val);
+  val |= CR0_WP;
+  write_cr0(val);
 
-    record_tsc(sva_load_cr0_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(load_cr0);
 }
 
 void usersva_to_kernel_pcid(void) {
@@ -1322,39 +1317,31 @@ void sva_declare_page(uintptr_t frame, frame_type_t level) {
 }
 
 void sva_declare_l1_page(uintptr_t frame) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   sva_declare_page(frame, PGT_L1);
 
-  record_tsc(sva_declare_l1_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(declare_l1_page);
 }
 
 void sva_declare_l2_page(uintptr_t frame) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   sva_declare_page(frame, PGT_L2);
 
-  record_tsc(sva_declare_l2_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(declare_l2_page);
 }
 
 void sva_declare_l3_page(uintptr_t frame) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   sva_declare_page(frame, PGT_L3);
 
-  record_tsc(sva_declare_l3_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(declare_l3_page);
 }
 
 void sva_declare_l4_page(uintptr_t frame) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   sva_declare_page(frame, PGT_L4);
 
@@ -1374,13 +1361,11 @@ void sva_declare_l4_page(uintptr_t frame) {
   }
   protect_paging();
 
-  record_tsc(sva_declare_l4_page_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(declare_l4_page);
 }
 
 void sva_remove_page(uintptr_t paddr) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
@@ -1472,13 +1457,12 @@ void sva_remove_page(uintptr_t paddr) {
   /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
-  record_tsc(sva_remove_page_2_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+
+  SVA_PROF_EXIT_MULTI(remove_page, 2);
 }
 
 void sva_remove_mapping(page_entry_t* pteptr) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
@@ -1490,7 +1474,8 @@ void sva_remove_mapping(page_entry_t* pteptr) {
   /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
-  record_tsc(sva_remove_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+
+  SVA_PROF_EXIT(remove_mapping);
 }
 
 /**
@@ -1533,43 +1518,35 @@ void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
 }
 
 void sva_update_l1_mapping(pte_t* l1e, pte_t new_l1e) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   sva_update_mapping(l1e, new_l1e, PGT_L1);
 
-  record_tsc(sva_update_l1_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(update_l1_mapping);
 }
 
 void sva_update_l2_mapping(pde_t* l2e, pde_t new_l2e) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   sva_update_mapping(l2e, new_l2e, PGT_L2);
 
-  record_tsc(sva_update_l2_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(update_l2_mapping);
 }
 
 void sva_update_l3_mapping(pdpte_t* l3e, pdpte_t new_l3e) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   sva_update_mapping(l3e, new_l3e, PGT_L3);
 
-  record_tsc(sva_update_l3_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(update_l3_mapping);
 }
 
 void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   sva_update_mapping(l4e, new_l4e, PGT_L4);
 
-  record_tsc(sva_update_l4_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(update_l4_mapping);
 }
 
 /**
@@ -1604,9 +1581,7 @@ void sva_unprotect_code_page(void* vaddr) {
   SVA_ASSERT(mmuIsInitialized,
     "SVA: FATAL: sva_unprotect_code_page called before MMU init\n");
 
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   unsigned long flags = sva_enter_critical();
   kernel_to_usersva_pcid();
@@ -1616,16 +1591,14 @@ void sva_unprotect_code_page(void* vaddr) {
   usersva_to_kernel_pcid();
   sva_exit_critical(flags);
 
-  record_tsc(sva_update_l1_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(update_l1_mapping);
 }
 
 void sva_protect_code_page(void* vaddr) {
   SVA_ASSERT(mmuIsInitialized,
     "SVA: FATAL: sva_unprotect_code_page called before MMU init\n");
 
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   unsigned long flags = sva_enter_critical();
   kernel_to_usersva_pcid();
@@ -1635,5 +1608,5 @@ void sva_protect_code_page(void* vaddr) {
   usersva_to_kernel_pcid();
   sva_exit_critical(flags);
 
-  record_tsc(sva_update_l1_mapping_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(update_l1_mapping);
 }

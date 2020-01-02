@@ -23,12 +23,14 @@
 
 #include <string.h>
 
-#include "sva/types.h"
-#include "sva/config.h"
-#include "sva/mmu_intrinsics.h"
-#include "sva/keys.h"
-#include "sva/state.h"
-#include "sva/util.h"
+#include <sva/types.h>
+#include <sva/config.h>
+#include <sva/mmu_intrinsics.h>
+#include <sva/keys.h>
+#include <sva/self_profile.h>
+#include <sva/state.h>
+#include <sva/util.h>
+
 #include "keys.h"
 
 #define DEBUG               1
@@ -118,9 +120,7 @@ struct translation __svadata translations[4096];
  */
 void *
 sva_translate(void * entryPoint) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
 
@@ -143,7 +143,7 @@ sva_translate(void * entryPoint) {
         transp->used = 2;
 
         usersva_to_kernel_pcid();        
-	record_tsc(sva_translate_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+        SVA_PROF_EXIT_MULTI(translate, 1);
         return transp;
       }
     }
@@ -152,7 +152,7 @@ sva_translate(void * entryPoint) {
      * Translation failed.
      */
     usersva_to_kernel_pcid();
-    record_tsc(sva_translate_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    SVA_PROF_EXIT_MULTI(translate, 2);
     return 0;
   }
 
@@ -160,6 +160,6 @@ sva_translate(void * entryPoint) {
    * If we're not doing Virtual Ghost, then just return the function pointer.
    */
   usersva_to_kernel_pcid();
-  record_tsc(sva_translate_3_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT_MULTI(translate, 3);
   return entryPoint;
 }

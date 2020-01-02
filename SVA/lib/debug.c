@@ -22,6 +22,7 @@
 #include <sva/state.h>
 #include <sva/interrupt.h>
 #include <sva/mmu.h>
+#include <sva/self_profile.h>
 #include <sva/util.h>
 #include <sva/vmx.h>
 #include <sva/vmx_intrinsics.h>
@@ -96,15 +97,13 @@ assertGoodIC (void) {
  *  kernel to using SVA for interrupts without completely breaking it.
  */
 void sva_cpu_user_regs(struct cpu_user_regs* regs, uintptr_t* fsbase, uintptr_t* gsbase) {
-  /*
-   * Fetch the currently available interrupt context.
-   */
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
 
+  /*
+   * Fetch the currently available interrupt context.
+   */
   sva_icontext_t* p = getCPUState()->newCurrentIC;
 
   regs->error_code = p->code;
@@ -141,8 +140,7 @@ void sva_cpu_user_regs(struct cpu_user_regs* regs, uintptr_t* fsbase, uintptr_t*
   }
 
   usersva_to_kernel_pcid();
-  record_tsc(sva_trapframe_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  SVA_PROF_EXIT(trapframe);
 }
 
 /*
@@ -156,15 +154,13 @@ void sva_cpu_user_regs(struct cpu_user_regs* regs, uintptr_t* fsbase, uintptr_t*
  *  kernel to using SVA for interrupts without completely breaking it.
  */
 void sva_icontext(struct cpu_user_regs* regs, uintptr_t* fsbase, uintptr_t* gsbase) {
-  /*
-   * Fetch the currently available interrupt context.
-   */
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
 
+  /*
+   * Fetch the currently available interrupt context.
+   */
   sva_icontext_t* p = getCPUState()->newCurrentIC;
 
   p->code = regs->error_code;
@@ -203,8 +199,7 @@ void sva_icontext(struct cpu_user_regs* regs, uintptr_t* fsbase, uintptr_t* gsba
   p->valid = true;
 
   usersva_to_kernel_pcid();
-  record_tsc(sva_trapframe_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  SVA_PROF_EXIT(trapframe);
 }
 
 #endif /* XEN */
@@ -223,15 +218,13 @@ void sva_icontext(struct cpu_user_regs* regs, uintptr_t* fsbase, uintptr_t* gsba
  */
 void
 sva_trapframe (struct trapframe * tf) {
-  /*
-   * Fetch the currently available interrupt context.
-   */
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-  	tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
 
+  /*
+   * Fetch the currently available interrupt context.
+   */
   struct CPUState * cpup = getCPUState();
   sva_icontext_t * p = getCPUState()->newCurrentIC;
 
@@ -300,8 +293,7 @@ sva_trapframe (struct trapframe * tf) {
 
 
   usersva_to_kernel_pcid();
-  record_tsc(sva_trapframe_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  SVA_PROF_EXIT(trapframe);
 }
 
 /*
@@ -318,15 +310,13 @@ sva_trapframe (struct trapframe * tf) {
  */
 void
 sva_syscall_trapframe (struct trapframe * tf) {
-  /*
-   * Fetch the currently available interrupt context.
-   */
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
 
+  /*
+   * Fetch the currently available interrupt context.
+   */
   struct CPUState * cpup = getCPUState();
   sva_icontext_t * p = getCPUState()->newCurrentIC;
 
@@ -387,8 +377,7 @@ sva_syscall_trapframe (struct trapframe * tf) {
   tf->tf_ss = p->ss;
 
   usersva_to_kernel_pcid();
-  record_tsc(sva_syscall_trapframe_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  SVA_PROF_EXIT(syscall_trapframe);
 }
 
 #if 0
@@ -521,14 +510,12 @@ sva_print_inttable (void) {
 
 void
 sva_checkptr (uintptr_t p) {
+  SVA_PROF_ENTER();
+
   //
   // If we're in kernel memory but not above the secure memory region, hit a
   // breakpoint.
   //
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
-
   if (p >= 0xffffff8000000000) {
     if (!(p & 0x0000008000000000u)) {
       bochsBreak();
@@ -536,8 +523,7 @@ sva_checkptr (uintptr_t p) {
     }
   }
 
-  record_tsc(sva_checkptr_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  SVA_PROF_EXIT(checkptr);
 }
 
 /*

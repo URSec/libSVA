@@ -81,14 +81,16 @@
  * $FreeBSD: release/9.0.0/sys/amd64/include/cpufunc.h 223796 2011-07-05 18:42:10Z jkim $
  */
 
-#include "sva/types.h"
-#include "sva/config.h"
-#include "sva/state.h"
-#include "sva/util.h"
-#include "sva/mmu.h"
-#include "sva/interrupt.h"
-#include "sva/mpx.h"
-#include "sva/msr.h"
+#include <sva/types.h>
+#include <sva/config.h>
+#include <sva/state.h>
+#include <sva/util.h>
+#include <sva/mmu.h>
+#include <sva/interrupt.h>
+#include <sva/mpx.h>
+#include <sva/msr.h>
+#include <sva/self_profile.h>
+
 #include "thread_stack.h"
 
 #include <string.h>
@@ -582,14 +584,12 @@ testmpx (void) {
  */
 void
 sva_init_primary () {
+  SVA_PROF_ENTER();
+
 #if 0
   init_segs ();
   init_debug ();
 #endif
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-   	tsc_tmp = sva_read_tsc();
-
 
   /* Initialize the processor ID */
   init_procID();
@@ -609,7 +609,7 @@ sva_init_primary () {
   llva_reset_local_counters();
 #endif
 
-  record_tsc(sva_init_primary_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT(init_primary);
 }
 
 /*
@@ -623,13 +623,12 @@ sva_init_primary () {
  */
 void
 sva_init_primary_xen(void *tss) {
+  SVA_PROF_ENTER();
+
 #if 0
   init_segs();
   init_debug();
 #endif
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
 
   init_TLS((tss_t*)tss);
 
@@ -654,7 +653,7 @@ sva_init_primary_xen(void *tss) {
   llva_reset_local_counters();
 #endif
 
-  record_tsc(sva_init_primary_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT(init_primary);
 }
 
 /*
@@ -667,10 +666,8 @@ sva_init_primary_xen(void *tss) {
  */
 void
 sva_init_secondary () {
+  SVA_PROF_ENTER();
 
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
 #if 0
   init_segs ();
   init_debug ();
@@ -697,7 +694,8 @@ sva_init_secondary () {
   llva_reset_counters();
   llva_reset_local_counters();
 #endif
-  record_tsc(sva_init_secondary_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+
+  SVA_PROF_EXIT(init_secondary);
 }
 
 #define REGISTER_EXCEPTION(number) \

@@ -24,6 +24,7 @@
 #include <sva/mmu.h>
 #include <sva/mmu_intrinsics.h>
 #include <sva/x86.h>
+#include <sva/self_profile.h>
 #include <sva/state.h>
 #include <sva/util.h>
 
@@ -670,9 +671,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
               uintptr_t * firstpaddr,
               uintptr_t btext,
               uintptr_t etext) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
@@ -799,7 +798,7 @@ sva_mmu_init (pml4e_t * kpml4Mapping,
   /* Restore interrupts. */
   sva_exit_critical(rflags);
 
-  record_tsc(sva_mmu_init_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT(mmu_init);
 }
 #endif /* FreeBSD */
 
@@ -1195,9 +1194,7 @@ void create_sva_direct_map(pml4e_t *first_dmap_entry, size_t num_dmap_entries) {
  * the page descriptors for all currently used frames.
  */
 void sva_mmu_init(void) {
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
@@ -1246,6 +1243,6 @@ void sva_mmu_init(void) {
   /* Restore interrupts. */
   sva_exit_critical(rflags);
 
-  record_tsc(sva_mmu_init_api, (uint64_t)sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(mmu_init);
 }
 #endif /* XEN */

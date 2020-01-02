@@ -29,6 +29,7 @@
 
 #include <sva/invoke.h>
 #include <sva/assert.h>
+#include <sva/self_profile.h>
 #include <sva/state.h>
 #include <sva/util.h>
 #include <sva/callbacks.h>
@@ -77,9 +78,7 @@ bool sva_iunwind(void) {
   /* Assembly code that finishes the unwind */
   extern void sva_invoke_except(void);
 
-  uint64_t tsc_tmp = 0;
-  if (tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
 
@@ -103,8 +102,8 @@ bool sva_iunwind(void) {
      * Re-enable interrupts.
      */
     sva_exit_critical(rflags);
-    usersva_to_kernel_pcid(); 
-    record_tsc(sva_iunwind_1_api, sva_read_tsc() - tsc_tmp);
+    usersva_to_kernel_pcid();
+    SVA_PROF_EXIT_MULTI(iunwind, 1);
     return false;
   }
 
@@ -151,7 +150,7 @@ bool sva_iunwind(void) {
    */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
-  record_tsc(sva_iunwind_2_api, sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT_MULTI(iunwind, 2);
   return true;
 }
 
@@ -253,9 +252,7 @@ uintptr_t sva_invokestrncpy(char* dst, const char* src, size_t count) {
    *  code for 32-bit processors.
    */
 
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
   /* The invoke frame placed on the stack */
@@ -273,7 +270,7 @@ uintptr_t sva_invokestrncpy(char* dst, const char* src, size_t count) {
   if (count == 0)
   {
     usersva_to_kernel_pcid();
-    record_tsc(sva_invokestrncpy_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    SVA_PROF_EXIT_MULTI(invokestrncpy, 1);
     return 0;
   }
 
@@ -302,7 +299,6 @@ uintptr_t sva_invokestrncpy(char* dst, const char* src, size_t count) {
   invoke_frame_teardown(&frame);
 
   usersva_to_kernel_pcid();
-  record_tsc(sva_invokestrncpy_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT_MULTI(invokestrncpy, 2);
   return res;
 }
-

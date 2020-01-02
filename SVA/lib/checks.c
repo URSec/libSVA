@@ -15,12 +15,11 @@
 
 #include <sva/types.h>
 #include <sva/mmu.h>
+#include <sva/self_profile.h>
 #include <sva/util.h>
 
 void sva_check_buffer(uintptr_t start, size_t len) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   /*
    * Compute the last address of the buffer.
@@ -50,7 +49,7 @@ void sva_check_buffer(uintptr_t start, size_t len) {
     "SVA: FATAL: Invalid buffer access: %lx %lx\n", start, end);
 #endif
 
-  record_tsc(sva_check_buffer_api, sva_read_tsc() - tsc_tmp);
+  SVA_PROF_EXIT(check_buffer);
 }
 
 void __attribute__((noreturn)) abort(void) {

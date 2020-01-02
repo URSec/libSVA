@@ -24,7 +24,8 @@
 #include <sva/state.h>
 #include <sva/interrupt.h>
 #include <sva/mmu.h>
-#include "sva/mmu_intrinsics.h"
+#include <sva/mmu_intrinsics.h>
+#include <sva/self_profile.h>
 #include <sva/x86.h>
 #include "thread_stack.h"
 
@@ -79,13 +80,11 @@ getThreadRID (void) {
  */
 uintptr_t
 sva_icontext_getpc (void) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   struct CPUState * cpuState = getCPUState();
 
-  record_tsc(sva_icontext_getpc_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT(icontext_getpc);
   return cpuState->newCurrentIC->rip;
 }
 
@@ -120,9 +119,7 @@ sva_ipush_function5 (void (*newf)(),
                      uintptr_t p3,
                      uintptr_t p4,
                      uintptr_t p5) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();   
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
 
@@ -158,7 +155,7 @@ sva_ipush_function5 (void (*newf)(),
       panic ("SVA: Pushing bad value %p\n", newf);
       sva_exit_critical (rflags);
       usersva_to_kernel_pcid();
-      record_tsc(sva_ipush_function5_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp)); 
+      SVA_PROF_EXIT_MULTI(ipush_function5, 1);
       return;
     }
 
@@ -174,7 +171,7 @@ sva_ipush_function5 (void (*newf)(),
       panic ("SVA: Pushing bad sighandler value %lx\n", p5);
       sva_exit_critical (rflags);
       usersva_to_kernel_pcid();
-      record_tsc(sva_ipush_function5_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+      SVA_PROF_EXIT_MULTI(ipush_function5, 2);
       return;
     }
 
@@ -219,8 +216,7 @@ sva_ipush_function5 (void (*newf)(),
 
   usersva_to_kernel_pcid();
 
-  record_tsc(sva_ipush_function5_3_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  SVA_PROF_EXIT_MULTI(ipush_function5, 3);
 }
 
 /*
@@ -693,9 +689,7 @@ static bool loadThread(struct SVAThread* newThread) {
  */
 uintptr_t
 sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
 
@@ -719,7 +713,7 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
      */
     sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
-    record_tsc(sva_swap_integer_1_api, ((uint64_t)sva_read_tsc() - tsc_tmp));
+    SVA_PROF_EXIT_MULTI(swap_integer, 1);
     return 0;
   }
 
@@ -733,7 +727,7 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
      */
     sva_exit_critical (rflags);
     usersva_to_kernel_pcid();
-    record_tsc(sva_swap_integer_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    SVA_PROF_EXIT_MULTI(swap_integer, 2);
     return 1;
   }
 
@@ -760,7 +754,7 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
    */
   sva_exit_critical (rflags);
   usersva_to_kernel_pcid();
-  record_tsc(sva_swap_integer_3_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT_MULTI(swap_integer, 3);
   return 0; 
 }
 
@@ -781,9 +775,7 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
  *  1 - State swapping succeeded.
  */
 int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
 
@@ -807,7 +799,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
      */
     sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
-    record_tsc(sva_swap_user_integer_1_api, ((uint64_t)sva_read_tsc() - tsc_tmp));
+    SVA_PROF_EXIT_MULTI(swap_user_integer, 1);
     return 0;
   }
 
@@ -830,7 +822,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
   if (loadThread(newThread)) {
     sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
-    record_tsc(sva_swap_user_integer_2_api, ((uint64_t)sva_read_tsc() - tsc_tmp));
+    SVA_PROF_EXIT_MULTI(swap_user_integer, 2);
     return 1;
   } else {
     /*
@@ -838,7 +830,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
      */
     sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
-    record_tsc(sva_swap_user_integer_3_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    SVA_PROF_EXIT_MULTI(swap_user_integer, 3);
     return 0;
   }
 }
@@ -865,9 +857,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
  */
 void *
 sva_ialloca (uintptr_t size, uintptr_t alignment, void * initp) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
 
@@ -978,7 +968,7 @@ sva_ialloca (uintptr_t size, uintptr_t alignment, void * initp) {
 
   usersva_to_kernel_pcid();
 
-  record_tsc(sva_ialloca_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT(ialloca);
   return allocap;
 }
 
@@ -991,9 +981,7 @@ sva_ialloca (uintptr_t size, uintptr_t alignment, void * initp) {
  */
 void
 sva_load_icontext (void) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
  
@@ -1019,7 +1007,7 @@ sva_load_icontext (void) {
   if (sva_was_privileged ()) {
       sva_exit_critical (rflags);
       usersva_to_kernel_pcid();
-      record_tsc(sva_load_icontext_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+      SVA_PROF_EXIT_MULTI(load_icontext, 1);
       return;
   }
 
@@ -1029,7 +1017,7 @@ sva_load_icontext (void) {
   if (threadp->savedICIndex < 1) {
       sva_exit_critical (rflags);
       usersva_to_kernel_pcid();
-      record_tsc(sva_load_icontext_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+      SVA_PROF_EXIT_MULTI(load_icontext, 2);
       return;
   }
 
@@ -1045,8 +1033,7 @@ sva_load_icontext (void) {
 
   usersva_to_kernel_pcid();
 
-  record_tsc(sva_load_icontext_3_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  SVA_PROF_EXIT_MULTI(load_icontext, 3);
 }
 
 /*
@@ -1062,9 +1049,7 @@ sva_load_icontext (void) {
  */
 unsigned char
 sva_save_icontext (void) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
  
@@ -1090,7 +1075,7 @@ sva_save_icontext (void) {
   if (sva_was_privileged ()) {
       sva_exit_critical (rflags);
       usersva_to_kernel_pcid();
-      record_tsc(sva_save_icontext_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+      SVA_PROF_EXIT_MULTI(save_icontext, 1);
       return 0;
   }
 
@@ -1100,7 +1085,7 @@ sva_save_icontext (void) {
   if (threadp->savedICIndex > maxIC) {
       sva_exit_critical (rflags);
       usersva_to_kernel_pcid();
-      record_tsc(sva_save_icontext_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+      SVA_PROF_EXIT_MULTI(save_icontext, 2);
       return 0;
   }
 
@@ -1122,7 +1107,7 @@ sva_save_icontext (void) {
 
   usersva_to_kernel_pcid();  
 
-  record_tsc(sva_save_icontext_3_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT_MULTI(save_icontext, 3);
   return savedICIndex;
 }
 
@@ -1149,9 +1134,7 @@ svaDummy (void) {
  */
 void
 sva_reinit_icontext (void * handle, unsigned char priv, uintptr_t stackp, uintptr_t arg) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
   /* Old interrupt flags */
@@ -1174,13 +1157,13 @@ sva_reinit_icontext (void * handle, unsigned char priv, uintptr_t stackp, uintpt
       if (((uint64_t)transp - (uint64_t)translations) % sizeof (struct translation)) {
         panic ("SVA: Invalid translation handle: %p %p %lx\n", transp, translations, sizeof (struct translation));
         usersva_to_kernel_pcid();
-        record_tsc(sva_reinit_icontext_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+        SVA_PROF_EXIT_MULTI(reinit_icontext, 1);
         return;
       }
     } else {
       panic ("SVA: Out of range translation handle: %p %p %lx\n", transp, translations, sizeof (struct translation));
       usersva_to_kernel_pcid();
-      record_tsc(sva_reinit_icontext_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+      SVA_PROF_EXIT_MULTI(reinit_icontext, 2);
       return;
     }
 
@@ -1277,7 +1260,7 @@ sva_reinit_icontext (void * handle, unsigned char priv, uintptr_t stackp, uintpt
   /* Re-enable interupts if they were enabled before */
   sva_exit_critical (rflags);
   usersva_to_kernel_pcid();
-  record_tsc(sva_reinit_icontext_3_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT_MULTI(reinit_icontext, 3);
   return;
 }
 
@@ -1290,9 +1273,7 @@ sva_reinit_icontext (void * handle, unsigned char priv, uintptr_t stackp, uintpt
  */
 void
 sva_release_stack (uintptr_t id) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
  
   kernel_to_usersva_pcid();
  
@@ -1311,7 +1292,7 @@ sva_release_stack (uintptr_t id) {
   if (newThread == getCPUState()->currentThread)
   {
     usersva_to_kernel_pcid();
-    record_tsc(sva_release_stack_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    SVA_PROF_EXIT_MULTI(release_stack, 1);
     return;
   }
   /*
@@ -1338,8 +1319,7 @@ sva_release_stack (uintptr_t id) {
   /* Push the thread into the stack of free threads since it can be reused */
   ftstack_push(newThread);
   usersva_to_kernel_pcid();
-  record_tsc(sva_release_stack_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+  SVA_PROF_EXIT_MULTI(release_stack, 2);
 }
 
 /*
@@ -1367,9 +1347,7 @@ sva_init_stack (unsigned char * start_stackp,
                 uintptr_t arg2,
                 uintptr_t arg3) {
  
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
  
@@ -1584,7 +1562,7 @@ sva_init_stack (unsigned char * start_stackp,
    */
   sva_exit_critical (rflags);
   usersva_to_kernel_pcid();
-  record_tsc(sva_init_stack_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT(init_stack);
   return (unsigned long) newThread;
 }
 

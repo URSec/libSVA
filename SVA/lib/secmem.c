@@ -14,14 +14,15 @@
 
 #include <string.h>
 
-#include "sva/assert.h"
-#include "sva/types.h"
-#include "sva/config.h"
-#include "sva/callbacks.h"
-#include "sva/mmu.h"
-#include "sva/mmu_intrinsics.h"
-#include "sva/state.h"
-#include "sva/util.h"
+#include <sva/assert.h>
+#include <sva/types.h>
+#include <sva/config.h>
+#include <sva/callbacks.h>
+#include <sva/mmu.h>
+#include <sva/mmu_intrinsics.h>
+#include <sva/self_profile.h>
+#include <sva/state.h>
+#include <sva/util.h>
 
 /* Size of frame cache queue */
 #define FRAME_CACHE_SIZE 4096
@@ -701,9 +702,7 @@ freeSecureMemory (void) {
 
 void
 sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-    tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
   /* Old interrupt flags */
@@ -837,8 +836,8 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
   /* Re-enable interrupts if necessary */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
-  record_tsc(sva_ghost_fault_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+
+  SVA_PROF_EXIT(ghost_fault);
 }
 
 void

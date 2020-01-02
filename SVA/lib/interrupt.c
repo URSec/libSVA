@@ -13,13 +13,15 @@
  *===----------------------------------------------------------------------===
  */
 
-#include "sva/callbacks.h"
-#include "sva/config.h"
-#include "sva/interrupt.h"
-#include "sva/state.h"
-#include "sva/keys.h"
-#include "sva/util.h"
-#include "sva/x86.h"
+#include <sva/callbacks.h>
+#include <sva/config.h>
+#include <sva/interrupt.h>
+#include <sva/self_profile.h>
+#include <sva/state.h>
+#include <sva/keys.h>
+#include <sva/util.h>
+#include <sva/x86.h>
+
 #include "thread_stack.h"
 
 /* Debug flags for printing data */
@@ -101,10 +103,7 @@ struct CPUState * CPUState = realCPUState;
  */
 void *
 sva_getCPUState (tss_t * tssp) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
-
+  SVA_PROF_ENTER();
 
   /* Index of next available CPU state */
   static unsigned int __svadata nextIndex = 0;
@@ -161,12 +160,11 @@ sva_getCPUState (tss_t * tssp) {
      * Return the CPU State to the caller.
      */
 
-
-    record_tsc(sva_getCPUState_1_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+    SVA_PROF_EXIT_MULTI(getCPUState, 1);
     return cpup;
   }
 
-  record_tsc(sva_getCPUState_2_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT_MULTI(getCPUState, 2);
   return 0;
 }
 
@@ -184,9 +182,7 @@ void
 sva_icontext_setretval (unsigned long high,
                         unsigned long low,
                         unsigned char error) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
   /*
@@ -215,8 +211,8 @@ sva_icontext_setretval (unsigned long high,
   }
 
   usersva_to_kernel_pcid();
-  record_tsc(sva_icontext_setretval_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+
+  SVA_PROF_EXIT(icontext_setretval);
 }
 
 /*
@@ -232,9 +228,7 @@ sva_icontext_setretval (unsigned long high,
  */
 void
 sva_icontext_restart (unsigned long r10, unsigned long rip) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
   /*
@@ -251,8 +245,8 @@ sva_icontext_restart (unsigned long r10, unsigned long rip) {
    */
   icontextp->rcx -= 2;
   usersva_to_kernel_pcid();
-  record_tsc(sva_icontext_restart_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
-  return;
+
+  SVA_PROF_EXIT(icontext_restart);
 }
 
 /*
@@ -269,9 +263,7 @@ sva_icontext_restart (unsigned long r10, unsigned long rip) {
 unsigned char
 sva_register_general_exception (unsigned char number,
                                 genfault_handler_t handler) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
+  SVA_PROF_ENTER();
 
   /*
    * First, ensure that the exception number is within range.
@@ -304,7 +296,7 @@ sva_register_general_exception (unsigned char number,
    */
   interrupt_table[number] = handler;
 
-  record_tsc(sva_register_general_exception_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT(register_general_exception);
   return 0;
 }
 
@@ -349,10 +341,7 @@ sva_register_memory_exception (unsigned char number, memfault_handler_t handler)
  */
 unsigned char
 sva_register_interrupt (unsigned char number, interrupt_handler_t interrupt) {
-  uint64_t tsc_tmp = 0;
-  if(tsc_read_enable_sva)
-     tsc_tmp = sva_read_tsc();
-
+  SVA_PROF_ENTER();
 
   /*
    * Ensure that the number is within range.
@@ -369,7 +358,7 @@ sva_register_interrupt (unsigned char number, interrupt_handler_t interrupt) {
    */
   interrupt_table[number] = interrupt;
 
-  record_tsc(sva_register_interrupt_api, ((uint64_t) sva_read_tsc() - tsc_tmp));
+  SVA_PROF_EXIT(register_interrupt);
   return 0;
 }
 
