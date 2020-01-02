@@ -7,7 +7,10 @@
 #
 include ../../make.conf
 
+WARN_FLAGS = -Wall -Wextra -Werror
+
 CPPFLAGS += -I../include -include sva/compiler.h
+CPPFLAGS += $(WARN_FLAGS)
 
 OPT_FLAGS += -O2 -fno-strict-aliasing -fno-omit-frame-pointer
 
