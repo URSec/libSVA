@@ -26,8 +26,18 @@ OFILES = init.o secmem.o handlers.o mmu.o mmu_init.o interrupt.o state.o \
          frame_meta.o debug.o stateasm.o invoke.o invokeasm.o checks.o keys.o \
          thread_stack.o profile.o vmx.o vmx_ept.o
 
+all: libsva.a
+
+include $(patsubst %,%.d,$(OFILES))
+
 libsva.a: $(OFILES)
 	$(AR) -r $@ $(OFILES)
+
+%.o.d: %.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MM -MT "$@ $(patsubst %.d,%,$@)" "$<" -MF "$@"
+
+%.o.d: %.S
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -MM -MT "$@ $(patsubst %.d,%,$@)" "$<" -MF "$@"
 
 %.o: %.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c "$<" -o "$@"
@@ -36,5 +46,5 @@ libsva.a: $(OFILES)
 	$(CC) $(CPPFLAGS) $(ASFLAGS) -c "$<" -o "$@"
 
 clean:
-	rm -f *.a *.o *.i
+	rm -f *.a *.o *.i *.d
 
