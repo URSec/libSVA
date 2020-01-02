@@ -224,10 +224,8 @@ sva_icontext_setretval (unsigned long high,
  *
  * TODO:
  *  o Check that the interrupt context is for a system call.
- *  o Remove the extra parameters used for debugging.
  */
-void
-sva_icontext_restart (unsigned long r10, unsigned long rip) {
+void sva_icontext_restart(void) {
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();

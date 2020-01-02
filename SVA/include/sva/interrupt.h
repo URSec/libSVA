@@ -29,7 +29,7 @@ extern "C" {
 extern void * sva_getCPUState (tss_t * tssp);
 
 void sva_icontext_setretval (unsigned long, unsigned long, unsigned char error);
-void sva_icontext_restart (unsigned long, unsigned long);
+void sva_icontext_restart(void);
 
 /* Types for handlers */
 typedef void (*genfault_handler_t)(unsigned int vector);
