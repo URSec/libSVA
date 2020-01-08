@@ -931,6 +931,47 @@ void* sva_ialloca(size_t size, size_t align, void* data) {
   return icontextp->rsp;
 }
 
+bool sva_ialloca_newstack(uintptr_t stack, uint16_t stack_seg, void* data,
+                          size_t size, size_t align)
+{
+  SVA_PROF_ENTER();
+  kernel_to_usersva_pcid();
+
+  /*
+   * Disable interrupts.
+   */
+  unsigned long rflags = sva_enter_critical();
+
+  bool res = false;
+
+  /**
+   * The most recent interrupt context.
+   */
+  sva_icontext_t* icontextp = getCPUState()->newCurrentIC;
+
+  /*
+   * Check that we aren't trying to set a privilaged stack segment.
+   */
+  if ((stack_seg & 0x3) == 0) {
+    printf("SVA: WARNING: icontext push alignment privilaged stack segment\n");
+    goto out;
+  }
+
+  if (!ialloca_common((void*)stack, data, size, align)) {
+    goto out;
+  }
+
+  icontextp->ss = stack_seg;
+
+  res = true;
+
+out:
+  sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
+  SVA_PROF_EXIT(ialloca);
+  return res;
+}
+
 /*
  * Intrinsic: sva_load_icontext()
  *

@@ -466,6 +466,24 @@ extern void sva_ipush_function5 (void (*f)(),
  */
 extern void* sva_ialloca(size_t size, size_t align, void* data);
 
+/**
+ *
+ * Allocate an object of the specified size on the specified stack
+ * and copy data into it.
+ *
+ * Modifies the interrupt context to use the new stack upon return.
+ *
+ * @param stack     The new stack to use
+ * @param stack_seg The segment selector for the new stack
+ * @param size      The number of bytes to allocate on the stack
+ * @param align     The power of two alignment to use for the memory object
+ * @param data      A pointer to the data with which to initialize the
+ *                  allocation; if this is `NULL`, then no initialization is
+ *                  performed
+ */
+extern bool sva_ialloca_newstack(uintptr_t stack, uint16_t stack_seg,
+                                 void* data, size_t size, size_t align);
+
 /*****************************************************************************
  * Utility Functions
  *  These functions should not be called by the kernel; they are not SVA-OS
