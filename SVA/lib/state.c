@@ -264,6 +264,70 @@ sva_ipush_function1 (void (*newf)(int), uintptr_t param) {
   return;
 }
 
+bool sva_ipush_function(uintptr_t fn, uint16_t cs) {
+  SVA_PROF_ENTER();
+  kernel_to_usersva_pcid();
+
+  /*
+   * Disable interrupts.
+   */
+  unsigned long rflags = sva_enter_critical();
+
+  /*
+   * Get the most recent interrupt context.
+   */
+  struct CPUState* cpu_state = getCPUState();
+  struct SVAThread* thread = cpu_state->currentThread;
+  sva_icontext_t* ic = cpu_state->newCurrentIC;
+
+  /*
+   * Make sure we aren't setting a privilaged code segment.
+   */
+  if ((cs & 0x3) == 0) {
+    printf("SVA: WARNING: "
+      "Attempt to set a handler with a ring-0 code segment\n");
+    sva_exit_critical(rflags);
+    usersva_to_kernel_pcid();
+    SVA_PROF_EXIT_MULTI(ipush_function5, 1);
+    return false;
+  }
+
+  /*
+   * Verify that the target function is in the list of valid function targets.
+   * Note that if no push targets have been specified, then any target is valid.
+   */
+  if (!is_valid_push_target(thread, fn)) {
+    printf("SVA: WARNING: Bad handler target 0x%016lx\n", fn);
+    sva_exit_critical(rflags);
+    usersva_to_kernel_pcid();
+    SVA_PROF_EXIT_MULTI(ipush_function5, 2);
+    return false;
+  }
+
+  /*
+   * Set the interrupt context to return to the specified location.
+   */
+  ic->rip = fn;
+  ic->cs = cs;
+
+  ic->rflags &= ~(EFLAGS_AC | EFLAGS_TF | EFLAGS_RF | EFLAGS_NT | EFLAGS_VM);
+
+  /*
+   * Mark the interrupt context as valid; if an sva_ialloca previously
+   * invalidated it, an sva_ipush_function() makes it valid again.
+   */
+  ic->valid |= IC_is_valid;
+
+  /*
+   * Re-enable interrupts.
+   */
+  sva_exit_critical(rflags);
+
+  usersva_to_kernel_pcid();
+  SVA_PROF_EXIT_MULTI(ipush_function5, 3);
+  return true;
+}
+
 /*****************************************************************************
  * Integer State
  ****************************************************************************/

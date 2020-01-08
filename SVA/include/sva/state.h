@@ -469,6 +469,18 @@ extern void sva_ipush_function5(void (*f)(),
                                 uintptr_t p5);
 
 /**
+ * Set the active interrupt context to return to the specified location.
+ *
+ * If the current thread is ghosting, this will ensure that the location
+ * specified is a valid target.
+ *
+ * @param fn  The target location
+ * @param cs  The target code segment selector
+ * @return    Whether the operation was successful
+ */
+extern bool sva_ipush_function(uintptr_t fn, uint16_t cs);
+
+/**
  * Allocate an object of the specified size on the current stack belonging to
  * the most recent Interrupt Context and copy data into it.
  *
