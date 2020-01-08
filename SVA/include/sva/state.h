@@ -454,7 +454,17 @@ extern void sva_ipush_function5 (void (*f)(),
                                  uintptr_t p4,
                                  uintptr_t p5);
 
-extern void * sva_ialloca (uintptr_t size, uintptr_t alignment, void * initp);
+/**
+ * Allocate an object of the specified size on the current stack belonging to
+ * the most recent Interrupt Context and copy data into it.
+ *
+ * @param size  The number of bytes to allocate on the stack
+ * @param align The power of two alignment to use for the memory object
+ * @param data  A pointer to the data with which to initialize the allocation;
+ *              if this is `NULL`, no initialization is performed
+ * @return      The address of the allocation
+ */
+extern void* sva_ialloca(size_t size, size_t align, void* data);
 
 /*****************************************************************************
  * Utility Functions

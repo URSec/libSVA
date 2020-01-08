@@ -23,6 +23,7 @@
 #include <sva/util.h>
 #include <sva/state.h>
 #include <sva/interrupt.h>
+#include <sva/invoke.h>
 #include <sva/mmu.h>
 #include <sva/mmu_intrinsics.h>
 #include <sva/self_profile.h>
@@ -840,141 +841,94 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
   }
 }
 
-/*
- * Intrinsic: sva_ialloca()
- *
- * Description:
- *  Allocate an object of the specified size on the current stack belonging to
- *  the most recent Interrupt Context and copy data into it.
- *
- * Inputs:
- *  size      - The number of bytes to allocate on the stack pointed to by the
- *              Interrupt Context.
- *  alignment - The power of two alignment to use for the memory object.
- *  initp     - A pointer to the data with which to initialize the memory
- *              object.  This is allowed to be NULL.
- *
- * NOTES:
- *  There is an issue with having sva_ialloca() copy data into the stack
- *  object.  The kernel uses copyout() to ensure that the memory is not part
- *  of kernel memory and can return EFAULT if the copy fails.  The question
- *  is how to make sva_ialloca() do the same thing.
- */
-void *
-sva_ialloca (uintptr_t size, uintptr_t alignment, void * initp) {
-  SVA_PROF_ENTER();
-
-  kernel_to_usersva_pcid();
-
-  /* Old interrupt flags */
-  uintptr_t rflags;
-
-  /* Pointer to allocated memory */
-  void * allocap = 0;
-
-  /* Determine if an allocation is permitted */
-  unsigned char allocaOkay = 1;
+static bool ialloca_common(void* stack, void* data, size_t size, size_t align) {
+  /**
+   * The most recent interrupt context.
+   */
+  sva_icontext_t* icontextp = getCPUState()->newCurrentIC;
 
   /*
-   * Disable interrupts.
+   * If we interrupted a privileged context, then don't do an ialloca.
    */
-  rflags = sva_enter_critical();
-
-  /*
-   * Get the most recent interrupt context and the current CPUState and
-   * thread.
-   */
-  struct CPUState * cpup = getCPUState();
-  sva_icontext_t * icontextp = cpup->newCurrentIC;
-
-  /*
-   * If the Interrupt Context was privileged, then don't do an ialloca.
-   */
-  allocaOkay &= !(sva_was_privileged());
-
-  /*
-   * Determine whether initp points within the secure memory region.  If it
-   * does, then don't allocate anything.
-   */
-  if (vg) {
-    allocaOkay &= !isInSecureMemory((uintptr_t)initp);
+  if (sva_was_privileged()) {
+    printf("SVA: WARNING: "
+      "Attempt to perform an ialloca on a privilaged context\n");
+    return false;
   }
 
   /*
    * Check if the alignment is within range.
    */
-  allocaOkay &= (alignment < 64);
+  if (align > 10) {
+    printf("SVA: WARNING: ialloca alignment too large\n");
+    return false;
+  }
 
   /*
-   * Only perform the ialloca() if the Interrupt Context represents user-mode
-   * state.
+   * Mark the interrupt context as invalid.  We don't want it to be placed
+   * back on to the processor until an sva_ipush_function() pushes a new stack
+   * frame on to the stack.
+   *
+   * We do this by turning off the LSB of the valid field.
    */
-  if (allocaOkay) {
-    /*
-     * Mark the interrupt context as invalid.  We don't want it to be placed
-     * back on to the processor until an sva_ipush_function() pushes a new stack
-     * frame on to the stack.
-     *
-     * We do this by turning off the LSB of the valid field. 
-     */
-    icontextp->valid &= (~(IC_is_valid));
+  icontextp->valid &= ~IC_is_valid;
 
-    /*
-     * Perform the alloca.
-     */
-    allocap = (void*)((char*)icontextp->rsp - size);
+  /*
+   * Align the pointer.
+   */
+  uintptr_t rsp = (uintptr_t)stack & ~((1L << align) - 1);
 
-    /*
-     * Align the pointer.
-     */
-    const uintptr_t mask = 0xffffffffffffffffu;
-    allocap = (void *)((uintptr_t)(allocap) & (mask << alignment));
+  /*
+   * Perform the alloca.
+   */
+  rsp -= size;
 
-    /*
-     * Verify that the stack pointer in the interrupt context is not within
-     * kernel memory.
-     */
-    unsigned char spOkay = 1;
-    if (!isInSecureMemory((uintptr_t)icontextp->rsp) &&
-       ((((uintptr_t)allocap) >= 0xffffffff00000000u) ||
-        ((((uintptr_t)allocap) + size) >= 0xffffffff00000000u))) {
-      spOkay = 0;
-    }
+  sva_check_buffer(rsp, size);
 
-    /*
-     * If the stack pointer is okay, go ahead and complete the operation.
-     */
-    if (spOkay) {
-      /*
-       * Fault in any necessary pages; the stack may be located in traditional
-       * memory.
-       */
-      sva_check_memory_write (allocap, size);
+  /*
+   * Fault in any necessary pages; the stack may be located in traditional
+   * memory.
+   */
+  sva_check_memory_write((void*)rsp, size);
 
-      /*
-       * Save the result back into the Interrupt Context.
-       */
-      icontextp->rsp = (unsigned long *) allocap;
-
-      /*
-       * Copy data in from the initializer.
-       *
-       * FIXME: This should use an invokememcpy() so that we know whether the
-       *        address is valid.
-       */
-      if (initp)
-        memcpy (allocap, initp, size);
-    } else {
-      allocap = 0;
+  /*
+   * Copy data in from the initializer.
+   */
+  if (data) {
+    if ((size_t)(unsigned int)sva_invokememcpy((void*)rsp, data, size) < size) {
+      return false;
     }
   }
 
-  sva_exit_critical (rflags);
+  /*
+   * Save the result back into the Interrupt Context.
+   */
+  icontextp->rsp = (unsigned long*)rsp;
 
+  return true;
+}
+
+void* sva_ialloca(size_t size, size_t align, void* data) {
+  SVA_PROF_ENTER();
+
+  kernel_to_usersva_pcid();
+
+  /*
+   * Disable interrupts.
+   */
+  unsigned long rflags = sva_enter_critical();
+
+  /**
+   * The most recent interrupt context.
+   */
+  sva_icontext_t* icontextp = getCPUState()->newCurrentIC;
+
+  ialloca_common(icontextp->rsp, data, size, align);
+
+  sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
-
   SVA_PROF_EXIT(ialloca);
-  return allocap;
+  return icontextp->rsp;
 }
 
 /*
