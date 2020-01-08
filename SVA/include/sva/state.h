@@ -484,13 +484,13 @@ extern bool sva_ipush_function(uintptr_t fn, uint16_t cs);
  * Allocate an object of the specified size on the current stack belonging to
  * the most recent Interrupt Context and copy data into it.
  *
- * @param size  The number of bytes to allocate on the stack
- * @param align The power of two alignment to use for the memory object
  * @param data  A pointer to the data with which to initialize the allocation;
  *              if this is `NULL`, no initialization is performed
- * @return      The address of the allocation
+ * @param size  The number of bytes to allocate on the stack
+ * @param align The power of two alignment to use for the memory object
+ * @return      Whether the allocation succeeded.
  */
-extern void* sva_ialloca(size_t size, size_t align, void* data);
+extern bool sva_ialloca(void* data, size_t size, size_t align);
 
 /**
  *
@@ -506,6 +506,7 @@ extern void* sva_ialloca(size_t size, size_t align, void* data);
  * @param data      A pointer to the data with which to initialize the
  *                  allocation; if this is `NULL`, then no initialization is
  *                  performed
+ * @return          Whether the allocation succeeded.
  */
 extern bool sva_ialloca_newstack(uintptr_t stack, uint16_t stack_seg,
                                  void* data, size_t size, size_t align);

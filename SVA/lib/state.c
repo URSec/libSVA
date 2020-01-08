@@ -969,7 +969,7 @@ static bool ialloca_common(void* stack, void* data, size_t size, size_t align) {
   return true;
 }
 
-void* sva_ialloca(size_t size, size_t align, void* data) {
+bool sva_ialloca(void* data, size_t size, size_t align) {
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
@@ -984,12 +984,12 @@ void* sva_ialloca(size_t size, size_t align, void* data) {
    */
   sva_icontext_t* icontextp = getCPUState()->newCurrentIC;
 
-  ialloca_common(icontextp->rsp, data, size, align);
+  bool res = ialloca_common(icontextp->rsp, data, size, align);
 
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
   SVA_PROF_EXIT(ialloca);
-  return icontextp->rsp;
+  return res;
 }
 
 bool sva_ialloca_newstack(uintptr_t stack, uint16_t stack_seg, void* data,
