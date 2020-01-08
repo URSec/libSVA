@@ -93,33 +93,50 @@ sva_icontext_getpc (void) {
  * Miscellaneous State Manipulation Functions
  ****************************************************************************/
 
-/*
- * Intrinsic: sva_ipush_function5 ()
+/**
+ * Check if a target is a valid push target for a thread.
  *
- * Description:
- *  This intrinsic modifies the most recent interrupt context so that the
- *  specified function is called with the given arguments when the state is
- *  reloaded on to the processor.
- *
- * Inputs:
- *  newf         - The function to call.
- *  p[1|2|3|4|5] - The parameters to pass to the function.
- *
- * TODO:
- *  o This intrinsic should check whether newf is a valid function for the
- *    appropriate mode (user or kernel).
- *
- *  o This intrinsic could conceivably cause a memory fault (either by
- *    accessing a stack page that isn't paged in, or by overwriting the stack).
- *    This should be addressed at some point.
+ * @param thread  The thread
+ * @param target  The target
+ * @return        Whether `target` is a valid push target for `thread`
  */
-void
-sva_ipush_function5 (void (*newf)(),
-                     uintptr_t p1,
-                     uintptr_t p2,
-                     uintptr_t p3,
-                     uintptr_t p4,
-                     uintptr_t p5) {
+static bool is_valid_push_target(struct SVAThread* thread, uintptr_t target) {
+  if (thread->numPushTargets > 0) {
+    for (size_t index = 0; index < thread->numPushTargets; ++index) {
+      if (thread->validPushTargets[index] == (void*)target) {
+        return true;
+      }
+    }
+
+    /*
+     * `target` was not found in the thread's valid push targets.
+     */
+    return false;
+  } else {
+    /*
+     * The thread has not registered any valid push targets; assume any target is
+     * valid.
+     */
+    return true;
+  }
+}
+
+void sva_ipush_function5(void (*newf)(),
+                         uintptr_t p1,
+                         uintptr_t p2,
+                         uintptr_t p3,
+                         uintptr_t p4,
+                         uintptr_t p5)
+{
+  /*
+   * TODO:
+   *  o This intrinsic should check whether newf is a valid function for the
+   *    appropriate mode (user or kernel).
+   *
+   *  o This intrinsic could conceivably cause a memory fault (either by
+   *    accessing a stack page that isn't paged in, or by overwriting the
+   *    stack). This should be addressed at some point.
+   */
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
@@ -142,40 +159,20 @@ sva_ipush_function5 (void (*newf)(),
    * Verify that the target function is in the list of valid function targets.
    * Note that if no push targets have been specified, then any target is valid.
    */
-  if (threadp->numPushTargets) {
-    unsigned index = 0;
-    unsigned char found = 0;
-    for (index = 0; index < threadp->numPushTargets; ++index) {
-      if (threadp->validPushTargets[index] == (void*)newf) {
-        found = 1;
-        break;
-      }
-    }
+  if (!is_valid_push_target(threadp, (uintptr_t)newf)) {
+    panic("SVA: Pushing bad value %p\n", newf);
+    sva_exit_critical(rflags);
+    usersva_to_kernel_pcid();
+    SVA_PROF_EXIT_MULTI(ipush_function5, 1);
+    return;
+  }
 
-    if (!found) {
-      panic ("SVA: Pushing bad value %p\n", newf);
-      sva_exit_critical (rflags);
-      usersva_to_kernel_pcid();
-      SVA_PROF_EXIT_MULTI(ipush_function5, 1);
-      return;
-    }
-
-    found = 0;
-    for (index = 0; index < threadp->numPushTargets; ++index) {
-      if (threadp->validPushTargets[index] == ((void *)p5)) {
-        found = 1;
-        break;
-      }
-    }
-
-    if (!found) {
-      panic ("SVA: Pushing bad sighandler value %lx\n", p5);
-      sva_exit_critical (rflags);
-      usersva_to_kernel_pcid();
-      SVA_PROF_EXIT_MULTI(ipush_function5, 2);
-      return;
-    }
-
+  if (!is_valid_push_target(threadp, p5)) {
+    panic("SVA: Pushing bad sighandler value %lx\n", p5);
+    sva_exit_critical(rflags);
+    usersva_to_kernel_pcid();
+    SVA_PROF_EXIT_MULTI(ipush_function5, 2);
+    return;
   }
 
   /*

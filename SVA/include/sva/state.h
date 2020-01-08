@@ -447,12 +447,26 @@ extern void sva_release_stack (uintptr_t id);
  * Individual State Components
  ****************************************************************************/
 
-extern void sva_ipush_function5 (void (*f)(),
-                                 uintptr_t p1,
-                                 uintptr_t p2,
-                                 uintptr_t p3,
-                                 uintptr_t p4,
-                                 uintptr_t p5);
+/**
+ * Set the active interrupt context to return to the specified location.
+ *
+ * If the current thread is ghosting, this will ensure that the location
+ * specified is a valid target.
+ *
+ * @param fn  The target function
+ * @param p1  The first argument to pass to the function
+ * @param p2  The second argument to pass to the function
+ * @param p3  The third argument to pass to the function
+ * @param p4  The fourth argument to pass to the function
+ * @param p5  The fifth argument to pass to the function
+ * @return    Whether the operation was successful
+ */
+extern void sva_ipush_function5(void (*f)(),
+                                uintptr_t p1,
+                                uintptr_t p2,
+                                uintptr_t p3,
+                                uintptr_t p4,
+                                uintptr_t p5);
 
 /**
  * Allocate an object of the specified size on the current stack belonging to
