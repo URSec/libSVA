@@ -132,6 +132,7 @@ static inline void clac(void) {
 
 static inline void
 sva_check_memory_read (void * memory, unsigned int size) {
+#ifdef FreeBSD
   volatile unsigned char value;
   volatile unsigned char * p = (unsigned char *)(memory);
 
@@ -141,7 +142,13 @@ sva_check_memory_read (void * memory, unsigned int size) {
    */
   value = p[0];
   value = p[size - 1];
-  return;
+#else
+  /*
+   * Silence unused parameter warnings.
+   */
+  (void)memory;
+  (void)size;
+#endif
 } 
 
 /**
@@ -154,6 +161,7 @@ void sva_check_buffer(uintptr_t start, size_t len);
 
 static inline void
 sva_check_memory_write (void * memory, unsigned int size) {
+#ifdef FreeBSD
   volatile unsigned char value1;
   volatile unsigned char value2;
   volatile unsigned char * p = (unsigned char *)memory;
@@ -166,7 +174,13 @@ sva_check_memory_write (void * memory, unsigned int size) {
   p[0] = value1;
   value2 = p[size - 1];
   p[size - 1] = value2;
-  return;
+#else
+  /*
+   * Silence unused parameter warnings.
+   */
+  (void)memory;
+  (void)size;
+#endif
 }
 
 /*
