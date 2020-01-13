@@ -50,7 +50,17 @@ void sva_icontext_setretval(unsigned long, unsigned long, unsigned char error);
 bool sva_icontext_setretval(unsigned long ret);
 
 #endif
-void sva_icontext_restart(void);
+
+/**
+ * Modify a user-space interrupt context so that it restarts a system call.
+ *
+ * System call restart is implemented by rewinding `%rip` by 2 bytes.
+ *
+ * This may fail if the current interrupt context isn't for a system call.
+ *
+ * @return  Whether the operation was successful
+ */
+bool sva_icontext_restart(void);
 
 /* Types for handlers */
 typedef void (*genfault_handler_t)(unsigned int vector);

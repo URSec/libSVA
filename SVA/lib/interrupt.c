@@ -240,36 +240,34 @@ bool sva_icontext_setretval(unsigned long ret) {
 
 #endif
 
-/*
- * Intrinsic: sva_icontext_restart()
- *
- * Description:
- *  This intrinsic modifies a user-space interrupt context so that it restarts
- *  the specified system call.
- *
- * TODO:
- *  o Check that the interrupt context is for a system call.
- */
-void sva_icontext_restart(void) {
+bool sva_icontext_restart(void) {
   SVA_PROF_ENTER();
-
   kernel_to_usersva_pcid();
+
   /*
-   * FIXME: This should ensure that the interrupt context is for a system
-   *        call.
-   *
    * Get the current processor's user-space interrupt context.
    */
-  sva_icontext_t * icontextp = getCPUState()->newCurrentIC;
+  sva_icontext_t* ic = getCPUState()->newCurrentIC;
 
   /*
-   * Modify the saved %rcx register so that it re-executes the syscall
+   * Check that this interrupt context is indeed for a syscall.
+   */
+  if (ic->trapno != 256) {
+    printf("SVA: WARNING: Restart non-syscall\n");
+    usersva_to_kernel_pcid();
+    SVA_PROF_EXIT(icontext_restart);
+    return false;
+  }
+
+  /*
+   * Modify the saved `%rip` register so that it re-executes the syscall
    * instruction.  We do this by reducing it by 2 bytes.
    */
-  icontextp->rcx -= 2;
-  usersva_to_kernel_pcid();
+  ic->rip -= 2;
 
+  usersva_to_kernel_pcid();
   SVA_PROF_EXIT(icontext_restart);
+  return true;
 }
 
 /*
