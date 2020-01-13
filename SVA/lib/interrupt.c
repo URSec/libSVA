@@ -240,6 +240,37 @@ bool sva_icontext_setretval(unsigned long ret) {
 
 #endif
 
+bool sva_icontext_setsyscallargs(uint64_t regs[6]) {
+  SVA_PROF_ENTER();
+  kernel_to_usersva_pcid();
+
+  /*
+   * Get the current processor's user-space interrupt context.
+   */
+  sva_icontext_t* ic = getCPUState()->newCurrentIC;
+
+  /*
+   * Check that this interrupt context is indeed for a syscall.
+   */
+  if (ic->trapno != 256) {
+    printf("SVA: WARNING: Set return non-syscall\n");
+    usersva_to_kernel_pcid();
+    SVA_PROF_EXIT(icontext_setretval);
+    return false;
+  }
+
+  ic->rdi = regs[0];
+  ic->rsi = regs[1];
+  ic->rdx = regs[2];
+  ic->r10 = regs[3];
+  ic->r8 = regs[4];
+  ic->r9 = regs[5];
+
+  usersva_to_kernel_pcid();
+  SVA_PROF_EXIT(icontext_setretval);
+  return true;
+}
+
 bool sva_icontext_restart(void) {
   SVA_PROF_ENTER();
   kernel_to_usersva_pcid();
