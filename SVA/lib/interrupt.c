@@ -168,16 +168,8 @@ sva_getCPUState (tss_t * tssp) {
   return 0;
 }
 
-/*
- * Intrinsic: sva_icontext_setretval()
- *
- * Descrption:
- *  This intrinsic permits the system software to set the return value of
- *  a system call.
- *
- * Notes:
- *  This intrinsic mimics the syscall convention of FreeBSD.
- */
+#ifdef FreeBSD
+
 void
 sva_icontext_setretval (unsigned long high,
                         unsigned long low,
@@ -214,6 +206,39 @@ sva_icontext_setretval (unsigned long high,
 
   SVA_PROF_EXIT(icontext_setretval);
 }
+
+#else
+
+bool sva_icontext_setretval(unsigned long ret) {
+  SVA_PROF_ENTER();
+  kernel_to_usersva_pcid();
+
+  /*
+   * Get the current processor's user-space interrupt context.
+   */
+  sva_icontext_t* ic = getCPUState()->newCurrentIC;
+
+  /*
+   * Check that this interrupt context is indeed for a syscall.
+   */
+  if (ic->trapno != 256) {
+    printf("SVA: WARNING: Set return non-syscall\n");
+    usersva_to_kernel_pcid();
+    SVA_PROF_EXIT(icontext_setretval);
+    return false;
+  }
+
+  /*
+   * Set the return value.
+   */
+  ic->rax = ret;
+
+  usersva_to_kernel_pcid();
+  SVA_PROF_EXIT(icontext_setretval);
+  return true;
+}
+
+#endif
 
 /*
  * Intrinsic: sva_icontext_restart()

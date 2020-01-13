@@ -28,7 +28,28 @@ extern "C" {
 
 extern void * sva_getCPUState (tss_t * tssp);
 
-void sva_icontext_setretval (unsigned long, unsigned long, unsigned char error);
+#ifdef FreeBSD
+
+/**
+ * Set the return value of a system call.\
+ *
+ * This intrinsic mimics the syscall convention of FreeBSD.
+ */
+void sva_icontext_setretval(unsigned long, unsigned long, unsigned char error);
+
+#else
+
+/**
+ * Set the return value of a system call.
+ *
+ * This may fail if the current interrupt context isn't for a system call.
+ *
+ * @param ret The syscall return vaule
+ * @return    Whether the operation succeeded.
+ */
+bool sva_icontext_setretval(unsigned long ret);
+
+#endif
 void sva_icontext_restart(void);
 
 /* Types for handlers */
