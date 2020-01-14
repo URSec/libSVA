@@ -739,23 +739,7 @@ static bool loadThread(struct SVAThread* newThread) {
   }
 }
 
-/*
- * Intrinsic: sva_swap_integer()
- *
- * Description:
- *  This intrinsic saves the current integer state and swaps in a new one.
- *
- * Inputs:
- *  newint - The new integer state to load on to the processor.
- *  statep - A pointer to a memory location in which to store the ID of the
- *           state that this invocation of sva_swap_integer() will save.
- *
- * Return value:
- *  0 - State swapping failed.
- *  1 - State swapping succeeded.
- */
-uintptr_t
-sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
+uintptr_t sva_swap_integer(uintptr_t newint, uintptr_t* statep) {
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
@@ -825,23 +809,7 @@ sva_swap_integer (uintptr_t newint, uintptr_t * statep) {
   return 0; 
 }
 
-/*
- * Intrinsic: sva_swap_user_integer()
- *
- * Description:
- *  This intrinsic saves the current user integer state and swaps in a new one.
- *  It does not alter the kernel integer state.
- *
- * Inputs:
- *  newint - The new integer state to load on to the processor.
- *  statep - A pointer to a memory location in which to store the ID of the
- *           state that this invocation of sva_swap_user_integer() will save.
- *
- * Return value:
- *  0 - State swapping failed.
- *  1 - State swapping succeeded.
- */
-int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
+int sva_swap_user_integer(uintptr_t newint, uintptr_t* statep) {
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
@@ -850,16 +818,16 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
   uintptr_t rflags = sva_enter_critical();
 
   /* Pointer to the current CPU State */
-  struct CPUState * cpup = getCPUState();
+  struct CPUState* cpup = getCPUState();
 
   /*
    * Get a pointer to the memory buffer into which the integer state should be
    * stored.  There is one such buffer for every SVA thread.
    */
-  struct SVAThread * oldThread = cpup->currentThread;
+  struct SVAThread* oldThread = cpup->currentThread;
 
   /* Get a pointer to the saved state (the ID is the pointer) */
-  struct SVAThread * newThread = validateThreadPointer(newint);
+  struct SVAThread* newThread = validateThreadPointer(newint);
   if (!checkThreadForLoad(newThread, /* expectStackSwitch */ false)) {
     /*
      * Re-enable interrupts.
@@ -881,7 +849,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t * statep) {
   /*
    * Inform the caller of the location of the last state saved.
    */
-  *statep = (uintptr_t) oldThread;
+  *statep = (uintptr_t)oldThread;
 
   /*
    * Now, load the new thread onto the CPU.
@@ -1172,29 +1140,13 @@ sva_save_icontext (void) {
   return savedICIndex;
 }
 
-void
-svaDummy (void) {
-  panic ("SVA: svaDummy: Return to user space!\n");
-  return;
+void svaDummy(void) {
+  panic("SVA: svaDummy: Return to user space!\n");
 }
 
-/*
- * Intrinsic: sva_reinit_icontext()
- *
- * Description:
- *  Reinitialize an interrupt context so that, upon return, it begins to
- *  execute code at a new location.  This supports the exec() family of system
- *  calls.
- *
- * Inputs:
- *  transp - An identifier representing the entry point.
- *  priv   - A flag that, when set, indicates that the code will be executed in
- *           the processor's privileged mode.
- *  stack   - The value to set for the stack pointer.
- *  arg     - The argument to pass to the function entry point.
- */
-void
-sva_reinit_icontext (void * handle, unsigned char priv, uintptr_t stackp, uintptr_t arg) {
+void sva_reinit_icontext(void* handle, bool priv, uintptr_t stackp,
+                         uintptr_t arg)
+{
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
@@ -1325,15 +1277,7 @@ sva_reinit_icontext (void * handle, unsigned char priv, uintptr_t stackp, uintpt
   return;
 }
 
-/*
- * Intrinsic: sva_release_stack()
- *
- * Description:
- *  This intrinsic tells the virtual machine that the specified integer state
- *  should be discarded and that its stack is no longer a kernel stack.
- */
-void
-sva_release_stack (uintptr_t id) {
+void sva_release_stack(uintptr_t id) {
   SVA_PROF_ENTER();
  
   kernel_to_usersva_pcid();
@@ -1383,31 +1327,13 @@ sva_release_stack (uintptr_t id) {
   SVA_PROF_EXIT_MULTI(release_stack, 2);
 }
 
-/*
- * Intrinsic: sva_init_stack()
- *
- * Description:
- *  Pointer to the integer state identifier used for context switching.
- *
- * Inputs:
- *  start_stackp - A pointer to the *beginning* of the kernel stack.
- *  length       - Length of the kernel stack in bytes.
- *  func         - The kernel function to execute when the new integer state
- *                 is swapped on to the processor.
- *  arg          - The first argument to the function.
- *
- * Return value:
- *  An identifier that can be passed to sva_swap_integer() to begin execution
- *  of the thread.
- */
-uintptr_t
-sva_init_stack (unsigned char * start_stackp,
-                uintptr_t length,
-                void * func,
-                uintptr_t arg1,
-                uintptr_t arg2,
-                uintptr_t arg3) {
- 
+uintptr_t sva_init_stack(unsigned char* start_stackp,
+                         uintptr_t length,
+                         void* func,
+                         uintptr_t arg1,
+                         uintptr_t arg2,
+                         uintptr_t arg3)
+{
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
@@ -1627,20 +1553,7 @@ sva_init_stack (unsigned char * start_stackp,
   return (unsigned long) newThread;
 }
 
-/*
- * Intrinsic: sva_reinit_stack()
- *
- * Description:
- *  Reset the kernel stack to the most recent interrupt context and jump to the
- *  provided function.
- *
- * Inputs:
- *  func - The kernel function to execute on the reset stack.
- *
- * Return value:
- *  This intrinsic does not return.
- */
-void sva_reinit_stack(void (*func)(void)) {
+void __attribute__((noreturn)) sva_reinit_stack(void (*func)(void)) {
   extern void sva_iret(void); // Interrupt return
 
   kernel_to_usersva_pcid();

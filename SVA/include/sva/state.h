@@ -431,16 +431,75 @@ extern sva_sp_t sva_save_kstackp (void);
  * Global State
  ****************************************************************************/
 
-extern uintptr_t sva_swap_integer  (uintptr_t new, uintptr_t * state);
-extern uintptr_t sva_init_stack (unsigned char * sp,
-                                 uintptr_t length,
-                                 void * f,
-                                 uintptr_t arg1,
-                                 uintptr_t arg2,
-                                 uintptr_t arg3);
-extern void sva_reinit_stack(void (*func)(void));
-extern void sva_reinit_icontext (void *, unsigned char, uintptr_t, uintptr_t);
+/**
+ * Save the current integer state and swap in a new one.
+ *
+ * @param[in]  new    The new integer state to load on to the processor
+ * @param[out] state  The integer state which was saved
+ * @return            Whether state swapping succeeded
+ */
+extern uintptr_t sva_swap_integer(uintptr_t new, uintptr_t* state);
 
+/**
+ * Save the current user integer state and swaps in a new one without modifying
+ * the kernel integer state.
+ *
+ * This can be used in place of `sva_swap_integer` when it is desirable to
+ * switch user contexts while maintaining the same kernel context.
+ *
+ * @param[in]  new    The new integer state to load on to the processor
+ * @param[out] state  The integer state which was saved
+ * @return            Whether the state swap succeeded
+ */
+extern int sva_swap_user_integer(uintptr_t new, uintptr_t* state);
+
+/**
+ * Create a new kernel stack and initialize it to call the specified function.
+ *
+ * @param start_stackp  A pointer to the *top* of the kernel stack.
+ * @param length        Length of the kernel stack in bytes
+ * @param func          The kernel function to execute on the new stack
+ * @param arg1          The first argument to the function
+ * @param arg2          The second argument to the function
+ * @param arg3          The third argument to the function
+ * @return              A handle which can be passed to sva_swap_integer() to
+ *                      begin execution of the thread
+ */
+extern uintptr_t sva_init_stack(unsigned char* sp,
+                                uintptr_t length,
+                                void* f,
+                                uintptr_t arg1,
+                                uintptr_t arg2,
+                                uintptr_t arg3);
+
+/**
+ * Reset the kernel stack to the most recent interrupt context and jump to the
+ * specified function.
+ *
+ * @param func The kernel function to execute on the reset stack
+ */
+extern __attribute__((__noreturn__)) void sva_reinit_stack(void (*func)(void));
+
+/**
+ * Reinitialize an interrupt context so that, upon return, it begins to execute
+ * code at a new location.
+ *
+ * This supports the exec() family of system calls.
+ *
+ * @param handle  An identifier representing the entry point
+ * @param priv    A flag that, when set, indicates that the code will be
+ *                executed in the processor's privileged mode
+ * @param stack   The value to set for the stack pointer
+ * @param arg     The argument to pass to the function
+ */
+extern void sva_reinit_icontext(void* handle, bool priv,
+                                uintptr_t stack, uintptr_t arg);
+
+/**
+ * Discard integer state and kernel stack.
+ *
+ * @param id  A handle to the integer state to discard
+ */
 extern void sva_release_stack (uintptr_t id);
 
 /*****************************************************************************
