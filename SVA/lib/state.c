@@ -1144,6 +1144,71 @@ void svaDummy(void) {
   panic("SVA: svaDummy: Return to user space!\n");
 }
 
+uintptr_t sva_create_icontext(uintptr_t start, uintptr_t arg1, uintptr_t arg2,
+                              uintptr_t arg3, uintptr_t stack)
+{
+  SVA_PROF_ENTER();
+  kernel_to_usersva_pcid();
+
+  /*
+   * Disable interrupts.
+   */
+  uintptr_t rflags = sva_enter_critical();
+
+  /*
+   * Allocate a new SVA thread.
+   */
+  struct SVAThread* newThread = findNextFreeThread();
+
+  /*
+   * Verify that the memory has the proper access.
+   */
+  sva_check_memory_write(newThread, sizeof(struct SVAThread));
+
+  /*
+   * Initialize the interrupt context of the new thread.  Note that we use
+   * the last IC.
+   *
+   * FIXME: The check on cpup->newCurrentIC is really a hack.  We should really
+   *        fix the code to ensure that newCurrentIC is always set correctly
+   *        and that the first interrupt context is at the end of the interrupt
+   *        context list.
+   */
+  sva_icontext_t* ic = newThread->interruptContexts + maxIC - 1;
+
+  /*
+   * Initialze the integer state of the new thread of control.
+   */
+  memset(ic, 0, sizeof(sva_icontext_t));
+  ic->rip = start;
+  ic->cs  = SVA_USER_CS_64;
+  ic->rdi = arg1;
+  ic->rsi = arg2;
+  ic->rdx = arg3;
+  ic->rflags = EFLAGS_IF;
+  ic->rsp = (uintptr_t*)stack;
+  ic->ss  = SVA_USER_SS_64;
+  ic->valid = true;
+
+  newThread->integerState.currentIC = ic;
+  newThread->integerState.ist3 = (uintptr_t)&(ic - 1)->valid;
+  newThread->integerState.kstackp = 0;
+  newThread->integerState.fpstate.present = false;
+
+  /*
+   * Mark the new thread as valid for loading.
+   */
+  newThread->integerState.valid = true;
+
+  /*
+   * Re-enable interrupts.
+   */
+  sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
+  SVA_PROF_EXIT(init_stack);
+  return (uintptr_t)newThread;
+}
+
 void sva_reinit_icontext(void* handle, bool priv, uintptr_t stackp,
                          uintptr_t arg)
 {

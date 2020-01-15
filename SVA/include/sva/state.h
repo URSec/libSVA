@@ -481,6 +481,23 @@ extern uintptr_t sva_init_stack(unsigned char* sp,
 extern __attribute__((__noreturn__)) void sva_reinit_stack(void (*func)(void));
 
 /**
+ * Create a new thread.
+ *
+ * Does not create a new kernel stack for this thread. It therefore must be
+ * switched to using `sva_swap_user_integer`.
+ *
+ * @param start The entry point of the new thread
+ * @param arg1  The first argument to `start`
+ * @param arg2  The secord argument to `start`
+ * @param arg3  The third argument to `start`
+ * @param stack The new thread's stack
+ * @return      A handle for the new thread
+ */
+extern uintptr_t sva_create_icontext(uintptr_t start, uintptr_t arg1,
+                                     uintptr_t arg2, uintptr_t arg3,
+                                     uintptr_t stack);
+
+/**
  * Reinitialize an interrupt context so that, upon return, it begins to execute
  * code at a new location.
  *
