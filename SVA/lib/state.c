@@ -281,11 +281,11 @@ bool sva_ipush_function(uintptr_t fn, uint16_t cs) {
   sva_icontext_t* ic = cpu_state->newCurrentIC;
 
   /*
-   * Make sure we aren't setting a privilaged code segment.
+   * Make sure we aren't setting a privileged code segment.
    */
-  if ((cs & 0x3) == 0) {
+  if ((cs & 0x3) != 3) {
     printf("SVA: WARNING: "
-      "Attempt to set a handler with a ring-0 code segment\n");
+      "Attempt to set a handler with a privileged code segment\n");
     sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
     SVA_PROF_EXIT_MULTI(ipush_function5, 1);
@@ -979,10 +979,10 @@ bool sva_ialloca_newstack(uintptr_t stack, uint16_t stack_seg, void* data,
   sva_icontext_t* icontextp = getCPUState()->newCurrentIC;
 
   /*
-   * Check that we aren't trying to set a privilaged stack segment.
+   * Check that we aren't trying to set a privileged stack segment.
    */
-  if ((stack_seg & 0x3) == 0) {
-    printf("SVA: WARNING: icontext push alignment privilaged stack segment\n");
+  if ((stack_seg & 0x3) != 3) {
+    printf("SVA: WARNING: icontext push alignment privileged stack segment\n");
     goto out;
   }
 
