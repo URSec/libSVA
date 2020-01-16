@@ -849,7 +849,9 @@ bool sva_swap_user_integer(uintptr_t newint, uintptr_t* statep) {
   /*
    * Inform the caller of the location of the last state saved.
    */
-  *statep = (uintptr_t)oldThread;
+  if (statep != NULL) {
+    *statep = (uintptr_t)oldThread;
+  }
 
   /*
    * Now, load the new thread onto the CPU.
