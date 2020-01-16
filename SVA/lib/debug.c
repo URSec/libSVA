@@ -86,6 +86,33 @@ assertGoodIC (void) {
 
 #ifdef XEN
 
+/**
+ * Load a segment register or %fs/%gs base.
+ *
+ * @param reg The segment register to load
+ * @param val The value to load into the segment register
+ * @return    Whether or not the value was successfully loaded
+ */
+bool sva_load_segment(enum sva_segment_register reg, uintptr_t val) {
+  kernel_to_usersva_pcid();
+
+  if (sva_was_privileged()) {
+    /*
+     * We can only set user-space context.
+     */
+    usersva_to_kernel_pcid();
+    return false;
+  }
+
+  uint64_t rflags = sva_enter_critical();
+
+  bool success = load_segment(reg, val);
+
+  sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
+  return success;
+}
+
 /*
  * Function: sva_cpu_user_regs()
  *
