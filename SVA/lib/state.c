@@ -556,6 +556,105 @@ flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
 #endif
 }
 
+bool load_segment(enum sva_segment_register reg, uintptr_t val) {
+  struct CPUState* st = getCPUState();
+
+#define load_seg(seg) ({                                                      \
+  bool res;                                                                   \
+                                                                              \
+  /*                                                                          \
+   * Force the segment's RPL to 3 (user mode).                                \
+   */                                                                         \
+  val |= 3;                                                                   \
+                                                                              \
+  /*                                                                          \
+   * Set up the exception frame.                                              \
+   */                                                                         \
+  struct invoke_frame frame;                                                  \
+  frame.cpinvoke = INVOKE_FIXUP;                                              \
+  frame.next = st->gip;                                                       \
+  st->gip = &frame;                                                           \
+                                                                              \
+  asm volatile (                                                              \
+    /*                                                                        \
+     * Initialize the fixup address.                                          \
+     */                                                                       \
+    "lea 2f(%%rip), %%rbx\n\t"                                                \
+                                                                              \
+    /*                                                                        \
+     * Attempt to load the segment register.                                  \
+     */                                                                       \
+    "1: mov %w0, %%"#seg"\n\t"                                                \
+    "jmp 3f\n"                                                                \
+                                                                              \
+    /*                                                                        \
+     * Recover if the segment load faulted by loading a null selector.        \
+     */                                                                       \
+    "2:\n\t"                                                                  \
+    "xor %0, %0\n\t"                                                          \
+    "xor %1, %1\n\t"                                                          \
+    "jmp 1b\n"                                                                \
+    "3:"                                                                      \
+    : "=r"(val), "=r"(res)                                                    \
+    : "0"(val), "1"(true)                                                     \
+    : "rbx", "memory");                                                       \
+                                                                              \
+  /*                                                                          \
+   * Tear down the exception frame.                                           \
+   */                                                                         \
+  st->gip = frame.next;                                                       \
+                                                                              \
+  res;                                                                        \
+})                                                                            \
+
+  switch (reg) {
+  case SVA_SEG_CS:
+  case SVA_SEG_SS:
+    // Not supported
+    return false;
+
+  case SVA_SEG_DS:
+    return load_seg(ds);
+  case SVA_SEG_ES:
+    return load_seg(es);
+
+  case SVA_SEG_FS: {
+    uintptr_t current_fs_base = rdfsbase();
+
+    bool success = load_seg(fs);
+    if (success) {
+      st->newCurrentIC->fsbase = rdfsbase();
+    }
+
+    wrfsbase(current_fs_base);
+    return success;
+  }
+  case SVA_SEG_GS: {
+    uintptr_t current_gs_base = rdgsbase();
+
+    bool success = load_seg(gs);
+    if (success) {
+      st->newCurrentIC->gsbase = rdgsbase();
+    }
+
+    wrgsbase(current_gs_base);
+    return success;
+  }
+
+  case SVA_SEG_FS_BASE:
+    st->newCurrentIC->fsbase = val;
+    return true;
+  case SVA_SEG_GS_BASE:
+    st->newCurrentIC->gsbase = val;
+    return true;
+
+  default:
+    // Invalid segment register
+    return false;
+  }
+#undef load_seg
+}
+
 /**
  * Saves the current CPU state onto a thread.
  *

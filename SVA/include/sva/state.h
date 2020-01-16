@@ -632,6 +632,24 @@ save_fp (sva_fp_state_t * buffer) {
   buffer->present = 1;
 }
 
+enum sva_segment_register {
+  SVA_SEG_CS,
+  SVA_SEG_SS,
+  SVA_SEG_DS,
+  SVA_SEG_ES,
+  SVA_SEG_FS,
+  SVA_SEG_FS_BASE,
+  SVA_SEG_GS,
+  SVA_SEG_GS_BASE,
+};
 
+/**
+ * Load a segment register or %fs/%gs base.
+ *
+ * @param reg The segment register to load
+ * @param val The value to load into the segment register
+ * @return    Whether or not the value was successfully loaded
+ */
+bool load_segment(enum sva_segment_register reg, uintptr_t val);
 
 #endif
