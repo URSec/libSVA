@@ -482,13 +482,13 @@ static bool checkThreadForLoad(struct SVAThread* newThread,
 
   if (!expectStackSwitch) {
     if (getCPUState()->gip != NULL) {
-      printf("SVA: Attempt to swap user integer state with an active invoke"
+      printf("SVA: Attempt to swap user integer state with an active invoke "
              "frame!\n");
       return false;
     }
 
     if (sva_was_privileged()) {
-      printf("SVA: Attempt to swap user integer state when kernel was"
+      printf("SVA: Attempt to swap user integer state when kernel was "
              "interrupted!\n");
       return false;
     }
