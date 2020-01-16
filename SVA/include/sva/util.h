@@ -89,6 +89,28 @@ static inline void fpu_enable(void) {
 }
 
 /**
+ * Read the %fs.base value
+ *
+ * @return  The %fs.base value
+ */
+static inline uintptr_t rdfsbase(void) {
+  uintptr_t base;
+
+  asm volatile ("rdfsbase %0" : "=r"(base));
+
+  return base;
+}
+
+/**
+ * Write the %fs.base value
+ *
+ * @param base  The new base value
+ */
+static inline void wrfsbase(uintptr_t base) {
+  asm volatile ("wrfsbase %0" :: "r"(base) : "memory");
+}
+
+/**
  * Read the %gs.base value
  *
  * @return  The %gs.base value
