@@ -656,6 +656,52 @@ bool load_segment(enum sva_segment_register reg, uintptr_t val) {
 }
 
 /**
+ * Saves the active user segment selectors.
+ *
+ * @param state The integer state to which to save the segments.
+ */
+static void save_user_segments(sva_integer_state_t* state) {
+#define get_seg(seg) ({                       \
+  uint16_t sel;                               \
+  asm ("mov %%"#seg", %k0" : "=r"(sel));      \
+  sel;                                        \
+})
+
+  state->ds = get_seg(ds);
+  state->es = get_seg(es);
+  state->fs = get_seg(fs);
+  state->gs = get_seg(gs);
+}
+
+/**
+ * Load the saved user segment selectors.
+ *
+ * If loading any of the selectors faults, it will be loaded with a null
+ * selector.
+ *
+ * @param state The integer state in which the selectors are saved
+ * @return      Whether segment loading was successful
+ */
+static bool load_user_segments(sva_integer_state_t* state) {
+  bool success = true;
+
+  if (state->ds != 0) {
+    success &= load_segment(SVA_SEG_DS, state->ds);
+  }
+  if (state->es != 0) {
+    success &= load_segment(SVA_SEG_ES, state->es);
+  }
+  if (state->fs != 0) {
+    success &= load_segment(SVA_SEG_FS, state->fs);
+  }
+  if (state->gs != 0) {
+    success &= load_segment(SVA_SEG_GS, state->gs);
+  }
+
+  return success;
+}
+
+/**
  * Saves the current CPU state onto a thread.
  *
  * Note: If we are switching kernel stacks, this function returns twice: once
@@ -681,6 +727,8 @@ saveThread(struct SVAThread* oldThread, bool switchStack) {
    */
   old->ist3      = cpup->tssp->ist3;
   old->currentIC = cpup->newCurrentIC;
+
+  save_user_segments(old);
 
   if (switchStack) {
     old->kstackp   = cpup->tssp->rsp0;
@@ -755,12 +803,6 @@ static bool loadThread(struct SVAThread* newThread) {
   sva_integer_state_t* new = &newThread->integerState;
 
   /*
-   * Switch the CPU over to using the new set of interrupt contexts.  However,
-   * don't change the stack pointer.
-   */
-  cpup->currentThread = newThread;
-
-  /*
    * Now, reload the integer state pointed to by new.
    */
   if (new->valid) {
@@ -824,9 +866,13 @@ static bool loadThread(struct SVAThread* newThread) {
     load_fp(&new->fpstate);
 #endif
 
+    bool segments_succeeded = load_user_segments(new);
+
     /* We only save the GPRs during a context switch if we are switching kernel
      * stacks, so only load them if we have a stack to switch to. */
     if (new->kstackp != 0) {
+      // TODO: report potential failure of segment load to kernel
+
       /*
        * Load the rest of the integer state.
        */
@@ -835,7 +881,7 @@ static bool loadThread(struct SVAThread* newThread) {
       /*
        * We successfully loaded the new thread.
        */
-      return true;
+      return segments_succeeded;
     }
   } else {
     return false;
