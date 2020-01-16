@@ -113,6 +113,27 @@ bool sva_load_segment(enum sva_segment_register reg, uintptr_t val) {
   return success;
 }
 
+/**
+ * Get the segment selectors which were saved when the current thread was
+ * context-switched out.
+ *
+ * This is useful for reporting errors when segment loading fails.
+ *
+ * @param regs  Xen's copy of the user registers.
+ */
+void sva_get_segments(struct cpu_user_regs* regs) {
+  kernel_to_usersva_pcid();
+
+  sva_integer_state_t* st = &getCPUState()->currentThread->integerState;
+
+  regs->ds = st->ds;
+  regs->es = st->es;
+  regs->fs = st->fs;
+  regs->gs = st->gs;
+
+  usersva_to_kernel_pcid();
+}
+
 /*
  * Function: sva_cpu_user_regs()
  *
