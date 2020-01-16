@@ -107,7 +107,7 @@ static inline uintptr_t rdgsbase(void) {
  * @param base  The new base value
  */
 static inline void wrgsbase(uintptr_t base) {
-  asm volatile ("wrgsbase %0" :: "r"(base));
+  asm volatile ("wrgsbase %0" :: "r"(base) : "memory");
 }
 
 /**
