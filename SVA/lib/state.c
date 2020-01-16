@@ -89,6 +89,10 @@ sva_icontext_getpc (void) {
   return cpuState->newCurrentIC->rip;
 }
 
+uintptr_t sva_get_current(void) {
+  return (uintptr_t)getCPUState()->currentThread;
+}
+
 /*****************************************************************************
  * Miscellaneous State Manipulation Functions
  ****************************************************************************/

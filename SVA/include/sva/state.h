@@ -395,6 +395,13 @@ sva_was_privileged (void) {
 
 extern uintptr_t sva_icontext_getpc (void);
 
+/**
+ * Get a handle to the currently running thread.
+ *
+ * @return  A handle to the current thread
+ */
+extern uintptr_t sva_get_current(void);
+
 /*
  * FIXME: This is a hack because we don't have invokememcpy() implemented yet.
  */
