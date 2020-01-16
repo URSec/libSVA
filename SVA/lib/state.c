@@ -809,7 +809,7 @@ uintptr_t sva_swap_integer(uintptr_t newint, uintptr_t* statep) {
   return 0; 
 }
 
-int sva_swap_user_integer(uintptr_t newint, uintptr_t* statep) {
+bool sva_swap_user_integer(uintptr_t newint, uintptr_t* statep) {
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
@@ -835,7 +835,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t* statep) {
     sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
     SVA_PROF_EXIT_MULTI(swap_user_integer, 1);
-    return 0;
+    return false;
   }
 
   saveThread(oldThread, /* switchStack */ false);
@@ -858,7 +858,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t* statep) {
     sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
     SVA_PROF_EXIT_MULTI(swap_user_integer, 2);
-    return 1;
+    return true;
   } else {
     /*
      * The context switch failed.
@@ -866,7 +866,7 @@ int sva_swap_user_integer(uintptr_t newint, uintptr_t* statep) {
     sva_exit_critical(rflags);
     usersva_to_kernel_pcid();
     SVA_PROF_EXIT_MULTI(swap_user_integer, 3);
-    return 0;
+    return false;
   }
 }
 

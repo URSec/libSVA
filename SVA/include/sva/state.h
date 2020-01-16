@@ -451,7 +451,7 @@ extern uintptr_t sva_swap_integer(uintptr_t new, uintptr_t* state);
  * @param[out] state  The integer state which was saved
  * @return            Whether the state swap succeeded
  */
-extern int sva_swap_user_integer(uintptr_t new, uintptr_t* state);
+extern bool sva_swap_user_integer(uintptr_t new, uintptr_t* state);
 
 /**
  * Create a new kernel stack and initialize it to call the specified function.
