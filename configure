@@ -637,6 +637,7 @@ enable_mmuchecks
 enable_sva_dmap
 enable_llc_part
 enable_pg_defenses
+enable_debug_checks
 enable_self_profile
 enable_targets
 '
@@ -1261,6 +1262,7 @@ Optional Features:
   --enable-llc-part       Enable SVA LLC partitioning Feature (default is NO)
   --enable-pg-defenses    Enable defenses against page table side-channels
                           (default is NO)
+  --enable-debug-checks   Enable extra debugging checks (default is NO)
   --enable-self-profile   Enable self-profiling(default is NO)
 
 
@@ -1801,6 +1803,21 @@ if test "${enable_pg_defenses+set}" = set; then :
                              esac
 else
   $as_echo "#define NOSVA_PG_DEF 1" >>confdefs.h
+
+fi
+
+
+# Check whether --enable-debug-checks was given.
+if test "${enable_debug_checks+set}" = set; then :
+  enableval=$enable_debug_checks; case "${enableval}" in
+                              yes) $as_echo "#define SVA_DEBUG_CHECKS 1" >>confdefs.h
+ ;;
+                              no)  $as_echo "#define NOSVA_DEBUG_CHECKS 1" >>confdefs.h
+ ;;
+                              *)   as_fn_error $? "bad value ${enableval} for --enable-debug-checks" "$LINENO" 5 ;;
+                             esac
+else
+  $as_echo "#define NOSVA_DEBUG_CHECKS 1" >>confdefs.h
 
 fi
 

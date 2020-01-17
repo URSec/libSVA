@@ -88,6 +88,17 @@ AC_ARG_ENABLE(pg-defenses,
                              esac],
                              AC_DEFINE(NOSVA_PG_DEF))
 
+dnl Enable extra debugging checks
+AC_ARG_ENABLE(debug-checks,
+              AS_HELP_STRING([--enable-debug-checks],
+                             [Enable extra debugging checks (default is NO)]),
+                             [case "${enableval}" in
+                              yes) AC_DEFINE(SVA_DEBUG_CHECKS) ;;
+                              no)  AC_DEFINE(NOSVA_DEBUG_CHECKS) ;;
+                              *)   AC_MSG_ERROR([bad value ${enableval} for --enable-debug-checks]) ;;
+                             esac],
+                             AC_DEFINE(NOSVA_DEBUG_CHECKS))
+
 dnl Enable Self-Profiling
 AC_ARG_ENABLE(self-profile,
               AS_HELP_STRING([--enable-self-profile],
