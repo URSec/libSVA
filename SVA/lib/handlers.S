@@ -216,6 +216,9 @@ Trap:
   bndmk (%rax,%rdx), %bnd0
 #endif
 
+  movq %gs:TLS_CPUSTATE, %rbp
+
+#ifdef SVA_DEBUG_CHECKS
   /*
    * Configure the process to trigger a floating point fault while in
    * kernel mode.  This requires disabling the EM bit and enabling the MP and
@@ -223,7 +226,6 @@ Trap:
    *
    * Record that no floating point state is saved (it is saved lazily).
    */
-  movq %gs:TLS_CPUSTATE, %rbp
   testq $1, CPU_FPUSED(%rbp)
   jne 1f
   movq %cr0, %rsi
@@ -232,6 +234,7 @@ Trap:
   movq %rsi, %cr0
   movq $0, CPU_FPUSED(%rbp)
 1:
+#endif
   movq $0, IC_FPP(%rsp)
 
   /*
@@ -474,6 +477,9 @@ SVAsyscall:
   bndmk (%rax,%rbx), %bnd0
 #endif
 
+  movq %gs:TLS_CPUSTATE, %rbp
+
+#ifdef SVA_DEBUG_CHECKS
   /*
    * Configure the process to trigger a floating point fault while in
    * kernel mode.  This requires disabling the EM bit and enabling the MP and
@@ -481,7 +487,6 @@ SVAsyscall:
    *
    * Record that no floating point state is saved (it is saved lazily).
    */
-  movq %gs:TLS_CPUSTATE, %rbp
   testq $1, CPU_FPUSED(%rbp)
   jne 1f
   movq %cr0, %rsi
@@ -490,6 +495,7 @@ SVAsyscall:
   movq %rsi, %cr0
   movq $0, CPU_FPUSED(%rbp)
 1:
+#endif
   movq $0, IC_FPP(%rsp)
 
   /*

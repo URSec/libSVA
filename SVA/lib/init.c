@@ -264,6 +264,7 @@ register_x86_trap (int number, void (*trap)(void)) {
  *  This function captures FP traps and flags use of the FP unit accordingly.
  */
 static void fptrap(unsigned int __attribute__((unused)) vector) {
+#ifdef SVA_DEBUG_CHECKS
   /*
    * Currently, we only support user-space applications using the floating
    * point unit.  If the kernel uses the floating point unit, panic the
@@ -272,6 +273,7 @@ static void fptrap(unsigned int __attribute__((unused)) vector) {
   if (sva_was_privileged()) {
     panic ("SVA: Kernel attempted to use Floating Point Unit!");
   }
+#endif
 
   /*
    * Get the thread that last used the FPU.  If there is no such thread
