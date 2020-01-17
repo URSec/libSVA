@@ -638,9 +638,9 @@ sva_init_primary_xen(void *tss) {
 #if 0
   /* Initialize the processor ID */
   init_procID();
+#endif
 
   init_threads();
-#endif
 
   /* Initialize the IDT of the primary processor */
   init_interrupt_table(0);
