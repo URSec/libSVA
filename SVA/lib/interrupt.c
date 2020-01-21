@@ -15,6 +15,7 @@
 
 #include <sva/callbacks.h>
 #include <sva/config.h>
+#include <sva/icontext.h>
 #include <sva/interrupt.h>
 #include <sva/self_profile.h>
 #include <sva/state.h>

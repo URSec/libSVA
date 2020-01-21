@@ -30,7 +30,7 @@
 #include <sva/invoke.h>
 #include <sva/assert.h>
 #include <sva/self_profile.h>
-#include <sva/state.h>
+#include <sva/icontext.h>
 #include <sva/util.h>
 #include <sva/callbacks.h>
 #include <sva/offsets.h>

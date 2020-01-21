@@ -16,7 +16,7 @@
 #ifndef _SVA_LIB_KEYS_H_
 #define _SVA_LIB_KEYS_H_
 
-#include "sva/state.h"
+#include <sva/icontext.h>
 
 extern void init_thread_key (struct SVAThread * thread);
 

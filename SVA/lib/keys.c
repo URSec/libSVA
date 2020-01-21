@@ -25,6 +25,7 @@
 
 #include <sva/types.h>
 #include <sva/config.h>
+#include <sva/icontext.h>
 #include <sva/mmu_intrinsics.h>
 #include <sva/keys.h>
 #include <sva/self_profile.h>

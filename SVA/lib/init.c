@@ -83,6 +83,7 @@
 
 #include <sva/types.h>
 #include <sva/config.h>
+#include <sva/icontext.h>
 #include <sva/state.h>
 #include <sva/util.h>
 #include <sva/mmu.h>

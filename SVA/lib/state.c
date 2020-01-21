@@ -22,6 +22,7 @@
 #include <sva/callbacks.h>
 #include <sva/util.h>
 #include <sva/state.h>
+#include <sva/icontext.h>
 #include <sva/interrupt.h>
 #include <sva/invoke.h>
 #include <sva/mmu.h>
@@ -72,6 +73,22 @@ getThreadRID (void) {
 /*****************************************************************************
  * Interrupt Context Intrinsics
  ****************************************************************************/
+
+bool sva_was_privileged (void) {
+  const uint16_t userCodeSegmentMask = 0x03;
+
+  kernel_to_usersva_pcid();
+
+  /*
+   * Lookup the most recent interrupt context for this processor and see if
+   * it's ring 3.
+   */
+  bool was_privileged =
+    (getCPUState()->newCurrentIC->cs & userCodeSegmentMask) != 3;
+
+  usersva_to_kernel_pcid();
+  return was_privileged;
+}
 
 /*
  * Intrinsic: sva_icontext_getpc()

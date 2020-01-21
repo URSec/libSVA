@@ -53,6 +53,7 @@
 #include <sva/callbacks.h>
 #include <sva/dmap.h>
 #include <sva/frame_meta.h>
+#include <sva/icontext.h>
 #include <sva/page.h>
 #include <sva/page_walk.h>
 #include <sva/page_util.h>

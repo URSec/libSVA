@@ -20,7 +20,7 @@
 
 #include <sva/asmconfig.h>
 #include <sva/mmu_types.h>
-#include <sva/state.h>
+#include <sva/icontext.h>
 
 /*
  * Enumeration: sva_vmcs_field

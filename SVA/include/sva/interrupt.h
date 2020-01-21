@@ -21,6 +21,7 @@
 #include <sva/exceptions.h>
 #endif
 #include <sva/state.h>
+#include <sva/x86.h>
 
 #ifdef __cplusplus
 extern "C" {
