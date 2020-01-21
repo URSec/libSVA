@@ -492,7 +492,7 @@ typedef struct vmx_host_state_t {
   uint64_t r12, r13, r14, r15;
 
   /* Host FP State that needs to be saved/restored across VM entries/exits */
-  sva_fp_state_t fp;
+  union xsave_area_max fp;
 
 #ifdef MPX
   /*

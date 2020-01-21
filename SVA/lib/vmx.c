@@ -15,6 +15,7 @@
 
 #include <sva/vmx.h>
 #include <sva/vmx_intrinsics.h>
+#include <sva/fpu.h>
 #include <sva/mmu.h>
 #include <sva/mpx.h>
 #include <sva/config.h>
@@ -1883,12 +1884,10 @@ run_vm(unsigned char use_vmresume) {
   fpu_enable();
 
   /* Save the host FP state */
-  save_fp( &(host_state.fp) );
+  xsave(&host_state.fp.inner);
 
-  /* Set SVA FP structure present bit to always load guest FP state */
-  host_state.active_vm->state.fp.present = 1;
   /* Restore Guest FP state */
-  load_fp( &(host_state.active_vm->state.fp) );
+  xrestore(&host_state.active_vm->state.fp.inner);
 
   asm __volatile__ (
       /* Save host RFLAGS.
@@ -2315,10 +2314,10 @@ run_vm(unsigned char use_vmresume) {
   fpu_enable();
 
   /* Save Guest FPU state */
-  save_fp( &(host_state.active_vm->state.fp) );
+  xsave(&host_state.active_vm->state.fp.inner);
 
   /* Restore Host FPU state */
-  load_fp( &(host_state.fp) );
+  xrestore(&host_state.fp.inner);
 
   /* Restore TS flag */
   if ( orig_ts ) {
@@ -3306,7 +3305,7 @@ writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data) {
  * Parameters:
  *  - vmid: the numeric handle of the virtual machine whose FPU state we are
  *          to read.
- *  - fp_state: a pointer to a buffer where the FPU state will be written   
+ *  - fp_state: a pointer to a buffer where the FPU state will be written
  *
  * Return value:
  *  True if fetching the guest FPU state succeeded.
@@ -3321,7 +3320,7 @@ sva_getfp(int vmid, unsigned char *fp_state ) {
    * regions.
    */
   kernel_to_usersva_pcid();
-  
+
   if ( usevmx ) {
     if (!sva_vmx_initialized) {
       panic("Fatal error: must call sva_initvmx() before any other "
@@ -3340,7 +3339,7 @@ sva_getfp(int vmid, unsigned char *fp_state ) {
     }
   }
 
-  const size_t fp_state_size = 512; 
+  const size_t fp_state_size = sizeof(struct xsave_legacy);
 
   if ( usevmx ) {
     /* Check if it's safe to write to the region pointed to */
@@ -3348,7 +3347,7 @@ sva_getfp(int vmid, unsigned char *fp_state ) {
   }
 
   /* Do the copy from the guest VM structure to the (pointed to) output buffer */
-  memcpy( fp_state, &(vm_descs[vmid].state.fp.words), fp_state_size );
+  memcpy(fp_state, &vm_descs[vmid].state.fp.inner.legacy, fp_state_size);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();

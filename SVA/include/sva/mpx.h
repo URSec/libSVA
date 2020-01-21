@@ -23,14 +23,6 @@
 static uintptr_t const KERNELBASE = SECMEMEND - SECMEMSTART;
 static uintptr_t const KERNELSIZE = (0xffffffffffffffffu - KERNELBASE);
 
-/* Bits within control register 4 (CR4) */
-static const uintptr_t CR4_OSXSAVE = (1u << 18);
-
-/* Bits to configure in the extended control register XCR0 */
-static unsigned char XCR0_BNDREG = (1u << 3);
-static unsigned char XCR0_BNDCSR = (1u << 4);
-static unsigned char XCR0_X87 = (1u << 0);
-
 /* Bits to configure the BNDCFGS register */
 static unsigned char BNDCFG_BNDENABLE = (1u << 0);
 static unsigned char BNDCFG_BNDPRESERVE = (1u << 1);

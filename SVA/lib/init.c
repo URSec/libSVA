@@ -83,6 +83,7 @@
 
 #include <sva/types.h>
 #include <sva/config.h>
+#include <sva/fpu.h>
 #include <sva/icontext.h>
 #include <sva/state.h>
 #include <sva/util.h>
@@ -276,6 +277,7 @@ static void fptrap(unsigned int __attribute__((unused)) vector) {
   }
 #endif
 
+#ifdef SVA_LAZY_FPU
   /*
    * Get the thread that last used the FPU.  If there is no such thread
    * (which happens if this is the first thread using the FPU) or if that
@@ -294,7 +296,7 @@ static void fptrap(unsigned int __attribute__((unused)) vector) {
    * thread that was the last one to use the floating point unit.
    */
   sva_integer_state_t * prev = &(previousFPThread->integerState);
-  save_fp (&(prev->fpstate));
+  xsave(&prev->fpstate.inner);
 
   /*
    * Flag that the floating point unit has now been used.
@@ -307,7 +309,7 @@ static void fptrap(unsigned int __attribute__((unused)) vector) {
    * as the last one to use the floating point unit.
    */
   sva_integer_state_t * intstate = &(runningThread->integerState);
-  load_fp (&(intstate->fpstate));
+  xrestore(&intstate->fpstate.inner);
   getCPUState()->prevFPThread = runningThread;
 
   /*
@@ -315,7 +317,16 @@ static void fptrap(unsigned int __attribute__((unused)) vector) {
    * point operations.
    */
   fpu_enable();
-  return;
+#else
+  /*
+   * Hmm... this shouldn't have happened.
+   */
+
+  /*
+   * FIXME: We can recover more cleanly here than just panicking.
+   */
+  panic("SVA: Unexpected #NM; %%cr0 = %lx\n", read_cr0());
+#endif
 }
 
 /*
@@ -468,25 +479,44 @@ init_mmu (void)
 #endif
 
 /*
- * Function: init_fpu()
- *
- * Description:
- *  Initialize various things that needs to be initialized for the FPU.
+ * Initialize various things that needs to be initialized for the FPU.
  */
-static void
-init_fpu (void) {
+static void init_fpu(void) {
+  uint64_t cr0 = read_cr0();
+
   /*
-   * Configure the processor so that the first use of the FPU generates an
-   * exception.
+   * Unset the emulation bit and set the monitor bit.
    */
-  fpu_disable();
+  cr0 &= ~(CR0_EM);
+  cr0 |= CR0_MP;
+
+#if defined(SVA_LAZY_FPU) || defined(SVA_DEBUG_CHECKS)
+  /*
+   * Set the task-switched bit to trigger a fault the next time the FPU is used.
+   */
+  cr0 |= CR0_TS;
+#endif
+
+  write_cr0(cr0);
+
+  /*
+   * Enable SSE and XSave support.
+   */
+  write_cr4(read_cr4() | CR4_OSFXSR | CR4_OSXSAVE | CR4_OSXMMEXCPT);
 
   /*
    * Register the co-processor trap so that we know when an FP operation has
    * been performed.
    */
-  sva_register_general_exception (0x7, fptrap);
-  return;
+  sva_register_general_exception(0x7, fptrap);
+
+  /*
+   * TODO: Determine available features from CPUID.
+   */
+  xsave_features = XCR0_X87 | XCR0_SSE | XCR0_AVX | XCR0_MPXBND | XCR0_MPXCSR |
+                   XCR0_AVX512MASK | XCR0_AVX512HIGH256 | XCR0_AVX512HIGHZMM;
+
+  xsetbv(xsave_features);
 }
 
 /*
@@ -653,8 +683,9 @@ sva_init_primary_xen(void *tss) {
   init_mmu();
 
 #if 0
-  init_mpx();
   init_fpu();
+  init_mpx();
+
   llva_reset_counters();
   llva_reset_local_counters();
 #endif

@@ -26,10 +26,15 @@
 
 /* CR4 Flags */
 #define     CR4_PGE         0x00000080      /* enable global pages */
+#define     CR4_OSFXSR      0x00000200      /* enable FXSave and SSE */
+#define     CR4_OSXMMEXCPT  0x00000400      /* enable unmasked SSE exceptions */
 #define     CR4_FSGSBASE    0x00010000      /* enable fs/gs base instructions */
 #define     CR4_PCIDE       0x00020000      /* enable PCID */
+#define     CR4_OSXSAVE     0x00040000      /* enable XSave */
 
 #ifndef __ASSEMBLER__
+
+#include <sva/types.h>
 
 /*
  *****************************************************************************

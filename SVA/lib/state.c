@@ -20,6 +20,7 @@
 #endif
 #include <sva/cfi.h>
 #include <sva/callbacks.h>
+#include <sva/fpu.h>
 #include <sva/util.h>
 #include <sva/state.h>
 #include <sva/icontext.h>
@@ -785,6 +786,7 @@ saveThread(struct SVAThread* oldThread, bool switchStack) {
    */
   old->hackRIP = (uintptr_t)__builtin_return_address(0);
 
+#ifdef SVA_LAZY_FPU
   /*
    * Turn off access to the Floating Point Unit (FPU).  We will leave this
    * state on the CPU but force a trap if another process attempts to use it.
@@ -796,6 +798,9 @@ saveThread(struct SVAThread* oldThread, bool switchStack) {
    * executed between flushes.
    */
   fpu_disable();
+#else
+  xsave(&old->fpstate.inner);
+#endif
 
   /*
    * Mark the saved integer state as valid.
@@ -875,15 +880,11 @@ static bool loadThread(struct SVAThread* newThread) {
       protect_paging();
     }
 
-    /* No need to do this after the floating point optimization. */
-#if 0
-    /*
-     * Load the floating point state.
-     */
-    load_fp(&new->fpstate);
-#endif
-
     bool segments_succeeded = load_user_segments(new);
+
+#ifndef SVA_LAZY_FPU
+    xrestore(&new->fpstate.inner);
+#endif
 
     /* We only save the GPRs during a context switch if we are switching kernel
      * stacks, so only load them if we have a stack to switch to. */
@@ -1361,7 +1362,8 @@ uintptr_t sva_create_icontext(uintptr_t start, uintptr_t arg1, uintptr_t arg2,
   newThread->integerState.currentIC = ic;
   newThread->integerState.ist3 = (uintptr_t)&(ic - 1)->valid;
   newThread->integerState.kstackp = 0;
-  newThread->integerState.fpstate.present = false;
+
+  xinit(&newThread->integerState.fpstate.inner);
 
   /*
    * Mark the new thread as valid for loading.
@@ -1452,19 +1454,6 @@ void sva_reinit_icontext(void* handle, bool priv, uintptr_t stackp,
      */
     flushSecureMemory(threadp, NULL);
   }
-
-  /*
-   * Clear out saved FP state.
-   */
-  threadp->ICFPIndex = 1;
-
-  /*
-   * Commented the following to speed up. Part of the floating point
-   * optimization.
-   */
-#if 0
-  bzero (threadp->ICFP, sizeof (sva_fp_state_t));
-#endif
 
   /*
    * Clear out any function call targets.
@@ -1672,17 +1661,6 @@ uintptr_t sva_init_stack(unsigned char* start_stackp,
   }
 
   /*
-   * Copy over the last saved interrupted FP state.
-   */
-#if 0
-  /* No need to do the following after the floating point optimization.*/
-  if (oldThread->ICFPIndex) {
-    *(newThread->ICFP) = *(oldThread->ICFP + oldThread->ICFPIndex - 1);
-    newThread->ICFPIndex = 1;
-  }
-#endif
-
-  /*
    * Allocate the call frame for the call to the system call.
    */
   stackp -= sizeof (struct frame);
@@ -1713,7 +1691,11 @@ uintptr_t sva_init_stack(unsigned char* start_stackp,
 #if 1
   integerp->kstackp = (uintptr_t) stackp;
 #endif
-  integerp->fpstate.present = 0;
+
+  /*
+   * Copy our extended states to the new thread.
+   */
+  xsave(&integerp->fpstate.inner);
 
   /*
    * Initialize the interrupt context of the new thread.  Note that we use

@@ -32,7 +32,7 @@ static inline struct SVAThread *ftstack_pop(void);
 #define init_lock(l) *(l) = 0
 
 /* Pre-allocate a large number of SVA Threads */
-static struct SVAThread __svadata Threads[THREAD_STACK_SIZE] __attribute__ ((aligned (16)));
+static struct SVAThread __svadata Threads[THREAD_STACK_SIZE];
 
 typedef volatile int lock_t;
 
@@ -158,7 +158,6 @@ findNextFreeThread (void) {
      */
     newThread->integerState.valid = 0;
     newThread->savedICIndex = 0;
-    newThread->ICFPIndex = 0;
     newThread->secmemSize = 0;
     newThread->numPushTargets = 0;
     newThread->secmemPML4e = 0;

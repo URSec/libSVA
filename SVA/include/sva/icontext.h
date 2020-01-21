@@ -16,6 +16,7 @@
 #ifndef SVA_ICONTEXT_H
 #define SVA_ICONTEXT_H
 
+#include <sva/fpu_types.h>
 #include <sva/mmu_types.h>
 #include <sva/keys.h>
 #include <sva/offsets.h>
@@ -138,7 +139,7 @@ typedef struct sva_icontext {
 
   /* Flags whether the interrupt context is valid */
   unsigned long valid;                // 0xd0
-  sva_fp_state_t* fpstate;            // 0xd8
+  struct xsave_area* fpstate;         // 0xd8
 } __attribute__ ((aligned (16))) sva_icontext_t;
 
 /*
@@ -221,7 +222,7 @@ typedef struct {
   unsigned long ist3;                // 0xf8
 
   /* Floating point state */
-  sva_fp_state_t fpstate;            // 0x100
+  union xsave_area_max fpstate;      // 0x100
 
   /* Pointer to invoke frame */
   struct invoke_frame * ifp;
@@ -248,9 +249,6 @@ struct SVAThread {
   /* Interrupt contexts used for signal handler dispatch */
   sva_icontext_t savedInterruptContexts[maxIC + 1];
 
-  /* Floating point states associated with Interrput Contexts */
-  sva_fp_state_t ICFP[maxIC + 1];
-
   /* Function pointers valid for sva_ipush_function */
   void * validPushTargets[maxPushTargets];
 
@@ -268,9 +266,6 @@ struct SVAThread {
 
   /* Index of currently available saved Interrupt Context */
   unsigned char savedICIndex;
-
-  /* Index of next available FP for Interrupt Contexts */
-  unsigned char ICFPIndex;
 
   /* Flag whether the thread is in use */
   unsigned char used;
@@ -368,38 +363,6 @@ extern void ghostmemCOW(struct SVAThread* oldThread,
  *  These functions should not be called by the kernel; they are not SVA-OS
  *  intrinsics.
  ****************************************************************************/
-
-/*
- * Function: load_fp()
- *
- * Description:
- *  This function loads floating point state back on to the processor.
- */
-static inline void
-load_fp (sva_fp_state_t * buffer) {
-  /*
-   * Save the state of the floating point unit.
-   */
-  if (buffer->present)
-    __asm__ __volatile__ ("fxrstor %0" : "=m" (buffer->words));
-  return;
-}
-
-/*
- * Function: save_fp()
- *
- * Description:
- *  Save the processor's current floating point state into the specified
- *  buffer.
- *
- * Inputs:
- *  buffer - A pointer to the buffer in which to save the data.
- */
-static inline void
-save_fp (sva_fp_state_t * buffer) {
-  __asm__ __volatile__ ("fxsave %0" : "=m" (buffer->words) :: "memory");
-  buffer->present = 1;
-}
 
 /**
  * Load a segment register or %fs/%gs base.

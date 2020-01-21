@@ -18,18 +18,6 @@
 
 #include <sva/types.h>
 
-/*
- * Structure: sva_fp_state_t
- *
- * Description:
- *  This structure defines the processor's native floating point state.  This
- *  structure can store the x86 X87, XMM, and SSE registers.
- */
-typedef struct {
-  unsigned char words[512];
-  unsigned char present;
-} __attribute__ ((aligned (16))) sva_fp_state_t;
-
 enum sva_segment_register {
   SVA_SEG_CS,
   SVA_SEG_SS,

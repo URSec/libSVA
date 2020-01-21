@@ -19,6 +19,7 @@
 #define _SVA_VMX_INTRINSICS_H
 
 #include <sva/asmconfig.h>
+#include <sva/fpu_types.h>
 #include <sva/mmu_types.h>
 #include <sva/icontext.h>
 
@@ -374,7 +375,7 @@ typedef struct sva_vmx_guest_state {
   /* TODO: also handle CR8 */
 
   /* FP State */
-  sva_fp_state_t fp;
+  union xsave_area_max fp;
 
 #ifdef MPX
   /*
