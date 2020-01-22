@@ -407,6 +407,11 @@ init_idt (unsigned int procID) {
 #endif
 
   /*
+   * Make sure that fsgsbase support is enabled.
+   */
+  write_cr4(read_cr4() | CR4_FSGSBASE);
+
+  /*
    * Load our descriptor table on to the processor. NB: The IDT limit is
    * actually the last addressable byte and should therefore be set to
    * `sizeof(sva_idt) - 1`.
