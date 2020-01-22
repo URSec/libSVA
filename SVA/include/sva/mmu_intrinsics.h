@@ -202,11 +202,21 @@ extern void sva_unprotect_code_page(void* vaddr);
 extern void sva_protect_code_page(void* vaddr);
 
 /**
- * Flush all TLB's holding translations for the specified virtual address
+ * Flush all TLB's holding translations for the specified virtual address.
  *
  * @param address A virtual address for which all TLB entries will be flushed
  */
-void sva_mm_flush_tlb(void* address);
+void sva_mm_flush_tlb_at(const void* address);
+
+/**
+ * Perform a TLB flush of all non-global entries.
+ */
+void sva_mm_flush_tlb(void);
+
+/**
+ * Perform TLB flush of all entries, including global entries.
+ */
+void sva_mm_flush_tlb_global(void);
 
 #ifdef FreeBSD
 extern void sva_mmu_init(pml4e_t * kpml4Mapping,

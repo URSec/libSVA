@@ -342,8 +342,26 @@ void update_mapping(page_entry_t* pte, page_entry_t new_pte) {
   do_mmu_update(pte, new_pte);
 }
 
-void sva_mm_flush_tlb(void* address) {
+void sva_mm_flush_tlb_at(const void* address) {
   invlpg((uintptr_t)address);
+}
+
+void sva_mm_flush_tlb(void) {
+    /*
+     * Reload `%cr3` with its current value. According to ISDM V3 S4.10.4.1,
+     * this will invalidate all non-global TLB entries for the current PCID.
+     */
+    write_cr3(read_cr3());
+}
+
+void sva_mm_flush_tlb_global(void) {
+    /*
+     * Flip the "page global enable" flag in `%cr4`. According to ISDM V3
+     * S4.10.4.1, this will invalidate all entries in the TLB.
+     */
+    uint64_t cr4 = read_cr4();
+    write_cr4(cr4 ^ CR4_PGE);
+    write_cr4(cr4);
 }
 
 void initDeclaredPage(uintptr_t frame) {
@@ -960,7 +978,7 @@ uintptr_t unmapSecurePage(struct SVAThread* threadp, uintptr_t vaddr) {
   /*
    * Invalidate any TLBs in the processor.
    */
-  sva_mm_flush_tlb((void*)vaddr);
+  sva_mm_flush_tlb_at((const void*)vaddr);
 
   frame_drop(pageDesc, PGT_GHOST);
 
