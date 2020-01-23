@@ -27,16 +27,13 @@
 
 .macro _TRAP name:req trapnum:req needsPushErrorCode:req
 ENTRY(\name)
-  /* Adjust the stack pointer so that we can push items using %ds */
-  subq $(8 + 8 * \needsPushErrorCode), %rsp
-
 .if \needsPushErrorCode
   /* Push a zero code */
-  movq $0, 8(%rsp)
+  pushq $0
 .endif
 
   /* Push the trap number */
-  movq $\trapnum, 0(%rsp)
+  movl $\trapnum, 4(%rsp)
 
   /* Call the common trap code. */
   jmp Trap
@@ -94,12 +91,6 @@ GLOBL(interrupt_table)
  ****************************************************************************/
 .text
 
-.global SVAbadtrap
-.type SVAbadtrap, @function
-
-.global SVAsyscall
-.type SVAsyscall, @function
-
 .global secmemtrap
 .type secmemtrap, @function
 
@@ -111,31 +102,27 @@ GLOBL(interrupt_table)
 
 .global trap_pfault_ghost
 .type trap_pfault_ghost, @function 
-/*
- * Function: SVAbadtrap
- *
- * Description:
- *  This function just generates a fault, allowing us to catch traps which SVA
- *  isn't fielding.
+
+/**
+ * This function just generates a fault, allowing us to catch traps which SVA
+ * isn't fielding.
  */
-SVAbadtrap:
+ENTRY(SVAbadtrap):
   /* Cause a breakpoint */
   sti
   int $0x03
 
   /* Return from the interrupt */
   iretq
+END(SVAbadtrap)
 
-/*
- * Function: Trap
- *
- * Description:
- *  This code is common code for all trap and interrupt handlers.
+/**
+ * Common code for all interrupt and exception handlers.
  *
  * Preconditions:
  *  o The error code and trap number should have been pushed on to the stack. 
  */
-Trap:
+ENTRY(Trap)
   cache_part_switch sva stack
 
 #ifndef XEN /* Xen doesn't use a kernel stack segment */
@@ -148,55 +135,31 @@ Trap:
   popq %rax
 #endif
 
-  /*
-   * Allocate space for the SVA Interrupt Context.  Note that the hardware
-   * has already created part of the Interrupt Context, so we only need to
-   * allocate space for the fields not saved by the hardware.
-   */
-  subq $IC_TRSIZE, %rsp
-
-  /*
-   * Save a copy of the interrupt context into SVA memory.
-   */
-  movq %rbp, IC_RBP(%rsp)
-  movq %r15, IC_R15(%rsp)
-  movq %r14, IC_R14(%rsp)
-  movq %r13, IC_R13(%rsp)
-  movq %r12, IC_R12(%rsp)
-  movq %r11, IC_R11(%rsp)
-  movq %r10, IC_R10(%rsp)
-  movq %r9,  IC_R9(%rsp)
-  movq %r8,  IC_R8(%rsp)
-
-  movq %rdx, IC_RDX(%rsp)
-  movq %rcx, IC_RCX(%rsp)
-  movq %rbx, IC_RBX(%rsp)
-  movq %rax, IC_RAX(%rsp)
-
-  movq %rsi, IC_RSI(%rsp)
-  movq %rdi, IC_RDI(%rsp)
+  /* Save the GPRs */
+  pushq %rbp
+  pushq %r15
+  pushq %r14
+  pushq %r13
+  pushq %r12
+  pushq %r11
+  pushq %r10
+  pushq %r9
+  pushq %r8
+  pushq %rdx
+  pushq %rcx
+  pushq %rbx
+  pushq %rax
+  pushq %rsi
+  pushq %rdi
 
   /* Save the segment bases */
   rdgsbase %rax
   rdfsbase %rcx
-  movq %rax, IC_GSBASE(%rsp)
-  movq %rcx, IC_FSBASE(%rsp)
-
-  /* Save the segment registers */
-  movw %ds, %ax
-  movw %es, %bx
-  movw %fs, %cx
-  movw %gs, %dx
-  movw %ax, IC_DS(%rsp)
-  movw %bx, IC_ES(%rsp)
-  movw %cx, IC_FS(%rsp)
-  movw %dx, IC_GS(%rsp)
-
-  /* Push the invoke frame pointer */
-  movq $0, IC_INVOKEP(%rsp)
+  pushq %rax
+  pushq %rcx
 
   /* Flag the interrupt context as valid */
-  movq $1, IC_VALID(%rsp)
+  pushq $1
 
   testq $0x3, IC_CS(%rsp)
   jz 1f
@@ -230,7 +193,6 @@ Trap:
   movq $0, CPU_FPUSED(%rbp)
 1:
 #endif
-  movq $0, IC_FPP(%rsp)
 
   /*
    * Save the address of the current interrupt context into this processor's
@@ -241,7 +203,7 @@ Trap:
   /*
    * Move the trap number into the %rdi register.
    */
-  movq IC_TRAPNO(%rsp), %rdi
+  movl IC_TRAPNO(%rsp), %edi
 
   /*
    * Move the address causing the fault (which may or may not be applicable)
@@ -260,9 +222,7 @@ Trap:
    * context.
    */
   movq CPU_TSSP(%rbp), %rbx
-  movq %rsp, %rax
-  subq $0x10, %rax
-  movq %rax, TSS_IST3(%rbx)
+  movq %rsp, TSS_IST3(%rbx)
 
   /*
    * Switch to the kernel stack.  If coming from user space, use the kernel
@@ -270,7 +230,7 @@ Trap:
    * kernel stack pointer.
    */
   testq $0x3, IC_CS(%rsp)
-  cmovnzq 4(%rbx), %rsp
+  cmovnzq TSS_RSP0(%rbx), %rsp
   cmovzq IC_RSP(%rsp), %rsp
 
   /*
@@ -303,7 +263,7 @@ Trap:
    * Call the ghost memory page fault handler trap_pfault_ghost
    * instead for ghost memory page faults.
    */
-  cmpq $14, %rdi
+  cmpl $14, %edi
   jne .Lcall_handler
   movq %rsi, %rax
   shrq $32, %rax
@@ -347,7 +307,7 @@ END(Trap)
  *    instruction that exists in kernel code because it will violate the
  *    assumption that we need to use swapgs to configure the %GS register.
  */
-SVAsyscall:
+ENTRY(SVAsyscall)
   /* ENSURE that interrupts are disabled */
   cli
 
@@ -377,13 +337,6 @@ SVAsyscall:
   movq %gs:TLS_CPUSTATE, %rbp
   movq CPU_TSSP(%rbp), %rbp
   movq TSS_IST3(%rbp), %rsp
-  addq $0x10, %rsp
-
-  /* Initialize the floating point state pointer to NULL */
-  pushq $0
-
-  /* Mark the Interrupt Context as valid */
-  pushq $1
 
   /* Push the user-space stack segment */
   pushq $SVA_USER_SS_64
@@ -400,11 +353,9 @@ SVAsyscall:
   /* Push the user-space program counter (%rip) */
   pushq %rcx
 
-  /* Push a zero code */
+  /* Push the syscall trap number and a zero code */
   pushq $0
-
-  /* Push the syscall trap number */
-  pushq $256
+  movl $256, 4(%rsp)
 
   /*
    * Save a copy of the interrupt context into SVA memory.
@@ -431,15 +382,8 @@ SVAsyscall:
   rdfsbase %rax
   pushq %rax
 
-  movw %ds, %ax
-  movw %es, %bx
-  pushw %ax
-  pushw %bx
-  pushw %gs
-  pushw %fs
-
-  /* Push a NULL invoke pointer into the Interrupt Context */
-  pushq $0
+  /* Mark the Interrupt Context as valid */
+  pushq $1
 
   /*
    * Mark the interrupt context as valid.  Additionally, set the fork bit
@@ -491,7 +435,6 @@ SVAsyscall:
   movq $0, CPU_FPUSED(%rbp)
 1:
 #endif
-  movq $0, IC_FPP(%rsp)
 
   /*
    * Save the address of the current interrupt context into this processor's
@@ -504,20 +447,8 @@ SVAsyscall:
    * or interrupt on this processor saves state into the next interrupt
    * context.
    */
-#if 1 
-  /*
-   * Adjust the stack pointer to point to the first byte of the current
-   * interrupt context before storing it into the TSS.  Restore it when
-   * we're done.
-   */
-  subq $0x10, %rsp
   movq CPU_TSSP(%rbp), %rbx
   movq %rsp, TSS_IST3(%rbx)
-  addq $0x10, %rsp
-#else
-  movq CPU_TSSP(%rbp), %rbx
-  subq $IC_SIZE, TSS_IST3(%rbx)
-#endif
 
   /*
    * Switch to the kernel stack.  Since we always come from user space, 
@@ -571,7 +502,7 @@ ENTRY(sva_iret)
    * Verify that the interrupt context is valid (e.g., no sva_ialloca has been
    * performed without a subsequent sva_ipush_function).
    */
-  movq IC_TRAPNO(%rbx), %rdi
+  movl IC_TRAPNO(%rbx), %edi
   testq $1, IC_VALID(%rbx)
   je invalidIC
 
@@ -590,24 +521,15 @@ ENTRY(sva_iret)
   addq $IC_SIZE, TSS_IST3(%rbx)
 
   /*
-   * Copy the registers from the interrupt context back on to the processor.
-   */
-#if 0
-  movw IC_FS(%rsp), %bx
-  movw IC_ES(%rsp), %cx
-  movw IC_DS(%rsp), %dx
-  movw %bx, %fs
-  movw %cx, %es
-  movw %dx, %ds
-#endif
-
-  /*
    * We need access to the TLS to determine if the application is ghosting, so
    * we delay restoring %gs.base until after the cache partition switch.
    */
   movq IC_FSBASE(%rsp), %rax
   wrfsbase %rax
 
+  /*
+   * Copy the registers from the interrupt context back on to the processor.
+   */
   movq IC_RDI(%rsp), %rdi
   movq IC_RSI(%rsp), %rsi
 
@@ -644,10 +566,6 @@ ENTRY(sva_iret)
   /*
    * Restore %gs.base
    */
-#if 0
-  movw IC_GS(%rsp), %ax
-  movw %ax, %gs
-#endif
   movq IC_GSBASE(%rsp), %rax
   wrgsbase %rax
 
@@ -661,13 +579,13 @@ ENTRY(sva_iret)
   /*
    * If we entered via syscall, use the syscall return path
    */
-  cmpq $256, IC_TRAPNO(%rsp)
+  cmpl $256, IC_TRAPNO(%rsp)
   je .Lsysret
 
   /*
    * Remove the current interrupt context.
    */
-  addq $(IC_TRSIZE + 0x10 /* trap number and error code */), %rsp
+  addq $(IC_TRSIZE + 0x8 /* trap number and error code */), %rsp
 
   iretq
 

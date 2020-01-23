@@ -65,16 +65,6 @@ save_integer:
 #endif
 
   /*
-   * Save the segment selector registers and ensure that they are only 16 bits.
-   */
-  movw %fs,  IC_FS(%rdi)
-  movw %gs,  IC_GS(%rdi)
-  movw %es,  IC_ES(%rdi)
-  andl $0xffff, IC_FS(%rdi)
-  andl $0xffff, IC_GS(%rdi)
-  andl $0xffff, IC_ES(%rdi)
-
-  /*
    * Save the general purpose registers.
    */
   movq %rsi, IC_RSI(%rdi)

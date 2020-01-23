@@ -227,7 +227,7 @@ void sva_ipush_function5(void (*newf)(),
    * Mark the interrupt context as valid; if an sva_ialloca previously
    * invalidated it, an sva_ipush_function() makes it valid again.
    */
-  ep->valid |= (IC_is_valid);
+  ep->valid = true;
 
   /*
    * Re-enable interrupts.
@@ -338,7 +338,7 @@ bool sva_ipush_function(uintptr_t fn, uint16_t cs) {
    * Mark the interrupt context as valid; if an sva_ialloca previously
    * invalidated it, an sva_ipush_function() makes it valid again.
    */
-  ic->valid |= IC_is_valid;
+  ic->valid = true;
 
   /*
    * Re-enable interrupts.
@@ -805,7 +805,7 @@ saveThread(struct SVAThread* oldThread, bool switchStack) {
   /*
    * Mark the saved integer state as valid.
    */
-  old->valid = 1;
+  old->valid = true;
 
   return false;
 }
@@ -836,7 +836,7 @@ static bool loadThread(struct SVAThread* newThread) {
     /*
      * Invalidate the state that we're about to load.
      */
-    new->valid = 0;
+    new->valid = false;
 
     /*
      * Switch the CPU over to using the new set of interrupt contexts.
@@ -1066,10 +1066,8 @@ static bool ialloca_common(void* stack, void* data, size_t size, size_t align) {
    * Mark the interrupt context as invalid.  We don't want it to be placed
    * back on to the processor until an sva_ipush_function() pushes a new stack
    * frame on to the stack.
-   *
-   * We do this by turning off the LSB of the valid field.
    */
-  icontextp->valid &= ~IC_is_valid;
+  icontextp->valid = false;
 
   /*
    * Align the pointer.
@@ -1360,7 +1358,7 @@ uintptr_t sva_create_icontext(uintptr_t start, uintptr_t arg1, uintptr_t arg2,
   ic->valid = true;
 
   newThread->integerState.currentIC = ic;
-  newThread->integerState.ist3 = (uintptr_t)&(ic - 1)->valid;
+  newThread->integerState.ist3 = (uintptr_t)ic;
   newThread->integerState.kstackp = 0;
 
   xinit(&newThread->integerState.fpstate.inner);
@@ -1475,11 +1473,11 @@ void sva_reinit_icontext(void* handle, bool priv, uintptr_t stackp,
   } else {
     ep->cs = SVA_USER_CS_64;
     ep->ss = SVA_USER_SS_64;
-    ep->ds = SVA_USER_DS_64;
-    ep->es = SVA_USER_ES_64;
-    ep->fs = SVA_USER_FS_64;
-    ep->gs = SVA_USER_GS_64;
     ep->rflags = (rflags & 0xfffu);
+    load_segment(SVA_SEG_DS, SVA_USER_DS_64);
+    load_segment(SVA_SEG_ES, SVA_USER_ES_64);
+    load_segment(SVA_SEG_FS, SVA_USER_FS_64);
+    load_segment(SVA_SEG_GS, SVA_USER_GS_64);
   }
 
   /*
@@ -1536,7 +1534,7 @@ void sva_release_stack(uintptr_t id) {
    * Mark the integer state as invalid.  This will prevent it from being
    * context switched on to the CPU.
    */
-  new->valid = 0;
+  new->valid = false;
 
   /*
    * Mark the thread as available for reuse.
@@ -1683,7 +1681,7 @@ uintptr_t sva_init_stack(unsigned char* start_stackp,
   integerp->rsp = (uintptr_t *) stackp;
   integerp->cs  = SVA_USER_CS_64;
   integerp->ss  = SVA_USER_SS_64;
-  integerp->valid = 1;
+  integerp->valid = true;
   integerp->rflags = 0x202;
 #if 0
   integerp->ist3 = integerp->kstackp;
@@ -1730,22 +1728,21 @@ uintptr_t sva_init_stack(unsigned char* start_stackp,
    * Interrupt Context as well so that it cannot be duplicated multiple times
    * for a single call to fork().
    */
-  if ((oldThread->isInitialForCPU) ||
-      (cpup->newCurrentIC->valid & IC_can_fork)) {
+  if (oldThread->isInitialForCPU || cpup->newCurrentIC->can_fork) {
     /* Mark the new Interrupt Context as valid */
-    icontextp->valid |= IC_is_valid; 
+    icontextp->valid = true;
 
     /* Disable the fork bit in both the old and new Interrupt Contexts. */
-    icontextp->valid &= (~(IC_can_fork));
-    cpup->newCurrentIC->valid &= (~(IC_can_fork));
+    icontextp->can_fork = false;
+    cpup->newCurrentIC->can_fork = false;
   } else {
     /*
      * Print an error and then permit the child process to be created anyway.
      * This makes the error more of a warning since we allow the system to
      * continue executing anyway.
      */
-    printf ("SVA: Error!  Kernel performing unauthorized fork()!\n");
-    icontextp->valid |= IC_is_valid;
+    printf("SVA: Error!  Kernel performing unauthorized fork()!\n");
+    icontextp->valid = true;
   }
 
   if(vg && (oldThread->secmemSize))

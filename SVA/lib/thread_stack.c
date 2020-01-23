@@ -194,7 +194,7 @@ findNextFreeThread (void) {
      * interrupt context is at maxIC - 2.
      */
     sva_icontext_t * icontextp = newThread->interruptContexts + maxIC - 1;
-    newThread->integerState.ist3 = ((uintptr_t) icontextp) - 0x10;
+    newThread->integerState.ist3 = (uintptr_t)icontextp;
     newThread->integerState.kstackp = 0;
 
     /*

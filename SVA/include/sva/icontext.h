@@ -63,14 +63,9 @@ struct invoke_frame {
   long cpinvoke;
 };
 
-/* Constants for the different Interrupt Context flags in the valid field */
-static const unsigned long IC_is_valid = 0x00000001u;
-static const unsigned long IC_can_fork = 0x00000002u;
-
-/*
- * Structure: icontext_t
+/**
+ * Saved interrupt context.
  *
- * Description:
  *  This structure is what is saved by the Execution Engine when an interrupt,
  *  exception, or system call occurs.  It must ensure that all state that is
  *    (a) Used by the interrupted process, and
@@ -84,63 +79,73 @@ static const unsigned long IC_can_fork = 0x00000002u;
  *
  * Notes:
  *  o) This structure *must* have a length equal to an even number of quad
- *     words.  The SVA interrupt handling code depends upon this behavior.
+ *     words.
  */
 typedef struct sva_icontext {
-  /* Invoke Pointer */
-  void * invokep;                     // 0x00
-
-  /* Segment selector registers */
-  unsigned short fs;                  // 0x08
-  unsigned short gs;
-  unsigned short es;
-  unsigned short ds;
+  /**
+   * Whether the interrupt context is valid (can be returned to).
+   */
+  bool valid: 1;                // 0x00
+  bool can_fork: 1;             // 0x00
 
   /* Segment bases */
-  unsigned long fsbase;               // 0x10
-  unsigned long gsbase;               // 0x18
+  uint64_t fsbase;              // 0x08
+  uint64_t gsbase;              // 0x10
 
-  unsigned long rdi;                  // 0x20
-  unsigned long rsi;                  // 0x28
+  uint64_t rdi;                 // 0x18
+  uint64_t rsi;                 // 0x20
 
-  unsigned long rax;                  // 0x30
-  unsigned long rbx;                  // 0x38
-  unsigned long rcx;                  // 0x40
-  unsigned long rdx;                  // 0x48
+  uint64_t rax;                 // 0x28
+  uint64_t rbx;                 // 0x30
+  uint64_t rcx;                 // 0x38
+  uint64_t rdx;                 // 0x40
 
-  unsigned long r8;                   // 0x50
-  unsigned long r9;                   // 0x58
-  unsigned long r10;                  // 0x60
-  unsigned long r11;                  // 0x68
-  unsigned long r12;                  // 0x70
-  unsigned long r13;                  // 0x78
-  unsigned long r14;                  // 0x80
-  unsigned long r15;                  // 0x88
+  uint64_t r8;                  // 0x48
+  uint64_t r9;                  // 0x50
+  uint64_t r10;                 // 0x58
+  uint64_t r11;                 // 0x60
+  uint64_t r12;                 // 0x68
+  uint64_t r13;                 // 0x70
+  uint64_t r14;                 // 0x78
+  uint64_t r15;                 // 0x80
 
   /*
    * Keep this register right here.  We'll use it in assembly code, and we
    * place it here for easy saving and recovery.
    */
-  unsigned long rbp;                  // 0x90
+  uint64_t rbp;                 // 0x88
 
-  /* Hardware trap number */
-  unsigned long trapno;               // 0x98
+  /**
+   * Error code.
+   *
+   * Only pushed automatically by some exceptions.
+   */
+  uint32_t code;                // 0x90
+
+  /**
+   * Hardware trap number.
+   *
+   * We use the upper 32 bits of the error code slot, which are not used by
+   * hardware.
+   */
+  uint32_t trapno;              // 0x94
 
   /*
    * These values are automagically saved by the x86_64 hardware upon an
    * interrupt or exception.
    */
-  unsigned long code;                 // 0xa0
-  unsigned long rip;                  // 0xa8
-  unsigned long cs;                   // 0xb0
-  unsigned long rflags;               // 0xb8
-  unsigned long * rsp;                // 0xc0
-  unsigned long ss;                   // 0xc8
-
-  /* Flags whether the interrupt context is valid */
-  unsigned long valid;                // 0xd0
-  struct xsave_area* fpstate;         // 0xd8
+  uint64_t rip;                 // 0x98
+  uint16_t cs;                  // 0xa0
+  uint64_t rflags;              // 0xa8
+  uint64_t* rsp;                // 0xb0
+  uint16_t ss;                  // 0xb8
 } __attribute__ ((aligned (16))) sva_icontext_t;
+
+/*
+ * `sizeof(sva_icontext_t)` must be a multiple of 16 bytes so that the *end* of
+ * the struct is 16-byte aligned, as required by hardware.
+ */
+_Static_assert(sizeof(sva_icontext_t) % 16 == 0, "Interrupt stack misaligned");
 
 /*
  * Structure: sva_integer_state_t
