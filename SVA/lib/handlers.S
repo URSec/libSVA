@@ -119,8 +119,7 @@ END(SVAbadtrap)
 /**
  * Common code for all interrupt and exception handlers.
  *
- * Preconditions:
- *  o The error code and trap number should have been pushed on to the stack. 
+ * The error code and trap number should have already been pushed to the stack.
  */
 ENTRY(Trap)
   cache_part_switch sva stack
@@ -284,28 +283,21 @@ ENTRY(Trap)
   jmp sva_iret
 END(Trap)
 
-/*
- * Trap: SVAsyscall
+
+
+/**
+ * Syscall entry point.
  *
- * Description:
- *  This trap handles system call entry.
+ * This function is called by the processor by the syscall instruction.  When
+ * we enter, we are still running on the application's stack.
  *
- * Preconditions:
- *  o The GS register should be pointing to the base of the interrupt context
- *    for the current processor.
+ * We assume that the syscall instruction was executed in user-mode.  SVA
+ * should ensure that syscall is never generated for kernel code and that the
+ * kernel cannot jump to user-space code containing the syscall sequence.
  *
- * Notes:
- *  o This function is called by the processor by the syscall instruction.
- *    When we enter, we are still running on the application's stack.
- *
- *  o We assume that the syscall instruction was executed in user-mode.  SVA
- *    should ensure that syscall is never generated for kernel code and that
- *    the kernel cannot jump to user-space code containing the syscall
- *    sequence.
- *
- *  o The SVA CFI checks should prevent the kernel from jumping to a syscall
- *    instruction that exists in kernel code because it will violate the
- *    assumption that we need to use swapgs to configure the %GS register.
+ * The SVA CFI checks should prevent the kernel from jumping to a syscall
+ * instruction that exists in kernel code because it will violate the
+ * assumption that we need to use swapgs to configure the %GS register.
  */
 ENTRY(SVAsyscall)
   /* ENSURE that interrupts are disabled */
