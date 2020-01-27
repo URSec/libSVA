@@ -25,7 +25,7 @@
 #include <sva/asm-macros.h>
 #include <sva/cr.h>
 
-.macro _TRAP name:req trapnum:req needsPushErrorCode:req
+.macro _TRAP name:req trapnum:req paranoid:req needsPushErrorCode:req
 ENTRY(\name)
 .if \needsPushErrorCode
   /* Push a zero code */
@@ -35,8 +35,13 @@ ENTRY(\name)
   /* Push the trap number */
   movl $\trapnum, 4(%rsp)
 
+.if \paranoid
+  /* Call the paranoid trap code. */
+  jmp TrapParanoid
+.else
   /* Call the common trap code. */
   jmp Trap
+.endif
 END(\name)
 .endm
 
@@ -47,8 +52,8 @@ END(\name)
  *  Create an assembly language routine that can dispatch the specified trap.
  *  This version is for traps that do not generate their own error code.
  */
-.macro TRAP trapnum:req
-  _TRAP trap\trapnum \trapnum needsPushErrorCode=1
+.macro TRAP trapnum:req paranoid=0
+  _TRAP trap\trapnum \trapnum paranoid=\paranoid needsPushErrorCode=1
 .endm
 
 /*
@@ -58,21 +63,21 @@ END(\name)
  *  Create an assembly language routine that can dispatch the specified trap.
  *  This version is for traps that generate their own error code.
  */
-.macro ECTRAP trapnum:req
-  _TRAP trap\trapnum \trapnum needsPushErrorCode=0
+.macro ECTRAP trapnum:req paranoid=0
+  _TRAP trap\trapnum \trapnum paranoid=\paranoid needsPushErrorCode=0
 .endm
 
 /*
  * Macro: INTERRUPT()
- * 
+ *
  * Description:
- *  Define the handler for an interrupt.  This is nearly identical to the 
+ *  Define the handler for an interrupt.  This is nearly identical to the
  *  trap code.  It is really only different because it was different in the
  *  original SVA system; the new system does not need to distinguish between
  *  an interrupt and a trap.
  */
 .macro INTERRUPT interruptnum:req
-  _TRAP interrupt\interruptnum \interruptnum needsPushErrorCode=1
+  _TRAP interrupt\interruptnum \interruptnum paranoid=0 needsPushErrorCode=1
 .endm
 
 .bundle_align_mode 5
@@ -101,7 +106,7 @@ GLOBL(interrupt_table)
 .type sva_syscall, @function
 
 .global trap_pfault_ghost
-.type trap_pfault_ghost, @function 
+.type trap_pfault_ghost, @function
 
 /**
  * This function just generates a fault, allowing us to catch traps which SVA
@@ -210,7 +215,7 @@ ENTRY(Trap)
    */
   movq %cr2, %rsi
 
-#if 0 
+#if 0
   /* Verify the Interrupt Context */
   CALLQ(assertGoodIC)
 #endif
@@ -253,11 +258,11 @@ ENTRY(Trap)
   xorq %rdx, %rdx
   xorq %rcx, %rcx
 #endif
- 
+
   cache_part_switch os
 
   /*
-   * If the trapno is page fault, check whether the faulting 
+   * If the trapno is page fault, check whether the faulting
    * address falls within the region of ghost memory.
    * Call the ghost memory page fault handler trap_pfault_ghost
    * instead for ghost memory page faults.
@@ -282,8 +287,6 @@ ENTRY(Trap)
 
   jmp sva_iret
 END(Trap)
-
-
 
 /**
  * Syscall entry point.
@@ -433,7 +436,7 @@ ENTRY(SVAsyscall)
    * CPU state.
    */
   movq %rsp, CPU_NEWIC(%rbp)
-  
+
   /*
    * Modify the value in the Task State Segment (TSS) so that the next trap
    * or interrupt on this processor saves state into the next interrupt
@@ -443,7 +446,7 @@ ENTRY(SVAsyscall)
   movq %rsp, TSS_IST3(%rbx)
 
   /*
-   * Switch to the kernel stack.  Since we always come from user space, 
+   * Switch to the kernel stack.  Since we always come from user space,
    * switch to the kernel stack pointer specified by the kernel.
    */
   movq TSS_RSP0(%rbx), %rsp
@@ -599,16 +602,259 @@ ENTRY(sva_iret)
   sysretq
 END(sva_iret)
 
+/**
+ * Common code for paranoid exception handlers.
+ *
+ * The exceptions that wind up here are those that can occur at times when the
+ * system is in a state that the ordinary trap handling code is not prepared
+ * for, such as times where we have a kernel code segment but the user
+ * `%gs.base` is still active. This includes NMIs and machine-check exceptions
+ * which don't respect `%eflags.IF`, debug traps which can be delayed until
+ * after kernel entry via a `mov %ss` or `pop %ss` shadow (see CVE-2018-8897),
+ * and double faults which by there very nature occur at unpredictable times.
+ *
+ * Each exception which uses this mechanism is expected to use a separate IDT
+ * entry than the one used by ordinary exceptions and interrupts, and this
+ * stack is expected to be 8-page aligned and contain at its bottom a pointer
+ * to the kernel TLS block (the value normally obtained from the shadow
+ * `%gs.base`).
+ */
+ENTRY(TrapParanoid)
+  cache_part_switch sva stack
+
+#ifndef XEN /* Xen doesn't use a kernel stack segment */
+  /*
+   * Switch to the stack segment.
+   */
+  pushq %rax
+  movw $0x28, %ax
+  movw %ax, %ss
+  popq %rax
+#endif
+
+  /* Save the GPRs */
+  pushq %rbp
+  pushq %r15
+  pushq %r14
+  pushq %r13
+  pushq %r12
+  pushq %r11
+  pushq %r10
+  pushq %r9
+  pushq %r8
+  pushq %rdx
+  pushq %rcx
+  pushq %rbx
+  pushq %rax
+  pushq %rsi
+  pushq %rdi
+
+  /* Save the segment bases */
+  rdgsbase %rax
+  rdfsbase %rcx
+  pushq %rax
+  pushq %rcx
+
+  /* Flag the interrupt context as valid */
+  pushq $1
+
+  /* Load the TLS pointer from the bottom of the stack */
+  movq $-PARANOID_STACK_SIZE, %rax
+  andq %rsp, %rax
+  movq (PARANOID_STACK_SIZE - 8)(%rax), %rax
+  wrgsbase %rax
+
+#ifdef MPX
+  /* Reset the MPX bounds register for SFI checks */
+  movabsq $412316860416, %rax     # imm = 0x6000000000
+  movabsq $-412316860417, %rdx    # imm = 0xFFFFFF9FFFFFFFFF
+  bndmk (%rax,%rdx), %bnd0
+#endif
+
+  movq %gs:TLS_CPUSTATE, %rbp
+
+#ifdef SVA_DEBUG_CHECKS
+  /*
+   * Configure the process to trigger a floating point fault while in
+   * kernel mode.  This requires disabling the EM bit and enabling the MP and
+   * TS bits in CR0.
+   *
+   * Record that no floating point state is saved (it is saved lazily).
+   */
+  testq $1, CPU_FPUSED(%rbp)
+  jne 1f
+  movq %cr0, %rsi
+  andl $0xfffffffb, %esi
+  orq  $0x0a, %rsi
+  movq %rsi, %cr0
+  movq $0, CPU_FPUSED(%rbp)
+1:
+#endif
+
+  /*
+   * Save the address of the current interrupt context into this processor's
+   * CPU state.
+   */
+  movq %rsp, CPU_NEWIC(%rbp)
+
+  /*
+   * Move the trap number into the %rdi register.
+   */
+  movl IC_TRAPNO(%rsp), %edi
+
+  /*
+   * Move the address causing the fault (which may or may not be applicable)
+   * into the %rsi register to make it the second argument.
+   */
+  movq %cr2, %rsi
+
+#if 0
+  /* Verify the Interrupt Context */
+  CALLQ(assertGoodIC)
+#endif
+
+  /*
+   * Zero out live registers that could be spilled to the stack.  Without
+   * memory safety, we can't guarantee that they're safe.
+   *
+   * We can leave the FP/SSE registers alone.  A read or write of those
+   * registers will cause a floating point trap.  The SVA FP trap handler
+   * will lazily save the floating point state and load the missing floating
+   * point state.
+   */
+#ifdef VG
+  xorq %r15, %r15
+  xorq %r14, %r14
+  xorq %r13, %r13
+  xorq %r12, %r12
+  xorq %r11, %r11
+  xorq %r10, %r10
+  xorq %r9,  %r9
+  xorq %r8,  %r8
+  xorq %rdx, %rdx
+  xorq %rcx, %rcx
+#endif
+
+  /*
+   * Switch to the kernel NMI stack.
+   */
+  movq CPU_TSSP(%rbp), %rbx
+  movq TSS_IST2(%rbx), %rsp
+
+  cache_part_switch os
+
+  /*
+   * Call the trap handler registered by the OS for this trap.
+   */
+  leaq interrupt_table(%rip), %rax
+  CALLQ(*(%rax,%rdi,8))
+
+  /*
+   * Disable interrupts.
+   */
+  cli
+  cache_part_switch sva
+
+  movq %gs:TLS_CPUSTATE, %rbp
+  movq CPU_NEWIC(%rbp), %rbx
+
+  /*
+   * Verify that the interrupt context is valid (e.g., no sva_ialloca has been
+   * performed without a subsequent sva_ipush_function).
+   */
+  movl IC_TRAPNO(%rbx), %edi
+  testq $1, IC_VALID(%rbx)
+  je invalidIC
+
+  /*
+   * Switch back to the paranoid stack.
+   */
+  movq %rbx, %rsp
+
+  /*
+   * Pop off the most recent interrupt context.
+   */
+  movq CPU_TSSP(%rbp), %rax
+  movq TSS_IST3(%rax), %rax
+  movq %rax, CPU_NEWIC(%rbp)
+
+  /*
+   * We need access to the TLS to determine if the application is ghosting, so
+   * we delay restoring %gs.base until after the cache partition switch.
+   */
+  movq IC_FSBASE(%rsp), %rax
+  wrfsbase %rax
+
+  /*
+   * Copy the registers from the interrupt context back on to the processor.
+   */
+  movq IC_RDI(%rsp), %rdi
+  movq IC_RSI(%rsp), %rsi
+
+  movq IC_RBX(%rsp), %rbx
+
+  movq  IC_R8(%rsp), %r8
+  movq  IC_R9(%rsp), %r9
+  movq IC_R10(%rsp), %r10
+  movq IC_R11(%rsp), %r11
+  movq IC_R12(%rsp), %r12
+  movq IC_R13(%rsp), %r13
+  movq IC_R14(%rsp), %r14
+  movq IC_R15(%rsp), %r15
+  movq IC_RBP(%rsp), %rbp
+
+  /* Determine whether we interrupted user or supervisor mode execution. */
+  testq $0x3, IC_CS(%rsp)
+  jz .Lparanoid_supervisor_return
+
+  cache_part_switch app
+
+  jmp .Lparanoid_iret
+
+.Lparanoid_supervisor_return:
+  cache_part_switch os
+
+  /*
+   * Return to the calling code.  On x86_64, this will restore the stack
+   * pointer regardless of whether we came from user mode or kernel mode.
+   */
+.Lparanoid_iret:
+  /*
+   * Restore %gs.base
+   */
+  movq IC_GSBASE(%rsp), %rax
+  wrgsbase %rax
+
+  /*
+   * Restore WRMSR-clobbered registers
+   */
+  movq IC_RAX(%rsp), %rax
+  movq IC_RCX(%rsp), %rcx
+  movq IC_RDX(%rsp), %rdx
+
+  /*
+   * If we entered via syscall, use the syscall return path
+   */
+  cmpl $256, IC_TRAPNO(%rsp)
+
+  /*
+   * Remove the current interrupt context.
+   */
+  addq $(IC_TRSIZE + 0x8 /* trap number and error code */), %rsp
+
+  iretq
+END(TrapParanoid)
+
 /* Define the trap handlers */
 TRAP 0
-TRAP 1
-TRAP 2
+TRAP 1 paranoid=1
+TRAP 2 paranoid=1
 TRAP 3
 TRAP 4
 TRAP 5
 TRAP 6
 TRAP 7
-ECTRAP 8
+ECTRAP 8 paranoid=1
 TRAP 9
 ECTRAP 10
 ECTRAP 11
@@ -618,7 +864,7 @@ ECTRAP 14
 TRAP 15
 TRAP 16
 ECTRAP 17
-TRAP 18
+TRAP 18 paranoid=1
 TRAP 19
 TRAP 20
 TRAP 21

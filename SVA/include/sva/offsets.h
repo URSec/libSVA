@@ -82,6 +82,7 @@
 
 /* Offsets into the Task State Segment */
 #define TSS_RSP0 4
+#define TSS_IST2 44
 #define TSS_IST3 52
 
 /* Types of Invoke Frames */
@@ -96,5 +97,7 @@
  * Entries in the Interrupt Descriptor Table (IDT)
  */
 #define IDT_PF      14  /* #PF: Page Fault */
+
+#define PARANOID_STACK_SIZE (1 << 15) /* 8 pages */
 
 #endif /* _OFFSETS_H */

@@ -108,6 +108,8 @@ sva_getCPUState (tss_t * tssp) {
 
   /* Index of next available CPU state */
   static unsigned int __svadata nextIndex = 0;
+  static char __svadata bsp_paranoid_exception_stack[PARANOID_STACK_SIZE]
+    __attribute__((aligned(PARANOID_STACK_SIZE)));
   struct SVAThread * st;
   int index;
 
@@ -155,6 +157,13 @@ sva_getCPUState (tss_t * tssp) {
      * the stack frame inside SVA memory.
      */
     tssp->ist3 = ((uintptr_t) (st->integerState.ist3));
+    /* TODO: SMP support */
+    /** The size of a individual exception's portion of the paranoid stack. */
+    size_t part_size = PARANOID_STACK_SIZE / 8;
+    tssp->ist4 = (uintptr_t)&bsp_paranoid_exception_stack[1 * part_size];
+    tssp->ist5 = (uintptr_t)&bsp_paranoid_exception_stack[2 * part_size];
+    tssp->ist6 = (uintptr_t)&bsp_paranoid_exception_stack[3 * part_size];
+    tssp->ist7 = (uintptr_t)&bsp_paranoid_exception_stack[4 * part_size];
 
     /*
      * Return the CPU State to the caller.

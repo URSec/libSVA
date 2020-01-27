@@ -98,8 +98,6 @@
 #include <string.h>
 #include <limits.h>
 
-void register_x86_interrupt (int number, void (*interrupt)(void), unsigned char priv);
-void register_x86_trap (int number, void (*trap)(void));
 static void fptrap (unsigned int vector);
 #if 0
 static void init_debug (void);
@@ -164,7 +162,6 @@ static struct gate_descriptor __svadata sva_idt[256];
 
 /* Taken from segments.h in FreeBSD */
 static const unsigned int SDT_SYSIGT=14;  /* system 64 bit interrupt gate */
-static const unsigned int SDT_SYSTGT=15;  /* system 64 bit trap gate */
 
 void
 sva_debug (void) {
@@ -187,25 +184,24 @@ static void init_TLS(tss_t *tss) {
    */
 
   wrgsbase((uintptr_t)TLSBlock);
+  char* paranoid_stack_top = (char*)(tss->ist4 & -PARANOID_STACK_SIZE);
+  char* paranoid_stack_bottom = paranoid_stack_top + PARANOID_STACK_SIZE;
+  *((uintptr_t*)paranoid_stack_bottom - 1) = (uintptr_t)TLSBlock;
 }
 
-/*
- * Function: register_x86_interrupt()
+/**
+ * Install the specified handler into the x86 Interrupt Descriptor Table (IDT)
+ * as an interrupt.
  *
- * Description:
- *  Install the specified handler into the x86 Interrupt Descriptor Table (IDT)
- *  as an interrupt.
+ * Note: This is based off of the amd64 setidt() code in FreeBSD.
  *
- * Inputs:
- *  number    - The interrupt number.
- *  interrupt - A pointer to the interrupt handler.
- *  priv      - The x86_64 privilege level which can access this interrupt.
- *
- * Notes:
- *  This is based off of the amd64 setidt() code in FreeBSD.
+ * @param number    The interrupt vector
+ * @param interrupt A pointer to the interrupt handler
+ * @param priv      The x86_64 privilege level which can access this interrupt
+ * @param ist_index The IST index to use for the interrupt
  */
-void
-register_x86_interrupt (int number, void (*interrupt)(void), unsigned char priv) {
+static void register_x86_interrupt(int number, void (*interrupt)(void),
+                                   unsigned char priv, size_t ist_index) {
   /*
    * First determine which interrupt table we should be modifying.
    */
@@ -216,47 +212,12 @@ register_x86_interrupt (int number, void (*interrupt)(void), unsigned char priv)
    */
   ip->gd_looffset = (uintptr_t)interrupt;
   ip->gd_selector = GSEL(GCODE_SEL, 0);
-  ip->gd_ist = 3;
+  ip->gd_ist = ist_index;
   ip->gd_xx = 0;
   ip->gd_type = SDT_SYSIGT;
   ip->gd_dpl = priv;
   ip->gd_p = 1;
   ip->gd_hioffset = ((uintptr_t)interrupt)>>16 ;
-
-  return;
-}
-
-/*
- * Function: register_x86_trap()
- *
- * Description:
- *  Install the specified handler in the x86 Interrupt Descriptor Table (IDT)
- *  as a trap handler that can be called from privilege levels 0-3.
- *
- * Inputs:
- *  number  - The interrupt number.
- *  trap    - A function pointer to the system call handler.
- */
-void
-register_x86_trap (int number, void (*trap)(void)) {
-  /*
-   * First determine which interrupt table we should be modifying.
-   */
-  struct gate_descriptor *ip = &sva_idt[number];
-
-  /*
-   * Add the entry into the table.
-   */
-  ip->gd_looffset = (uintptr_t)trap;
-  ip->gd_selector = GSEL(GCODE_SEL, 3);
-  ip->gd_ist = 3;
-  ip->gd_xx = 0;
-  ip->gd_type = SDT_SYSTGT;
-  ip->gd_dpl = 3;
-  ip->gd_p = 1;
-  ip->gd_hioffset = ((uintptr_t)trap)>>16 ;
-
-  return;
 }
 
 /*
@@ -740,17 +701,21 @@ sva_init_secondary () {
   SVA_PROF_EXIT(init_secondary);
 }
 
-#define REGISTER_EXCEPTION(number) \
-  extern void trap##number(void); \
-  register_x86_interrupt ((number),trap##number, 0);
+#define REGISTER_EXCEPTION(number)                                      \
+  extern void trap##number(void);                                       \
+  register_x86_interrupt ((number),trap##number, 0, 3);
 
-#define REGISTER_SWEXCEPTION(number)                  \
-  extern void trap##number(void);                     \
-  register_x86_interrupt((number), trap##number, 3);
+#define REGISTER_SWEXCEPTION(number)                                    \
+  extern void trap##number(void);                                       \
+  register_x86_interrupt((number), trap##number, 3, 3);
 
-#define REGISTER_INTERRUPT(number) \
-  extern void interrupt##number(void); \
-  register_x86_interrupt ((number),interrupt##number, 0);
+#define REGISTER_PARANOID_EXCEPTION(number, ist_index)                  \
+  extern void trap##number(void);                                       \
+  register_x86_interrupt((number), trap##number, 0, (ist_index));
+
+#define REGISTER_INTERRUPT(number)                                      \
+  extern void interrupt##number(void);                                  \
+  register_x86_interrupt ((number),interrupt##number, 0, 3);
 
 static void
 init_dispatcher ()
@@ -773,19 +738,19 @@ init_dispatcher ()
    * Register the bad trap handler for all interrupts and traps.
    */
   for (unsigned index = 0; index < 255; ++index) {
-    register_x86_interrupt (index, SVAbadtrap, 0);
+    register_x86_interrupt(index, SVAbadtrap, 0, 3);
   }
 
   /* Register general exception */
   REGISTER_EXCEPTION(0);
-  REGISTER_EXCEPTION(1);
-  REGISTER_EXCEPTION(2);
+  REGISTER_PARANOID_EXCEPTION(1, 4);
+  REGISTER_PARANOID_EXCEPTION(2, 7);
   REGISTER_SWEXCEPTION(3);
   REGISTER_SWEXCEPTION(4);
   REGISTER_EXCEPTION(5);
   REGISTER_EXCEPTION(6);
   REGISTER_EXCEPTION(7);
-  REGISTER_EXCEPTION(8);
+  REGISTER_PARANOID_EXCEPTION(8, 5);
   REGISTER_EXCEPTION(9);
   REGISTER_EXCEPTION(10);
   REGISTER_EXCEPTION(11);
@@ -795,7 +760,7 @@ init_dispatcher ()
   REGISTER_EXCEPTION(15);
   REGISTER_EXCEPTION(16);
   REGISTER_EXCEPTION(17);   /* Alignment trap */
-  REGISTER_EXCEPTION(18);
+  REGISTER_PARANOID_EXCEPTION(18, 6);
   REGISTER_EXCEPTION(19);
   REGISTER_EXCEPTION(20);
   REGISTER_EXCEPTION(21);
@@ -1041,16 +1006,16 @@ init_dispatcher ()
   /*
    * Register the secure memory allocation and deallocation handlers.
    */
-  register_x86_interrupt (0x7b, trap123, 3);
-  register_x86_interrupt (0x7c, trap124, 3);
-  register_x86_interrupt (0x7d, trap125, 3);
-  register_x86_interrupt (0x7e, trap126, 3);
-  register_x86_interrupt (0x7f, trap127, 3);
-  register_hypercall     (0x7b, getThreadRID);
-  register_hypercall     (0x7c, getThreadSecret);
-  register_hypercall     (0x7d, installNewPushTarget);
-  register_hypercall     (0x7e, freeSecureMemory);
-  register_hypercall     (0x7f, (void(*)())allocSecureMemory);
+  register_x86_interrupt(0x7b, trap123, 3, 3);
+  register_x86_interrupt(0x7c, trap124, 3, 3);
+  register_x86_interrupt(0x7d, trap125, 3, 3);
+  register_x86_interrupt(0x7e, trap126, 3, 3);
+  register_x86_interrupt(0x7f, trap127, 3, 3);
+  register_hypercall(0x7b, getThreadRID);
+  register_hypercall(0x7c, getThreadSecret);
+  register_hypercall(0x7d, installNewPushTarget);
+  register_hypercall(0x7e, freeSecureMemory);
+  register_hypercall(0x7f, (void(*)())allocSecureMemory);
 
   /*
    * Set up the syscall handler.
