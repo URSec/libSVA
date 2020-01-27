@@ -35,9 +35,13 @@
 #define sva_state_exception     (28)
 #define sva_safemem_exception   (27)
 
+extern bool trap_pfault_ghost(unsigned int vector, void* fault_addr);
+
 extern void (*interrupt_table[256])();
 
-
+bool (*sva_interrupt_table[256])() = {
+  [14] = trap_pfault_ghost,
+};
 
 /*
  * Default LLVA interrupt, exception, and system call handlers.

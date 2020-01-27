@@ -840,11 +840,14 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
   SVA_PROF_EXIT(ghost_fault);
 }
 
-void
-trap_pfault_ghost(unsigned __attribute__((unused)) trapno, void * trapAddr) {
-  struct CPUState * cpup = getCPUState();
-  sva_icontext_t * p = cpup->newCurrentIC;
-  uintptr_t vaddr = PG_L1_DOWN(trapAddr);
-  sva_ghost_fault(vaddr, p->code); 
+bool trap_pfault_ghost(unsigned __attribute__((unused)) trapno, void* addr) {
+  if (isGhostVA((uintptr_t)addr)) {
+    sva_icontext_t* p = getCPUState()->newCurrentIC;
+    uintptr_t vaddr = PG_L1_DOWN(addr);
+    sva_ghost_fault(vaddr, p->code);
+    return true;
+  } else {
+    return false;
+  }
 }
 

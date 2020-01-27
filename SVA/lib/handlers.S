@@ -259,26 +259,36 @@ ENTRY(Trap)
   xorq %rcx, %rcx
 #endif
 
-  cache_part_switch os
+  /*
+   * Save the exception vector and fault address.
+   */
+  movq %rdi, %rbp
+  movq %rsi, %rbx
 
   /*
-   * If the trapno is page fault, check whether the faulting
-   * address falls within the region of ghost memory.
-   * Call the ghost memory page fault handler trap_pfault_ghost
-   * instead for ghost memory page faults.
+   * Call SVA's exception handler, if it exists.
    */
-  cmpl $14, %edi
-  jne .Lcall_handler
-  movq %rsi, %rax
-  shrq $32, %rax
-  cmp $0xfffffd00, %eax
-  jb .Lcall_handler
-  cmp $0xfffffd80, %eax
-  jae .Lcall_handler
-  CALLQ(trap_pfault_ghost)
-  jmp sva_iret
+  leaq sva_interrupt_table(%rip), %rax
+  movq (%rax, %rdi, 8), %rax
+  testq %rax, %rax
+  jz .Lcall_handler
+  CALLQ(*%rax)
+
+  /*
+   * If SVA handled the exception/interrupt itself, don't call the kernel.
+   */
+  testl %eax, %eax
+  jnz sva_iret
+
+  /*
+   * Restore the exception vector and fault address.
+   */
+  movq %rbp, %rdi
+  movq %rbx, %rsi
 
 .Lcall_handler:
+  cache_part_switch os
+
   /*
    * Call the trap handler registered by the OS for this trap.
    */
