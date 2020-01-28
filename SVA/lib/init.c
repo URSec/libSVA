@@ -112,18 +112,6 @@ extern void default_interrupt (unsigned int number, void * icontext);
 struct procMap svaProcMap[numProcessors];
 
 /*
- * Structure: interrupt_table
- *
- * Description:
- *  This is a table that contains the list of interrupt functions registered
- *  with the Execution Engine.  Whenever an interrupt occurs, one of these
- *  functions will be dispatched.
- *
- *  Note that we need one of these per processor.
- */
-extern void (*interrupt_table[257])();
-
-/*
  * Taken from FreeBSD: amd64/segments.h
  *
  * Gate descriptors (e.g. indirect descriptors, trap, interrupt etc. 128 bit)

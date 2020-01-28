@@ -39,7 +39,7 @@ extern bool trap_pfault_ghost(unsigned int vector, void* fault_addr);
 
 static bool pre_syscall();
 
-extern void (*interrupt_table[257])();
+void (*interrupt_table[257])();
 
 bool (*sva_interrupt_table[257])() = {
   [14] = trap_pfault_ghost,
