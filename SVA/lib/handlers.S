@@ -87,7 +87,7 @@ END(\name)
  ****************************************************************************/
 .data
 GLOBL(interrupt_table)
-    .rept 256
+    .rept 257
     .quad 0
     .endr
 
@@ -295,200 +295,8 @@ ENTRY(Trap)
   leaq interrupt_table(%rip), %rax
   CALLQ(*(%rax,%rdi,8))
 
-  jmp sva_iret
-END(Trap)
-
-/**
- * Syscall entry point.
- *
- * This function is called by the processor by the syscall instruction.  When
- * we enter, we are still running on the application's stack.
- *
- * We assume that the syscall instruction was executed in user-mode.  SVA
- * should ensure that syscall is never generated for kernel code and that the
- * kernel cannot jump to user-space code containing the syscall sequence.
- *
- * The SVA CFI checks should prevent the kernel from jumping to a syscall
- * instruction that exists in kernel code because it will violate the
- * assumption that we need to use swapgs to configure the %GS register.
- */
-ENTRY(SVAsyscall)
-  /* ENSURE that interrupts are disabled */
-  cli
-
-  /* We came from user mode.  First switch to the kernel %GS register. */
-  swapgs
-
-  cache_part_switch sva tls
-
-  /*
-   * Save the stack pointer (%rsp) and frame pointer (%rbp) of the application.
-   */
-  movq %rsp, %gs:TLS_SC_RSP
-  movq %rbp, %gs:TLS_SC_RBP
-
-  /*
-   * Save the application's %gs.base.
-   */
-  swapgs
-  rdgsbase %rbp
-  swapgs
-  movq %rbp, %gs:TLS_SC_GSBASE
-
-  /*
-   * Get the location of the Interrupt Context within the current thread and
-   * make the stack pointer point to it.
-   */
-  movq %gs:TLS_CPUSTATE, %rbp
-  movq CPU_TSSP(%rbp), %rbp
-  movq TSS_IST3(%rbp), %rsp
-
-  /* Push the user-space stack segment */
-  pushq $SVA_USER_SS_64
-
-  /* Push the user-space stack pointer (%rsp) */
-  pushq %gs:TLS_SC_RSP
-
-  /* Push the user-space status flags */
-  pushq %r11
-
-  /* Push the user-space code segment */
-  pushq $SVA_USER_CS_64
-
-  /* Push the user-space program counter (%rip) */
-  pushq %rcx
-
-  /* Push the syscall trap number and a zero code */
-  pushq $0
-  movl $256, 4(%rsp)
-
-  /*
-   * Save a copy of the interrupt context into SVA memory.
-   */
-  pushq %gs:TLS_SC_RBP
-  pushq %r15
-  pushq %r14
-  pushq %r13
-  pushq %r12
-  pushq %r11
-  pushq %r10
-  pushq %r9
-  pushq %r8
-
-  pushq %rdx
-  pushq %rcx
-  pushq %rbx
-  pushq %rax
-
-  pushq %rsi
-  pushq %rdi
-
-  pushq %gs:TLS_SC_GSBASE
-  rdfsbase %rax
-  pushq %rax
-
-  /* Mark the Interrupt Context as valid */
-  pushq $1
-
-  /*
-   * Mark the interrupt context as valid.  Additionally, set the fork bit
-   * if this is the fork(), vfork(), rfork(), or pdfork() system calls.  The
-   * system call number will be in %rax and can have the following values
-   * (you can find these in syscalls.master) within the FreeBSD kernel source
-   * code):
-   *
-   *   2 - fork()
-   *  66 - vfork()
-   * 251 - rfork()
-   * 518 - pdfork()
-   */
-  movq $1, %r12
-  movq $3, %r13
-  cmpq $2, IC_RAX(%rsp)
-  cmoveq %r13, %r12
-  cmpq $66, IC_RAX(%rsp)
-  cmoveq %r13, %r12
-  cmpq $251, IC_RAX(%rsp)
-  cmoveq %r13, %r12
-  cmpq $518, IC_RAX(%rsp)
-  cmoveq %r13, %r12
-  movq %r12, IC_VALID(%rsp)
-
-#ifdef MPX
-  /* Reset the MPX bounds register for SFI checks */
-  movabsq $412316860416, %rax     # imm = 0x6000000000
-  movabsq $-412316860417, %rbx    # imm = 0xFFFFFF9FFFFFFFFF
-  bndmk (%rax,%rbx), %bnd0
-#endif
-
-  movq %gs:TLS_CPUSTATE, %rbp
-
-#ifdef SVA_DEBUG_CHECKS
-  /*
-   * Configure the process to trigger a floating point fault while in
-   * kernel mode.  This requires disabling the EM bit and enabling the MP and
-   * TS bits in CR0.
-   *
-   * Record that no floating point state is saved (it is saved lazily).
-   */
-  testq $1, CPU_FPUSED(%rbp)
-  jne 1f
-  movq %cr0, %rsi
-  andl $0xfffffffb, %esi
-  orq  $0x0a, %rsi
-  movq %rsi, %cr0
-  movq $0, CPU_FPUSED(%rbp)
-1:
-#endif
-
-  /*
-   * Save the address of the current interrupt context into this processor's
-   * CPU state.
-   */
-  movq %rsp, CPU_NEWIC(%rbp)
-
-  /*
-   * Modify the value in the Task State Segment (TSS) so that the next trap
-   * or interrupt on this processor saves state into the next interrupt
-   * context.
-   */
-  movq CPU_TSSP(%rbp), %rbx
-  movq %rsp, TSS_IST3(%rbx)
-
-  /*
-   * Switch to the kernel stack.  Since we always come from user space,
-   * switch to the kernel stack pointer specified by the kernel.
-   */
-  movq TSS_RSP0(%rbx), %rsp
-
-  /*
-   * Zero out live registers that could be spilled to the stack.  Without
-   * memory safety, we can't guarantee that they're safe.
-   *
-   * We can leave the FP/SSE registers alone.  A read or write of those
-   * registers will cause a floating point trap.  The SVA FP trap handler
-   * will lazily save the floating point state and load the missing floating
-   * point state.
-   */
-#ifdef VG
-  xorq %r15, %r15
-  xorq %r14, %r14
-  xorq %r13, %r13
-  xorq %r12, %r12
-  xorq %r11, %r11
-  xorq %r10, %r10
-  xorq %rdi, %rdi
-#endif
-
-  cache_part_switch os
-
-  /*
-   * Call the system software system call handler.
-   */
-  CALLQ(sva_syscall)
-
   /* Fall through */
-END(SVAsyscall)
+END(Trap)
 
 /**
  * Return from an interrupt/exception/syscall.
@@ -854,6 +662,67 @@ ENTRY(TrapParanoid)
 
   iretq
 END(TrapParanoid)
+
+/**
+ * Syscall entry point.
+ *
+ * This function is called by the processor by the syscall instruction.  When
+ * we enter, we are still running on the application's stack.
+ *
+ * We assume that the syscall instruction was executed in user-mode.  SVA
+ * should ensure that syscall is never generated for kernel code and that the
+ * kernel cannot jump to user-space code containing the syscall sequence.
+ *
+ * The SVA CFI checks should prevent the kernel from jumping to a syscall
+ * instruction that exists in kernel code because it will violate the
+ * assumption that we need to use swapgs to configure the %GS register.
+ */
+ENTRY(SVAsyscall)
+  /* ENSURE that interrupts are disabled */
+  cli
+
+  /* We came from user mode.  First switch to the kernel %GS register. */
+  swapgs
+
+  cache_part_switch sva tls
+
+  /*
+   * Save the stack pointer (%rsp) of the application.
+   */
+  movq %rsp, %gs:TLS_SC_RSP
+
+  /*
+   * Get the location of the Interrupt Context within the current thread and
+   * make the stack pointer point to it.
+   */
+  movq %gs:TLS_CPUSTATE, %rsp
+  movq CPU_TSSP(%rsp), %rsp
+  movq TSS_IST3(%rsp), %rsp
+
+  /* Push the user-space stack segment */
+  pushq $SVA_USER_SS_64
+
+  /* Push the user-space stack pointer (%rsp) */
+  pushq %gs:TLS_SC_RSP
+
+  /* Push the user-space status flags */
+  pushq %r11
+
+  /* Push the user-space code segment */
+  pushq $SVA_USER_CS_64
+
+  /* Push the user-space program counter (%rip) */
+  pushq %rcx
+
+  /* Push the syscall trap number and a zero code */
+  pushq $0
+  movl $256, 4(%rsp)
+
+  /* `Trap` expects that we are still on the user `%gs.base` */
+  swapgs
+
+  jmp Trap
+END(SVAsyscall)
 
 /* Define the trap handlers */
 TRAP 0

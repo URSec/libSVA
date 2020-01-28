@@ -37,10 +37,13 @@
 
 extern bool trap_pfault_ghost(unsigned int vector, void* fault_addr);
 
-extern void (*interrupt_table[256])();
+static bool pre_syscall();
 
-bool (*sva_interrupt_table[256])() = {
+extern void (*interrupt_table[257])();
+
+bool (*sva_interrupt_table[257])() = {
   [14] = trap_pfault_ghost,
+  [256] = pre_syscall,
 };
 
 /*
@@ -54,6 +57,23 @@ default_interrupt (unsigned int number, uintptr_t address) {
   __asm__ __volatile__ ("hlt");
 #endif
   return;
+}
+
+bool pre_syscall(void) {
+#ifdef FreeBSD
+  /*
+   * Set the "can fork" flag if this is a fork syscall.
+   *   2 - fork()
+   *  66 - vfork()
+   * 251 - rfork()
+   * 518 - pdfork()
+   */
+  sva_icontext_t* ic = getCPUState()->newCurrentIC;
+  int syscall_number = ic->rax;
+  ic->can_fork = syscall_number == 2 || syscall_number == 66 ||
+                 syscall_number == 251 || syscall_number == 518;
+#endif
+  return false;
 }
 
 void

@@ -121,7 +121,7 @@ struct procMap svaProcMap[numProcessors];
  *
  *  Note that we need one of these per processor.
  */
-extern void (*interrupt_table[256])();
+extern void (*interrupt_table[257])();
 
 /*
  * Taken from FreeBSD: amd64/segments.h
@@ -333,13 +333,14 @@ init_procID (void) {
  */
 static void
 init_interrupt_table (unsigned int procID) {
+  extern void sva_syscall(void);
+
   (void)procID;
 
   for (int index = 0; index < 256; index++) {
     interrupt_table[index] = default_interrupt;
   }
-
-  return;
+  interrupt_table[256] = sva_syscall;
 }
 
 /*
