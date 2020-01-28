@@ -87,18 +87,6 @@ END(\name)
  ****************************************************************************/
 .text
 
-.global secmemtrap
-.type secmemtrap, @function
-
-.global secfreetrap
-.type secfreetrap, @function
-
-.global sva_syscall
-.type sva_syscall, @function
-
-.global trap_pfault_ghost
-.type trap_pfault_ghost, @function
-
 /**
  * This function just generates a fault, allowing us to catch traps which SVA
  * isn't fielding.
