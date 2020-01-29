@@ -107,7 +107,7 @@ bool sva_load_segment(enum sva_segment_register reg, uintptr_t val) {
 
   uint64_t rflags = sva_enter_critical();
 
-  bool success = load_segment(reg, val);
+  bool success = load_segment(reg, val, false);
 
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();

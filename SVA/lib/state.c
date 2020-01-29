@@ -574,7 +574,9 @@ flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
 #endif
 }
 
-bool load_segment(enum sva_segment_register reg, uintptr_t val) {
+bool load_segment(enum sva_segment_register reg, uintptr_t val,
+                  bool preserve_base)
+{
   struct CPUState* st = getCPUState();
 
 #define load_seg(seg) ({                                                      \
@@ -640,7 +642,7 @@ bool load_segment(enum sva_segment_register reg, uintptr_t val) {
     uintptr_t current_fs_base = rdfsbase();
 
     bool success = load_seg(fs);
-    if (success) {
+    if (success && !preserve_base) {
       st->newCurrentIC->fsbase = rdfsbase();
     }
 
@@ -651,7 +653,7 @@ bool load_segment(enum sva_segment_register reg, uintptr_t val) {
     uintptr_t current_gs_base = rdgsbase();
 
     bool success = load_seg(gs);
-    if (success) {
+    if (success && !preserve_base) {
       st->newCurrentIC->gsbase = rdgsbase();
     }
 
@@ -704,16 +706,16 @@ static bool load_user_segments(sva_integer_state_t* state) {
   bool success = true;
 
   if (state->ds != 0) {
-    success &= load_segment(SVA_SEG_DS, state->ds);
+    success &= load_segment(SVA_SEG_DS, state->ds, true);
   }
   if (state->es != 0) {
-    success &= load_segment(SVA_SEG_ES, state->es);
+    success &= load_segment(SVA_SEG_ES, state->es, true);
   }
   if (state->fs != 0) {
-    success &= load_segment(SVA_SEG_FS, state->fs);
+    success &= load_segment(SVA_SEG_FS, state->fs, true);
   }
   if (state->gs != 0) {
-    success &= load_segment(SVA_SEG_GS, state->gs);
+    success &= load_segment(SVA_SEG_GS, state->gs, true);
   }
 
   return success;
@@ -1474,10 +1476,10 @@ void sva_reinit_icontext(void* handle, bool priv, uintptr_t stackp,
     ep->cs = SVA_USER_CS_64;
     ep->ss = SVA_USER_SS_64;
     ep->rflags = (rflags & 0xfffu);
-    load_segment(SVA_SEG_DS, SVA_USER_DS_64);
-    load_segment(SVA_SEG_ES, SVA_USER_ES_64);
-    load_segment(SVA_SEG_FS, SVA_USER_FS_64);
-    load_segment(SVA_SEG_GS, SVA_USER_GS_64);
+    load_segment(SVA_SEG_DS, SVA_USER_DS_64, false);
+    load_segment(SVA_SEG_ES, SVA_USER_ES_64, false);
+    load_segment(SVA_SEG_FS, SVA_USER_FS_64, false);
+    load_segment(SVA_SEG_GS, SVA_USER_GS_64, false);
   }
 
   /*

@@ -372,10 +372,13 @@ extern void ghostmemCOW(struct SVAThread* oldThread,
 /**
  * Load a segment register or %fs/%gs base.
  *
- * @param reg The segment register to load
- * @param val The value to load into the segment register
- * @return    Whether or not the value was successfully loaded
+ * @param reg           The segment register to load
+ * @param val           The value to load into the segment register
+ * @param preserve_base Whether to preserve the `%fs`/`%gs` segment base when
+ *                      loading the selector
+ * @return              Whether or not the value was successfully loaded
  */
-bool load_segment(enum sva_segment_register reg, uintptr_t val);
+bool load_segment(enum sva_segment_register reg, uintptr_t val,
+                  bool preserve_base);
 
 #endif /* SVA_ICONTEXT_H */
