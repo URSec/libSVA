@@ -127,7 +127,7 @@ static inline bool isCanonical(uintptr_t vaddr) {
 void initDeclaredPage(uintptr_t frame);
 
 /**
- * Write a page table entry into a page table.
+ * Atomically write a page table entry into a page table.
  *
  * Logically, this simply does `*page_entry = newVal`, but with additional logic
  * to ensure that it can safely write to the page table.
@@ -138,8 +138,9 @@ void initDeclaredPage(uintptr_t frame);
  *
  * @param page_entry  The page table entry to update
  * @param newVal      The new page table entry to store to `page_entry`
+ * @return            The original value of the page table entry
  */
-void page_entry_store(page_entry_t* page_entry, page_entry_t newVal);
+page_entry_t page_entry_store(page_entry_t* page_entry, page_entry_t newVal);
 
 /**
  * Perform a page table entry update with validity checks.

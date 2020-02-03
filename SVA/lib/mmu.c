@@ -120,28 +120,25 @@ frame_type_t frame_type_from_pte(page_entry_t pte, frame_type_t pt_type) {
   }
 }
 
-void page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
+page_entry_t page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
   SVA_PROF_ENTER();
 
 #ifdef SVA_DMAP
-  uintptr_t ptePA = getPhysicalAddr(page_entry);
-  page_entry_t* page_entry_svadm = (page_entry_t*)getVirtual(ptePA);
+  page_entry = (page_entry_t*)getVirtual(getPhysicalAddr(page_entry));
+#endif
 
-  /* Write the new value to the page_entry */
-  *page_entry_svadm = newVal;
-
-#else
   /* Disable page protection so we can write to the referencing table entry */
   unprotect_paging();
 
   /* Write the new value to the page_entry */
-  *page_entry = newVal;
+  page_entry_t oldVal =
+    __atomic_exchange_n(page_entry, newVal, __ATOMIC_RELEASE);
 
   /* Reenable page protection */
   protect_paging();
-#endif
 
   SVA_PROF_EXIT(page_entry_store);
+  return oldVal;
 }
 
 /**
@@ -315,11 +312,8 @@ updateOrigPageData(page_entry_t mapping, frame_type_t type, size_t count) {
 static inline void do_mmu_update(page_entry_t* pte, page_entry_t new_pte) {
   frame_desc_t* ptePG = get_frame_desc(getPhysicalAddr(pte));
 
-  bool oldIsLeaf = isLeafEntry(*pte, ptePG->type);
   bool newIsLeaf = isLeafEntry(new_pte, ptePG->type);
-  size_t oldCount = oldIsLeaf ? getMappedSize(ptePG->type) / FRAME_SIZE : 1;
   size_t newCount = newIsLeaf ? getMappedSize(ptePG->type) / FRAME_SIZE : 1;
-  frame_type_t oldType = frame_type_from_pte(*pte, ptePG->type);
   frame_type_t newType = frame_type_from_pte(new_pte, ptePG->type);
 
   /*
@@ -328,11 +322,16 @@ static inline void do_mmu_update(page_entry_t* pte, page_entry_t new_pte) {
    * that we have passed the validation checks so these updates have been
    * vetted.
    */
-  updateOrigPageData(*pte, oldType, oldCount);
   updateNewPageData(new_pte, newType, newCount);
 
   /* Perform the actual write to into the page table entry. */
-  page_entry_store(pte, new_pte);
+  page_entry_t orig_pte = page_entry_store(pte, new_pte);
+
+  bool oldIsLeaf = isLeafEntry(orig_pte, ptePG->type);
+  size_t oldCount = oldIsLeaf ? getMappedSize(ptePG->type) / FRAME_SIZE : 1;
+  frame_type_t oldType = frame_type_from_pte(orig_pte, ptePG->type);
+
+  updateOrigPageData(orig_pte, oldType, oldCount);
 }
 
 void update_mapping(page_entry_t* pte, page_entry_t new_pte) {
