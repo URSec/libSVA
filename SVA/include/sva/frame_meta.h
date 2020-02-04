@@ -135,6 +135,8 @@ void frame_take(frame_desc_t* frame, frame_type_t type);
  * It is critical that the caller will clean up any mappings which are illegal
  * for the frame's new type.
  *
+ * NB: This function is not thread-safe; use during init only.
+ *
  * @param frame The frame to which the caller is taking a reference
  * @param type  The frame type as which the caller wants to use `frame`
  */
@@ -155,6 +157,8 @@ void frame_drop(frame_desc_t* frame, frame_type_t type);
  *
  * When a frame has its type changed by `frame_take_force`, this should be used
  * to drop any remaining unsafe references.
+ *
+ * NB: This function is not thread-safe; use during init only.
  *
  * @param frame The frame to which the caller is dropping a reference
  */

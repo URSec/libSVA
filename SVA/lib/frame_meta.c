@@ -142,17 +142,31 @@ frame_desc_t* get_frame_desc(unsigned long mapping) {
   return frameIndex < ARRAY_SIZE(frame_desc) ? &frame_desc[frameIndex] : NULL;
 }
 
-void frame_morph(frame_desc_t* frame, frame_type_t type) {
-  if (frame->type == PGT_FREE) {
+typedef frame_desc_t (*update_fn)(frame_desc_t, size_t, uintptr_t);
+
+static void frame_update(frame_desc_t* frame, update_fn update, uintptr_t arg) {
+  frame_desc_t old, new;
+  __atomic_load(frame, &old, __ATOMIC_ACQUIRE);
+  do {
+    new = update(old, frame - frame_desc, arg);
+  } while (!__atomic_compare_exchange(
+              frame, &old, &new, true, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE));
+}
+
+static frame_desc_t
+frame_morph_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
+  frame_type_t type = type_;
+
+  if (frame.type == PGT_FREE) {
     /*
      * A free frame can become any other type, with the exception that it must
      * have 0 total reference count to be used for secure memory.
      */
     if (frame_type_is_secmem(type)) {
-      SVA_ASSERT(frame->ref_count == 0,
+      SVA_ASSERT(frame.ref_count == 0,
         "SVA: FATAL: Attempt to use frame 0x%lx as secure memory, "
         "but there are still %d references to it\n",
-        frame - frame_desc, frame->ref_count);
+        idx, frame.ref_count);
     }
   } else {
     /*
@@ -163,45 +177,60 @@ void frame_morph(frame_desc_t* frame, frame_type_t type) {
     SVA_ASSERT(type == PGT_FREE,
       "SVA: FATAL: Frame 0x%lx must first be free (currently %s) "
       "to become non-free type %s\n",
-      frame - frame_desc, frame_type_name(frame->type), frame_type_name(type));
+      idx, frame_type_name(frame.type), frame_type_name(type));
 
     /*
      * A frame must have 0 type count to become free. If the type count is not
      * 0, it means there are still uses of the frame that force it's current
      * type, and making the frame free is unsafe.
      */
-    SVA_ASSERT(frame->type_count == 0,
+    SVA_ASSERT(frame.type_count == 0,
       "SVA: FATAL: Attempt to free frame 0x%lx with %d uses as type %s\n",
-      frame - frame_desc, frame->type_count, frame_type_name(frame->type));
+      idx, frame.type_count, frame_type_name(frame.type));
 
     /*
      * A few frame types are never allowed to be changed.
      */
-    switch (frame->type) {
+    switch (frame.type) {
     /*
      * Unusable frames are unusable; they can never become anything else.
      */
     case PGT_UNUSABLE:
       SVA_ASSERT_UNREACHABLE("SVA: FATAL: Attempt to free frame 0x%lx "
         "with unfreeable type %s\n",
-        frame - frame_desc, frame_type_name(frame->type));
+        idx, frame_type_name(frame.type));
     default:
       break;
     }
   }
 
-  frame->type = type;
+  frame.type = type;
+
+  return frame;
+}
+
+void frame_morph(frame_desc_t* frame, frame_type_t type) {
+  frame_update(frame, frame_morph_inner, type);
+}
+
+static frame_desc_t
+frame_take_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
+  frame_type_t type = type_;
+
+  SVA_ASSERT(frame_types_compatible(frame.type, type),
+    "SVA: FATAL: Invalid use of frame 0x%lx (with type %s) as type %s\n",
+    idx, frame_type_name(frame.type), frame_type_name(type));
+
+  frame_ref_inc(&frame);
+  if (type != PGT_FREE) {
+    frame_tref_inc(&frame);
+  }
+
+  return frame;
 }
 
 void frame_take(frame_desc_t* frame, frame_type_t type) {
-  SVA_ASSERT(frame_types_compatible(frame->type, type),
-    "SVA: FATAL: Invalid use of frame 0x%lx (with type %s) as type %s\n",
-    frame - frame_desc, frame_type_name(frame->type), frame_type_name(type));
-
-  frame_ref_inc(frame);
-  if (type != PGT_FREE) {
-    frame_tref_inc(frame);
-  }
+  frame_update(frame, frame_take_inner, type);
 }
 
 void frame_take_force(frame_desc_t* frame, frame_type_t type) {
@@ -222,19 +251,28 @@ void frame_take_force(frame_desc_t* frame, frame_type_t type) {
   }
 }
 
-void frame_drop(frame_desc_t* frame, frame_type_t type) {
-  SVA_ASSERT(frame_types_compatible(frame->type, type),
+static frame_desc_t
+frame_drop_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
+  frame_type_t type = type_;
+
+  SVA_ASSERT(frame_types_compatible(frame.type, type),
     "SVA: Internal error: dropping frame 0x%lx (with type %s) as type %s\n",
-    frame - frame_desc, frame_type_name(frame->type), frame_type_name(type));
+    idx, frame_type_name(frame.type), frame_type_name(type));
 
   /*
    * Decrement the type count *before* the reference count to avoid the type
    * count temporarily being higher than the reference count.
    */
   if (type != PGT_FREE) {
-    frame_tref_dec(frame);
+    frame_tref_dec(&frame);
   }
-  frame_ref_dec(frame);
+  frame_ref_dec(&frame);
+
+  return frame;
+}
+
+void frame_drop(frame_desc_t* frame, frame_type_t type) {
+  frame_update(frame, frame_drop_inner, type);
 }
 
 void frame_drop_force(frame_desc_t* frame) {
