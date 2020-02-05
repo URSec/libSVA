@@ -1524,11 +1524,19 @@ void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: %s page table frame at %p doesn't exist\n",
     frame_type_name(level), pte);
-  SVA_ASSERT(disableMMUChecks || ptDesc->type == level,
-    "SVA: FATAL: Attempt update %s entry at %p, but frame type is %s\n",
-    frame_type_name(level), pte, frame_type_name(ptDesc->type));
+
+  /*
+   * Take a temporary reference to the frame to prevent it from changing types
+   * out from under us.
+   */
+  frame_take(ptDesc, level);
 
   update_mapping(pte, new_pte);
+
+  /*
+   * Drop the temporary reference.
+   */
+  frame_drop(ptDesc, level);
 
   /* Restore interrupts */
   sva_exit_critical(rflags);
