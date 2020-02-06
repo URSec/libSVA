@@ -142,8 +142,30 @@ frame_desc_t* get_frame_desc(unsigned long mapping) {
   return frameIndex < ARRAY_SIZE(frame_desc) ? &frame_desc[frameIndex] : NULL;
 }
 
+/**
+ * Frame update callback.
+ *
+ * The callback is passed the current value of the frame metadata, the frame's
+ * index, and an additional argument whose interpretation is specific to the
+ * callback. It is expected to return the new frame metadata.
+ */
 typedef frame_desc_t (*update_fn)(frame_desc_t, size_t, uintptr_t);
 
+/**
+ * Atomically update frame metadata.
+ *
+ * This function will atomically load the current frame metadata, apply the
+ * specified update to it, and then attempt to store it via compare-and-swap.
+ * If the attempt to store the updated metadata fails, the update process is
+ * attempted again until it succeedes.
+ *
+ * Additionally, if the frame is currently locked and the update does not
+ * unlock the frame, the update is not performed until the frame is unlocked.
+ *
+ * @param frame     The frame to update
+ * @param update_fn The update operation to perform
+ * @param arg       An argument to pass to `update_fn`
+ */
 static void frame_update(frame_desc_t* frame, update_fn update, uintptr_t arg) {
   frame_desc_t old, new;
   __atomic_load(frame, &old, __ATOMIC_ACQUIRE);
