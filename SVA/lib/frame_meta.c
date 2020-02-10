@@ -235,8 +235,17 @@ void frame_morph(frame_desc_t* frame, frame_type_t type) {
   frame_update(frame, frame_morph_inner, type);
 }
 
-void frame_lock(frame_desc_t* frame) {
-  frame_morph(frame, PGT_LOCKED);
+static frame_desc_t
+frame_lock_inner(frame_desc_t frame, size_t idx, uintptr_t old_type_) {
+  frame_type_t* old_type = (frame_type_t*)old_type_;
+  *old_type = frame.type;
+  return frame_morph_inner(frame, idx, PGT_LOCKED);
+}
+
+frame_type_t frame_lock(frame_desc_t* frame) {
+  frame_type_t old_type;
+  frame_update(frame, frame_lock_inner, (uintptr_t)&old_type);
+  return old_type;
 }
 
 static frame_desc_t

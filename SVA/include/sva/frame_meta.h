@@ -125,8 +125,9 @@ void frame_morph(frame_desc_t* frame, frame_type_t type);
  * A locked frame cannot have its type changed except by `frame_unlock`.
  *
  * @param frame The frame to lock
+ * @return      The frame's previous type
  */
-void frame_lock(frame_desc_t* frame);
+frame_type_t frame_lock(frame_desc_t* frame);
 
 /**
  * Unlock a frame and change its type to the one specified.
