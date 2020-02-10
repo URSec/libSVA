@@ -1309,16 +1309,9 @@ void sva_declare_page(uintptr_t frame, frame_type_t level) {
     frame / FRAME_SIZE, frame_type_name(level));
 
   /*
-   * Mark this page frame as a page table.
+   * Lock this frame to prevent modifications to it while we are validating it.
    */
-  frame_morph(pgDesc, level);
-
-#if 0
-  /*
-   * Reset the virtual address which can point to this page table page.
-   */
-  pgDesc->pgVaddr = 0;
-#endif
+  frame_lock(pgDesc);
 
   /*
    * Initialize the new page table.
@@ -1329,6 +1322,11 @@ void sva_declare_page(uintptr_t frame, frame_type_t level) {
    * Validate any existing entries in the new page table.
    */
   validate_existing_entries(frame, level);
+
+  /*
+   * Unlock the frame and mark it as a page table.
+   */
+  frame_unlock(pgDesc, level);
 
   /* Restore interrupts */
   sva_exit_critical(rflags);
@@ -1398,13 +1396,20 @@ void sva_remove_page(uintptr_t paddr) {
     "SVA: FATAL: Frame being removed doesn't exist\n");
 
   /*
+   * Mark the page frame as an unused page.  Note that this will also check
+   * that there are no references to this page (i.e., there is no page table
+   * entry that refers to this physical page frame).
+   */
+  frame_type_t old_type = frame_lock(pgDesc);
+
+  /*
    * Make sure that this is a page table page. We don't want the system
    * software to trick us.
    *
    * Also take the opportunity to determine whether the PTP being undeclared
    * is an extended page table.
    */
-  switch (pgDesc->type) {
+  switch (old_type) {
     case PGT_L1:
     case PGT_L2:
     case PGT_L3:
@@ -1422,7 +1427,7 @@ void sva_remove_page(uintptr_t paddr) {
     default:
       SVA_ASSERT_UNREACHABLE(
         "SVA: FATAL: undeclare bad page type: %lx %s\n",
-        paddr, frame_type_name(pgDesc->type));
+        paddr, frame_type_name(old_type));
   }
 
   /*
@@ -1451,9 +1456,9 @@ void sva_remove_page(uintptr_t paddr) {
 #endif
         ptp_vaddr[i] = ZERO_MAPPING;
       } else {
-        bool isLeaf = isLeafEntry(ptp_vaddr[i], pgDesc->type);
-        size_t count = isLeaf ? getMappedSize(pgDesc->type) / FRAME_SIZE : 1;
-        frame_type_t ty = frame_type_from_pte(ptp_vaddr[i], pgDesc->type);
+        bool isLeaf = isLeafEntry(ptp_vaddr[i], old_type);
+        size_t count = isLeaf ? getMappedSize(old_type) / FRAME_SIZE : 1;
+        frame_type_t ty = frame_type_from_pte(ptp_vaddr[i], old_type);
         /*
          * NB: We don't want to actually change the data in the page table, as
          * the kernel may be relying on being able to access it for its own
@@ -1466,12 +1471,7 @@ void sva_remove_page(uintptr_t paddr) {
     }
   }
 
-  /*
-   * Mark the page frame as an unused page.  Note that this will also check
-   * that there are no references to this page (i.e., there is no page table
-   * entry that refers to this physical page frame).
-   */
-  frame_morph(pgDesc, PGT_FREE);
+  frame_unlock(pgDesc, PGT_FREE);
 
   /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
