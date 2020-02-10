@@ -34,6 +34,7 @@
  */
 typedef enum frame_type_t {
   PGT_FREE,     ///< Frame is not currently used as any type.
+  PGT_LOCKED,   ///< Frame is currently locked.
   PGT_UNUSABLE, ///< Frame is not present or is reserved by firmware.
   PGT_DATA,     ///< Frame is used as writable data.
   PGT_SVA,      ///< Frame is used internally by SVA.
@@ -117,6 +118,23 @@ frame_desc_t* get_frame_desc(unsigned long mapping);
  * @param type  The new type to which to change `frame`
  */
 void frame_morph(frame_desc_t* frame, frame_type_t type);
+
+/**
+ * Lock a frame.
+ *
+ * A locked frame cannot have its type changed except by `frame_unlock`.
+ *
+ * @param frame The frame to lock
+ */
+void frame_lock(frame_desc_t* frame);
+
+/**
+ * Unlock a frame and change its type to the one specified.
+ *
+ * @param frame The frame to unlock
+ * @param type  The new type for the frame
+ */
+void frame_unlock(frame_desc_t* frame, frame_type_t type);
 
 /**
  * Take a reference to a frame with the specified type.

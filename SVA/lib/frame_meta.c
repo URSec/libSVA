@@ -196,7 +196,7 @@ frame_morph_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
      * This restriction probably isn't strictly necessary, but there's no reason
      * to add extra complexity by lifting it.
      */
-    SVA_ASSERT(type == PGT_FREE,
+    SVA_ASSERT(type == PGT_FREE || type == PGT_LOCKED,
       "SVA: FATAL: Frame 0x%lx must first be free (currently %s) "
       "to become non-free type %s\n",
       idx, frame_type_name(frame.type), frame_type_name(type));
@@ -235,9 +235,32 @@ void frame_morph(frame_desc_t* frame, frame_type_t type) {
   frame_update(frame, frame_morph_inner, type);
 }
 
+void frame_lock(frame_desc_t* frame) {
+  frame_morph(frame, PGT_LOCKED);
+}
+
+static frame_desc_t
+frame_unlock_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
+  SVA_ASSERT(frame.type == PGT_LOCKED,
+    "SVA: Internel error: Attempt to unlock frame 0x%lx, "
+    "but it is not currently locked.\n", idx);
+
+  frame.type = PGT_FREE;
+  return frame_morph_inner(frame, idx, type_);
+}
+
+void frame_unlock(frame_desc_t* frame, frame_type_t type) {
+  frame_update(frame, frame_unlock_inner, type);
+}
+
 static frame_desc_t
 frame_take_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
   frame_type_t type = type_;
+
+#ifdef SVA_DEBUG_CHECKS
+  SVA_ASSERT(type != PGT_LOCKED,
+    "SVA: Internal error: Attempt to take frame 0x%lx as locked type.\n", idx);
+#endif
 
   SVA_ASSERT(frame_types_compatible(frame.type, type),
     "SVA: FATAL: Invalid use of frame 0x%lx (with type %s) as type %s\n",
@@ -276,6 +299,11 @@ void frame_take_force(frame_desc_t* frame, frame_type_t type) {
 static frame_desc_t
 frame_drop_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
   frame_type_t type = type_;
+
+#ifdef SVA_DEBUG_CHECKS
+  SVA_ASSERT(type != PGT_LOCKED,
+    "SVA: Internal error: Attempt to take frame 0x%lx as locked type.\n", idx);
+#endif
 
   SVA_ASSERT(frame_types_compatible(frame.type, type),
     "SVA: Internal error: dropping frame 0x%lx (with type %s) as type %s\n",
