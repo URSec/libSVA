@@ -112,6 +112,14 @@ extern frame_desc_t frame_desc[memSize / FRAME_SIZE];
 frame_desc_t* get_frame_desc(unsigned long mapping);
 
 /**
+ * Get the current type of a frame.
+ *
+ * @param frame A frame descriptor
+ * @return      The current type of `frame`
+ */
+frame_type_t frame_get_type(const frame_desc_t* frame);
+
+/**
  * Change the type of a frame after performing validity checks.
  *
  * @param frame The frame to change to a new type

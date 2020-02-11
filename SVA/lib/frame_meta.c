@@ -142,6 +142,12 @@ frame_desc_t* get_frame_desc(unsigned long mapping) {
   return frameIndex < ARRAY_SIZE(frame_desc) ? &frame_desc[frameIndex] : NULL;
 }
 
+frame_type_t frame_get_type(const frame_desc_t* frame) {
+  frame_desc_t desc;
+  __atomic_load(frame, &desc, __ATOMIC_ACQUIRE);
+  return desc.type;
+}
+
 /**
  * Frame update callback.
  *

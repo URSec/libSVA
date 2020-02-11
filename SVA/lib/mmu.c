@@ -244,7 +244,7 @@ updateNewPageData(page_entry_t mapping, frame_type_t type, size_t count) {
       }
 #endif
 
-      if (type == PGT_DATA && newPG->type == PGT_FREE) {
+      if (type == PGT_DATA && frame_get_type(newPG) == PGT_FREE) {
         /*
          * The frame is currently free, but we need to use it as data. Make the
          * frame a data frame.
@@ -312,9 +312,10 @@ updateOrigPageData(page_entry_t mapping, frame_type_t type, size_t count) {
 static inline void do_mmu_update(page_entry_t* pte, page_entry_t new_pte) {
   frame_desc_t* ptePG = get_frame_desc(getPhysicalAddr(pte));
 
-  bool newIsLeaf = isLeafEntry(new_pte, ptePG->type);
-  size_t newCount = newIsLeaf ? getMappedSize(ptePG->type) / FRAME_SIZE : 1;
-  frame_type_t newType = frame_type_from_pte(new_pte, ptePG->type);
+  frame_type_t pt_type = frame_get_type(ptePG);
+  bool newIsLeaf = isLeafEntry(new_pte, pt_type);
+  size_t newCount = newIsLeaf ? getMappedSize(pt_type) / FRAME_SIZE : 1;
+  frame_type_t newType = frame_type_from_pte(new_pte, pt_type);
 
   /*
    * If we have a new mapping as opposed to just changing the flags of an
@@ -327,9 +328,9 @@ static inline void do_mmu_update(page_entry_t* pte, page_entry_t new_pte) {
   /* Perform the actual write to into the page table entry. */
   page_entry_t orig_pte = page_entry_store(pte, new_pte);
 
-  bool oldIsLeaf = isLeafEntry(orig_pte, ptePG->type);
-  size_t oldCount = oldIsLeaf ? getMappedSize(ptePG->type) / FRAME_SIZE : 1;
-  frame_type_t oldType = frame_type_from_pte(orig_pte, ptePG->type);
+  bool oldIsLeaf = isLeafEntry(orig_pte, pt_type);
+  size_t oldCount = oldIsLeaf ? getMappedSize(pt_type) / FRAME_SIZE : 1;
+  frame_type_t oldType = frame_type_from_pte(orig_pte, pt_type);
 
   updateOrigPageData(orig_pte, oldType, oldCount);
 }
@@ -1442,9 +1443,10 @@ void sva_remove_page(uintptr_t paddr) {
     if (isPresent_maybeEPT(ptp_vaddr[i], isEPT)) {
       /* Remove the mapping */
       frame_desc_t *mappedPg = get_frame_desc(ptp_vaddr[i]);
-      if (isGhostPTP(mappedPg)) {
+      frame_type_t mapped_ty = frame_get_type(mappedPg);
+      if (mapped_ty >= PGT_SML1 && mapped_ty <= PGT_SML3) {
 #ifdef XEN
-        updateOrigPageData(ptp_vaddr[i], mappedPg->type, 1);
+        updateOrigPageData(ptp_vaddr[i], mapped_ty, 1);
 #else
         /*
          * The method of removal for ghost PTP mappings is slightly
@@ -1595,7 +1597,7 @@ static void protect_code_page(uintptr_t vaddr, page_entry_t perms) {
   frame_desc_t* pgDesc = get_frame_desc(*leaf_entry);
   SVA_ASSERT(pgDesc != NULL,
     "SVA: FATAL: Page table entry maps invalid frame\n");
-  SVA_ASSERT(pgDesc->type = PGT_CODE,
+  SVA_ASSERT(frame_get_type(pgDesc) == PGT_CODE,
     "SVA: FATAL: Changing permissons on non-code page 0x%016lx\n", vaddr);
 
   *leaf_entry &= ~(PG_P | PG_W | PG_NX) | perms;
