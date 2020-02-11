@@ -1456,7 +1456,7 @@ void sva_remove_page(uintptr_t paddr) {
         unsigned int ptindex = releaseUse(&ptp_vaddr[i]);
         freePTPage(ptindex);
 #endif
-        ptp_vaddr[i] = ZERO_MAPPING;
+        __atomic_store_n(&ptp_vaddr[i], ZERO_MAPPING, __ATOMIC_RELEASE);
       } else {
         bool isLeaf = isLeafEntry(ptp_vaddr[i], old_type);
         size_t count = isLeaf ? getMappedSize(old_type) / FRAME_SIZE : 1;
