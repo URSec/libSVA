@@ -284,8 +284,8 @@ updateOrigPageData(page_entry_t mapping, frame_type_t type, size_t count) {
       SVA_ASSERT(origPG != NULL,
         "SVA: FATAL: Attempted to create mapping to non-existant frame\n");
 
-      frame_drop(origPG, type);
-      if (origPG->type == PGT_DATA && origPG->type_count == 0) {
+      struct refcount_pair counts = frame_drop(origPG, type);
+      if (type == PGT_DATA && counts.type_count == 1) {
         /*
          * This was a data frame, and its type count is now 0. Make it a free
          * frame.
@@ -979,13 +979,13 @@ uintptr_t unmapSecurePage(struct SVAThread* threadp, uintptr_t vaddr) {
    */
   sva_mm_flush_tlb_at((const void*)vaddr);
 
-  frame_drop(pageDesc, PGT_GHOST);
+  struct refcount_pair counts = frame_drop(pageDesc, PGT_GHOST);
 
   /*
    * If we have removed the last ghost mapping to this frame, mark the frame as
    * free.
    */
-  if (pageDesc->type_count == 0) {
+  if (counts.type_count == 1) {
     frame_morph(pageDesc, PGT_FREE);
   }
 

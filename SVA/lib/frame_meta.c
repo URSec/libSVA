@@ -262,9 +262,16 @@ void frame_unlock(frame_desc_t* frame, frame_type_t type) {
   frame_update(frame, frame_unlock_inner, type);
 }
 
+struct take_drop_args {
+  struct refcount_pair* old_refcounts;
+  frame_type_t type;
+};
+
 static frame_desc_t
-frame_take_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
-  frame_type_t type = type_;
+frame_take_inner(frame_desc_t frame, size_t idx, uintptr_t args_) {
+  struct take_drop_args* args = (struct take_drop_args*)args_;
+
+  frame_type_t type = args->type;
 
 #ifdef SVA_DEBUG_CHECKS
   SVA_ASSERT(type != PGT_LOCKED,
@@ -275,6 +282,9 @@ frame_take_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
     "SVA: FATAL: Invalid use of frame 0x%lx (with type %s) as type %s\n",
     idx, frame_type_name(frame.type), frame_type_name(type));
 
+  args->old_refcounts->ref_count = frame.ref_count;
+  args->old_refcounts->type_count = frame.type_count;
+
   frame_ref_inc(&frame);
   if (type != PGT_FREE) {
     frame_tref_inc(&frame);
@@ -283,8 +293,13 @@ frame_take_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
   return frame;
 }
 
-void frame_take(frame_desc_t* frame, frame_type_t type) {
-  frame_update(frame, frame_take_inner, type);
+struct refcount_pair frame_take(frame_desc_t* frame, frame_type_t type) {
+  struct refcount_pair old_refcounts;
+
+  frame_update(frame, frame_take_inner,
+               (uintptr_t)&(struct take_drop_args){ &old_refcounts, type });
+
+  return old_refcounts;
 }
 
 void frame_take_force(frame_desc_t* frame, frame_type_t type) {
@@ -306,8 +321,10 @@ void frame_take_force(frame_desc_t* frame, frame_type_t type) {
 }
 
 static frame_desc_t
-frame_drop_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
-  frame_type_t type = type_;
+frame_drop_inner(frame_desc_t frame, size_t idx, uintptr_t args_) {
+  struct take_drop_args* args = (struct take_drop_args*)args_;
+
+  frame_type_t type = args->type;
 
 #ifdef SVA_DEBUG_CHECKS
   SVA_ASSERT(type != PGT_LOCKED,
@@ -317,6 +334,9 @@ frame_drop_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
   SVA_ASSERT(frame_types_compatible(frame.type, type),
     "SVA: Internal error: dropping frame 0x%lx (with type %s) as type %s\n",
     idx, frame_type_name(frame.type), frame_type_name(type));
+
+  args->old_refcounts->ref_count = frame.ref_count;
+  args->old_refcounts->type_count = frame.type_count;
 
   /*
    * Decrement the type count *before* the reference count to avoid the type
@@ -330,8 +350,13 @@ frame_drop_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
   return frame;
 }
 
-void frame_drop(frame_desc_t* frame, frame_type_t type) {
-  frame_update(frame, frame_drop_inner, type);
+struct refcount_pair frame_drop(frame_desc_t* frame, frame_type_t type) {
+  struct refcount_pair old_refcounts;
+
+  frame_update(frame, frame_drop_inner,
+               (uintptr_t)&(struct take_drop_args){ &old_refcounts, type });
+
+  return old_refcounts;
 }
 
 void frame_drop_force(frame_desc_t* frame) {

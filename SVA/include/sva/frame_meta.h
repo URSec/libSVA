@@ -138,14 +138,30 @@ frame_type_t frame_lock(frame_desc_t* frame);
 void frame_unlock(frame_desc_t* frame, frame_type_t type);
 
 /**
+ * A pair of a frame's reference count and its type count.
+ */
+struct refcount_pair {
+  /**
+   * The frame's reference count.
+   */
+  unsigned long ref_count;
+
+  /**
+   * The frame's type count.
+   */
+  unsigned long type_count;
+};
+
+/**
  * Take a reference to a frame with the specified type.
  *
  * Panics if the type of the frame is not the correct type.
  *
  * @param frame The frame to which the caller is taking a reference
  * @param type  The frame type as which the caller wants to use `frame`
+ * @return      The frame's previous reference count
  */
-void frame_take(frame_desc_t* frame, frame_type_t type);
+struct refcount_pair frame_take(frame_desc_t* frame, frame_type_t type);
 
 /**
  * Take a reference to a frame with the specified type.
@@ -168,8 +184,9 @@ void frame_take_force(frame_desc_t* frame, frame_type_t type);
  *
  * @param frame The frame to which the caller is dropping a reference
  * @param type  The frame type as which the caller used `frame`
+ * @return      The frame's previous reference count
  */
-void frame_drop(frame_desc_t* frame, frame_type_t type);
+struct refcount_pair frame_drop(frame_desc_t* frame, frame_type_t type);
 
 /**
  * Drop a reference to a frame which had its type reset by `frame_take_force`.
