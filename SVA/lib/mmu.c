@@ -176,7 +176,7 @@ static inline bool pte_can_change(page_entry_t* page_entry) {
    */
   size_t entryIdx =
     ((uintptr_t)page_entry & (FRAME_SIZE - 1)) / sizeof(*page_entry);
-  if (isL4Pg(ptePG) && isSecMemL4Entry(entryIdx)) {
+  if (frame_get_type(ptePG) == PGT_L4 && isSecMemL4Entry(entryIdx)) {
     return false;
   }
 
@@ -197,7 +197,9 @@ static inline bool pte_can_change(page_entry_t* page_entry) {
    * Don't allow existing kernel code mappings to be changed/removed.
    * TODO: Also check this at higher levels.
    */
-  if (origPG != NULL && isCodePg(origPG) && !isUserMapping(*page_entry)) {
+  if (origPG != NULL && frame_get_type(origPG) == PGT_CODE &&
+      !isUserMapping(*page_entry))
+  {
     return false;
   }
 

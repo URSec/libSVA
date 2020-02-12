@@ -213,125 +213,14 @@ static inline page_entry_t setMappingReadWrite(page_entry_t mapping) {
 }
 
 /**
- * Determine if this frame is an L1 page table.
+ * Determine if this frame type is a page table which maps ordinary
+ * (non-secure) memory.
  *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is an L1 page table
+ * @param type  A frame type
+ * @return      Whether or not `type` is an ordinary page table type
  */
-static inline bool isL1Pg(frame_desc_t* frame) {
-  return frame->type == PGT_L1;
-}
-
-/**
- * Determine if this frame is an L2 page table.
- *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is an L2 page table
- */
-static inline bool isL2Pg(frame_desc_t* frame) {
-  return frame->type == PGT_L2;
-}
-
-/**
- * Determine if this frame is an L3 page table.
- *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is an L3 page table
- */
-static inline bool isL3Pg(frame_desc_t* frame) {
-  return frame->type == PGT_L3;
-}
-
-/**
- * Determine if this frame is an L4 page table.
- *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is an L4 page table
- */
-static inline bool isL4Pg(frame_desc_t* frame) {
-  return frame->type == PGT_L4;
-}
-
-/**
- * Determine if this frame is an L1 extended page table.
- *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is an L1 extended page table
- */
-static inline bool isEPTL1Pg(frame_desc_t* frame) {
-  return frame->type == PGT_EPTL1;
-}
-
-/**
- * Determine if this frame is an L2 extended page table.
- *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is an L2 extended page table
- */
-static inline bool isEPTL2Pg(frame_desc_t* frame) {
-  return frame->type == PGT_EPTL2;
-}
-
-/**
- * Determine if this frame is an L3 extended page table.
- *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is an L3 extended page table
- */
-static inline bool isEPTL3Pg(frame_desc_t* frame) {
-  return frame->type == PGT_EPTL3;
-}
-
-/**
- * Determine if this frame is an L4 extended page table.
- *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is an L4 extended page table
- */
-static inline bool isEPTL4Pg(frame_desc_t* frame) {
-  return frame->type == PGT_EPTL4;
-}
-
-/**
- * Determine if this frame is used for SVA-internal data.
- *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is used for SVA-internal data
- */
-static inline bool isSVAPg(frame_desc_t* frame) {
-  return frame->type == PGT_SVA;
-}
-
-/**
- * Determine if this frame holds ghost data.
- *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is used to hold ghost data
- */
-static inline bool isGhostPg(frame_desc_t* frame) {
-  return frame->type == PGT_GHOST;
-}
-
-/**
- * Determine if this frame is used for code.
- *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is used for code
- */
-static inline bool isCodePg(frame_desc_t* frame) {
-  return frame->type == PGT_CODE;
-}
-
-/**
- * Determine if this frame is a page table which maps ordinary (non-secure)
- * memory.
- *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is used as a page table to map ordinary
- *              memory
- */
-static inline bool isRegularPTP(frame_desc_t* frame) {
-  switch (frame->type) {
+static inline bool isRegularPTP(frame_type_t type) {
+  switch (type) {
   case PGT_L1:
   case PGT_L2:
   case PGT_L3:
@@ -342,14 +231,15 @@ static inline bool isRegularPTP(frame_desc_t* frame) {
   }
 }
 
+
 /**
- * Determine if this frame is an extended page table.
+ * Determine if this frame type is an extended page table.
  *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is used as an extended page table
+ * @param type  A frame type
+ * @return      Whether or not `type` is an extended page table type
  */
-static inline bool isEPTP(frame_desc_t* frame) {
-  switch (frame->type) {
+static inline bool isEPTP(frame_type_t type) {
+  switch (type) {
   case PGT_EPTL1:
   case PGT_EPTL2:
   case PGT_EPTL3:
@@ -361,14 +251,13 @@ static inline bool isEPTP(frame_desc_t* frame) {
 }
 
 /**
- * Determine if this frame is a page table which maps secure memory.
+ * Determine if this frame type is a page table which maps secure memory.
  *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is used as a page table to map secure
- *              memory
+ * @param type  A frame type
+ * @return      Whether or not `type` is a secure memory page table type
  */
-static inline bool isGhostPTP(frame_desc_t* frame) {
-  switch (frame->type) {
+static inline bool isGhostPTP(frame_type_t type) {
+  switch (type) {
   case PGT_SML1:
   case PGT_SML2:
   case PGT_SML3:
@@ -379,13 +268,13 @@ static inline bool isGhostPTP(frame_desc_t* frame) {
 }
 
 /**
- * Determine if this frame is a page table.
+ * Determine if this frame type is a page table.
  *
- * @param frame The metadata for a frame
- * @return      Whether or not `frame` is used as a page table
+ * @param type  A frame type
+ * @return      Whether or not `type` is a page table type
  */
-static inline bool isPTP(frame_desc_t* frame) {
-  return isRegularPTP(frame) || isEPTP(frame) || isGhostPTP(frame);
+static inline bool isPTP(frame_type_t type) {
+  return isRegularPTP(type) || isEPTP(type) || isGhostPTP(type);
 }
 
 /**
