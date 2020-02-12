@@ -1166,6 +1166,18 @@ void sva_mm_load_pgtable(cr3_t pg_ptr) {
   uintptr_t new_pml4 = PG_ENTRY_FRAME(pg_ptr);
 
   /*
+   * Increment the reference count for the new PML4 page that we're about to
+   * point CR3 to, and decrement it for the old PML4 being switched out.
+   */
+  frame_desc_t *newpml4Desc = get_frame_desc(new_pml4);
+  frame_desc_t *oldpml4Desc = get_frame_desc(read_cr3());
+
+  SVA_ASSERT(newpml4Desc != NULL,
+    "SVA: FATAL: Using non-existant frame 0x%lx as root page table\n",
+    new_pml4 / FRAME_SIZE);
+  frame_take(newpml4Desc, PGT_L4);
+
+  /*
    * Ensure that the secure memory region is still mapped within the new set
    * of page tables.
    */
@@ -1184,18 +1196,6 @@ void sva_mm_load_pgtable(cr3_t pg_ptr) {
      */
     *secmemp = threadp->secmemPML4e;
   }
-
-  /*
-   * Increment the reference count for the new PML4 page that we're about to
-   * point CR3 to, and decrement it for the old PML4 being switched out.
-   */
-  frame_desc_t *newpml4Desc = get_frame_desc(new_pml4);
-  frame_desc_t *oldpml4Desc = get_frame_desc(read_cr3());
-
-  SVA_ASSERT(newpml4Desc != NULL,
-    "SVA: FATAL: Using non-existant frame 0x%lx as root page table\n",
-    new_pml4 / FRAME_SIZE);
-  frame_take(newpml4Desc, PGT_L4);
 
   /*
    * Load the new page table.
