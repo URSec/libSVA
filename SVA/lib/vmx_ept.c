@@ -137,8 +137,10 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
   frame_desc_t *ptDesc = get_frame_desc(getPhysicalAddr(eptePtr));
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: EPT page table frame at %p doesn't exist\n", eptePtr);
+
+  frame_type_t ty = frame_get_type(ptDesc);
   if (!disableMMUChecks) {
-    switch(ptDesc->type) {
+    switch(ty) {
       case PGT_EPTL1:
       case PGT_EPTL2:
       case PGT_EPTL3:
@@ -148,16 +150,24 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
       default:
         panic("SVA: MMU: attempted to update an EPTE in a page that isn't "
             "an EPTP! Location: %p; new value: 0x%lx; "
-            "actual frame type: 0x%x\n", eptePtr, val, ptDesc->type);
+            "actual frame type: 0x%x\n", eptePtr, val, ty);
         break;
     }
   }
+
+  /*
+   * Take a phantom reference to the extended page table while updating it to
+   * prevent it from changing types out from under us.
+   */
+  frame_take(ptDesc, ty);
 
   /*
    * Update the page table with the new mapping. The __update_mapping()
    * function is responsible for doing any further checks.
    */
   update_mapping(eptePtr, val);
+
+  frame_drop(ptDesc, ty);
 
   /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
