@@ -1484,23 +1484,6 @@ void sva_remove_page(uintptr_t paddr) {
   SVA_PROF_EXIT_MULTI(remove_page, 2);
 }
 
-void sva_remove_mapping(page_entry_t* pteptr) {
-  SVA_PROF_ENTER();
-
-  kernel_to_usersva_pcid();
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
-
-  /* Update the page table mapping to zero */
-  update_mapping(pteptr, ZERO_MAPPING);
-
-  /* Restore interrupts and return to kernel page tables */
-  sva_exit_critical(rflags);
-  usersva_to_kernel_pcid();
-
-  SVA_PROF_EXIT(remove_mapping);
-}
-
 /**
  * Update a page table entry.
  *
@@ -1546,6 +1529,17 @@ void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
   sva_exit_critical(rflags);
 
   usersva_to_kernel_pcid();
+}
+
+void sva_remove_mapping(page_entry_t* pteptr) {
+  SVA_PROF_ENTER();
+
+  frame_desc_t* pt = get_frame_desc(getPhysicalAddr(pteptr));
+
+  /* Update the page table mapping to zero */
+  sva_update_mapping(pteptr, ZERO_MAPPING, frame_get_type(pt));
+
+  SVA_PROF_EXIT(remove_mapping);
 }
 
 void sva_update_l1_mapping(pte_t* l1e, pte_t new_l1e) {
