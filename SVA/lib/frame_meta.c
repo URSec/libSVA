@@ -185,6 +185,22 @@ static frame_desc_t
 frame_morph_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
   frame_type_t type = type_;
 
+  if (frame.type == type) {
+    /*
+     * The frame is already the requested type. We allow this "change" because
+     * it makes dealing with certain races much simpler. In particular, if two
+     * threads need to set a page to the same type, they don't need to decide
+     * which of them should do it. Of course, we can't allow this for locked
+     * frames, as doing so would defeat the purpose of locking.
+     */
+
+    // TODO: Wait until the frame becomes unlocked
+    SVA_ASSERT(type != PGT_LOCKED,
+      "SVA: FATAL: Attempt to lock already-locked frame 0x%lx\n", idx);
+
+    return frame;
+  }
+
   if (frame.type == PGT_FREE) {
     /*
      * A free frame can become any other type, with the exception that it must
@@ -209,7 +225,7 @@ frame_morph_inner(frame_desc_t frame, size_t idx, uintptr_t type_) {
 
     /*
      * A frame must have 0 type count to become free. If the type count is not
-     * 0, it means there are still uses of the frame that force it's current
+     * 0, it means there are still uses of the frame that force its current
      * type, and making the frame free is unsafe.
      */
     SVA_ASSERT(frame.type_count == 0,
