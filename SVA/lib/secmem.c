@@ -157,9 +157,6 @@ get_frame_from_os(void) {
   /* Ask the OS to give us a physical frame. */
   uintptr_t paddr = provideSVAMemory(FRAME_SIZE);
 
-#ifndef XEN
-  /* FIXME: re-enable this code for Xen once MMU has been ported */
-
   /*
    * In provideSVAMemory(), the OS *should* have unmapped the frame from its
    * own direct map, and not have any other existing mappings to it. However,
@@ -167,6 +164,7 @@ get_frame_from_os(void) {
    * compromised.
    */
 
+#ifdef FreeBSD
   /* Verify that the frame is unmapped in the kernel's direct map. */
   uintptr_t kerndmap_vaddr = (uintptr_t)getVirtual(paddr);
   pml4e_t* pml4e_ptr = get_pml4eVaddr(get_root_pagetable(), kerndmap_vaddr);
@@ -208,6 +206,7 @@ get_frame_from_os(void) {
       }
     }
   }
+#endif
 
   /*
    * Verify that there are no other mappings to the frame (except SVA's
@@ -221,7 +220,6 @@ get_frame_from_os(void) {
     "SVA: FATAL: Kernel gave us a frame which doesn't exist\n");
 
   frame_morph(page, PGT_FREE);
-#endif /* end #ifndef XEN */
 
   /*
    * Do a global TLB flush (including for EPT if SVA-VMX is active) to
@@ -270,13 +268,11 @@ get_frame_from_os(void) {
  *  paddr - the physical address of the frame being returned.
  */
 static inline void return_frame_to_os(uintptr_t paddr) {
-#ifndef XEN
-  /* FIXME: re-enable this code for Xen once MMU has been ported */
-  frame_desc_t * page = get_frame_desc(paddr);
-  SVA_ASSERT(ptDesc != NULL,
-    "SVA: FATAL: Returning non-existant frame to kernel\n");
-  page->type = PGT_FREE;
-#endif /* end #ifndef XEN */
+  frame_desc_t* frame = get_frame_desc(paddr);
+  SVA_ASSERT(frame != NULL,
+    "SVA: Internal error: Returning non-existant frame 0x%lx to kernel\n",
+    frame - frame_desc);
+  frame_morph(frame, PGT_FREE);
 
   releaseSVAMemory(paddr, FRAME_SIZE);
 }
