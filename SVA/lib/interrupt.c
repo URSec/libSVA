@@ -99,18 +99,6 @@ invalidIC (unsigned int vector) {
 }
 
 /*
- * Structure: CPUState
- *
- * Description:
- *  This is a structure containing the per-CPU state of each processor in the
- *  system.  We gather this here so that it's easy to find them from the %GS
- *  register.
- */
-static struct CPUState __svadata realCPUState[numProcessors] __attribute__((aligned(16)));
-struct CPUState * CPUState = realCPUState;
-
-
-/*
  * Intrinsic: sva_getCPUState()
  *
  * Description:
@@ -130,26 +118,39 @@ void *
 sva_getCPUState (tss_t * tssp) {
   SVA_PROF_ENTER();
 
-  /* Index of next available CPU state */
-  static unsigned int __svadata nextIndex = 0;
+  static const size_t PREALLOC_PERCPU_BLOCKS = 16;
+
+  /**
+   * Pre-allocated per-CPU blocks.
+   */
+  static struct CPUState __svadata preallocCPUStates[PREALLOC_PERCPU_BLOCKS]
+    __attribute__((aligned(16)));
+
+  /** Index of next available CPU state */
+  static size_t __svadata nextIndex = 0;
+
+  /**
+   * BSP's stack for paranoid exceptions (NMIs, #MCs, #DFs, and #DBs).
+   *
+   * This is statically allocated to avoid the need to request memory from the
+   * kernel during SVA initialization.
+   */
   static char __svadata bsp_paranoid_exception_stack[PARANOID_STACK_SIZE]
     __attribute__((aligned(PARANOID_STACK_SIZE)));
-  struct SVAThread * st;
-  int index;
 
-  if (nextIndex < numProcessors) {
+  if (nextIndex < PREALLOC_PERCPU_BLOCKS) {
     /*
      * Fetch an unused CPUState from the set of those available.
      */
-    index = __sync_fetch_and_add (&nextIndex, 1);
-    struct CPUState * cpup = CPUState + index;
+    size_t index = __atomic_fetch_add(&nextIndex, 1, __ATOMIC_RELAXED);
+    struct CPUState* cpup = &preallocCPUStates[index];
 
     /*
      * The first thread to be allocated is the initial thread that starts
      * SVA for this processor (CPU).  Create an initial thread for this CPU
      * and mark it as an initial thread for this CPU.
      */
-    cpup->currentThread = st = findNextFreeThread();
+    struct SVAThread* st = cpup->currentThread = findNextFreeThread();
     st->isInitialForCPU = 1;
 
     /*
@@ -195,10 +196,12 @@ sva_getCPUState (tss_t * tssp) {
 
     SVA_PROF_EXIT_MULTI(getCPUState, 1);
     return cpup;
-  }
+  } else {
+    // TODO: allocate more per-cpu blocks
 
-  SVA_PROF_EXIT_MULTI(getCPUState, 2);
-  return 0;
+    SVA_PROF_EXIT_MULTI(getCPUState, 2);
+    panic("SVA: FATAL: Out of per-cpu blocks\n");
+  }
 }
 
 #ifdef FreeBSD
