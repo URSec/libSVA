@@ -98,24 +98,26 @@ invalidIC (unsigned int vector) {
   return;
 }
 
-/*
- * Intrinsic: sva_getCPUState()
+/**
+ * Allocate and map a paranoid exception stack.
  *
- * Description:
- *  Initialize and return a pointer to the per-processor CPU state for this
- *  processor.
+ * This will both allocate frames from the kernel for use as a paranoid
+ * exception stack and will map them into secure memory.
  *
- * Input:
- *  tssp - A pointer to the TSS that is currently maintained by the system
- *         software.
- *
- * Notes:
- *  This intrinsic is only here to bootstrap the implementation of SVA.  Once
- *  the SVA interrupt handling code is working properly, this intrinsic should
- *  be removed.
+ * @return  A (virtual address) pointer to the new paranoid exception stack
  */
-void *
-sva_getCPUState (tss_t * tssp) {
+static char* alloc_paranoid_stack() {
+  // TODO
+  return NULL;
+}
+
+/**
+ * Initialize the per-processor CPU state for this processor.
+ *
+ * @param tssp  A pointer to this CPU's TSS
+ * @return      A pointer to the new CPU state for this CPU
+ */
+void* sva_getCPUState(tss_t* tssp) {
   SVA_PROF_ENTER();
 
   static const size_t PREALLOC_PERCPU_BLOCKS = 16;
@@ -138,70 +140,84 @@ sva_getCPUState (tss_t * tssp) {
   static char __svadata bsp_paranoid_exception_stack[PARANOID_STACK_SIZE]
     __attribute__((aligned(PARANOID_STACK_SIZE)));
 
-  if (nextIndex < PREALLOC_PERCPU_BLOCKS) {
+  struct CPUState* cpup;
+
+  /*
+   * NB: No danger of overflow, as it would require a machine with over 4
+   * billion (32-bit) or 18 quintillion (64-bit) CPUs.
+   */
+  size_t index = __atomic_fetch_add(&nextIndex, 1, __ATOMIC_RELAXED);
+
+  if (index < PREALLOC_PERCPU_BLOCKS) {
     /*
      * Fetch an unused CPUState from the set of those available.
      */
-    size_t index = __atomic_fetch_add(&nextIndex, 1, __ATOMIC_RELAXED);
-    struct CPUState* cpup = &preallocCPUStates[index];
-
-    /*
-     * The first thread to be allocated is the initial thread that starts
-     * SVA for this processor (CPU).  Create an initial thread for this CPU
-     * and mark it as an initial thread for this CPU.
-     */
-    struct SVAThread* st = cpup->currentThread = findNextFreeThread();
-    st->isInitialForCPU = 1;
-
-    /*
-     * Flag that the floating point unit has not been used.
-     */
-    cpup->fp_used = 0;
-
-    /* No one has used the floating point unit yet */
-    cpup->prevFPThread = 0;
-
-    /*
-     * Initialize a dummy interrupt context so that it looks like we
-     * started the processor by taking a trap or system call.  The dummy
-     * Interrupt Context should cause a fault if we ever try to put it back
-     * on to the processor.
-     */
-    cpup->newCurrentIC = cpup->currentThread->interruptContexts + (maxIC - 1);
-    cpup->newCurrentIC->rip     = 0xfead;
-    cpup->newCurrentIC->cs      = SVA_USER_CS_64;
-    cpup->gip                   = 0;
-
-    /*
-     * Initialize the TSS pointer so that the SVA VM can find it when needed.
-     */
-    cpup->tssp = tssp;
-
-    /*
-     * Setup the Interrupt Stack Table (IST) entry so that the hardware places
-     * the stack frame inside SVA memory.
-     */
-    tssp->ist3 = ((uintptr_t) (st->integerState.ist3));
-    /* TODO: SMP support */
-    /** The size of a individual exception's portion of the paranoid stack. */
-    size_t part_size = PARANOID_STACK_SIZE / 8;
-    tssp->ist4 = (uintptr_t)&bsp_paranoid_exception_stack[1 * part_size];
-    tssp->ist5 = (uintptr_t)&bsp_paranoid_exception_stack[2 * part_size];
-    tssp->ist6 = (uintptr_t)&bsp_paranoid_exception_stack[3 * part_size];
-    tssp->ist7 = (uintptr_t)&bsp_paranoid_exception_stack[4 * part_size];
-
-    /*
-     * Return the CPU State to the caller.
-     */
-
-    SVA_PROF_EXIT_MULTI(getCPUState, 1);
-    return cpup;
+    cpup = &preallocCPUStates[index];
   } else {
     // TODO: allocate more per-cpu blocks
 
     SVA_PROF_EXIT_MULTI(getCPUState, 2);
     panic("SVA: FATAL: Out of per-cpu blocks\n");
   }
+
+  /*
+   * The first thread to be allocated is the initial thread that starts
+   * SVA for this processor (CPU).  Create an initial thread for this CPU
+   * and mark it as an initial thread for this CPU.
+   */
+  struct SVAThread* st = cpup->currentThread = findNextFreeThread();
+  st->isInitialForCPU = 1;
+
+  /*
+   * Flag that the floating point unit has not been used.
+   */
+  cpup->fp_used = 0;
+
+  /* No one has used the floating point unit yet */
+  cpup->prevFPThread = 0;
+
+  /*
+   * Initialize a dummy interrupt context so that it looks like we
+   * started the processor by taking a trap or system call.  The dummy
+   * Interrupt Context should cause a fault if we ever try to put it back
+   * on to the processor.
+   */
+  cpup->newCurrentIC = &cpup->currentThread->interruptContexts[maxIC - 1];
+  cpup->newCurrentIC->rip     = 0xfead;
+  cpup->newCurrentIC->cs      = SVA_USER_CS_64;
+  cpup->gip                   = 0;
+
+  /*
+   * Initialize the TSS pointer so that the SVA VM can find it when needed.
+   */
+  cpup->tssp = tssp;
+
+  /*
+   * Setup the Interrupt Stack Table (IST) entry so that the hardware places
+   * the stack frame inside SVA memory.
+   */
+  tssp->ist3 = (uintptr_t)st->integerState.ist3;
+
+  char* paranoid_stack;
+  if (index == 0) {
+    // BSP
+    paranoid_stack = bsp_paranoid_exception_stack;
+  } else {
+    paranoid_stack = alloc_paranoid_stack();
+  }
+
+  /** The size of a individual exception's portion of the paranoid stack. */
+  size_t part_size = PARANOID_STACK_SIZE / 8;
+  tssp->ist4 = (uintptr_t)&paranoid_stack[1 * part_size];
+  tssp->ist5 = (uintptr_t)&paranoid_stack[2 * part_size];
+  tssp->ist6 = (uintptr_t)&paranoid_stack[3 * part_size];
+  tssp->ist7 = (uintptr_t)&paranoid_stack[4 * part_size];
+
+  /*
+   * Return the CPU State to the caller.
+   */
+  SVA_PROF_EXIT_MULTI(getCPUState, 1);
+  return cpup;
 }
 
 #ifdef FreeBSD
