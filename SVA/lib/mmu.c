@@ -132,7 +132,7 @@ page_entry_t page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
 
   /* Write the new value to the page_entry */
   page_entry_t oldVal =
-    __atomic_exchange_n(page_entry, newVal, __ATOMIC_RELEASE);
+    __atomic_exchange_n(page_entry, newVal, __ATOMIC_ACQ_REL);
 
   /* Reenable page protection */
   protect_paging();
