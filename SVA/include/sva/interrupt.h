@@ -1,16 +1,16 @@
-/*===- interrupt.h - SVA Interrupts   -------------------------------------===
- * 
+/*===- interrupt.h - SVA Interrupts   ---------------------------------------===
+ *
  *                        Secure Virtual Architecture
  *
  * This file was developed by the LLVM research group and is distributed under
  * the University of Illinois Open Source License. See LICENSE.TXT for details.
- * 
- *===----------------------------------------------------------------------===
+ *
+ *===------------------------------------------------------------------------===
  *
  * This header files defines functions and macros used by the SVA Execution
  * Engine for handling interrupts.
  *
- *===----------------------------------------------------------------------===
+ *===------------------------------------------------------------------------===
  */
 
 #ifndef _SVA_INTERRUPT_H
@@ -82,23 +82,38 @@ typedef void (*memfault_handler_t)(unsigned int vector, void * mp);
 typedef void (*interrupt_handler_t)(unsigned int vector);
 typedef void * syscall_t;
 
-/* Prototypes for Execution Engine Functions */
-extern unsigned char
-sva_register_general_exception (unsigned char, genfault_handler_t);
+/**
+ * Register a fault handler with the Execution Engine.
+ *
+ * @param vector  The exception vector for which to register a handler
+ * @param handler The handler for the exception
+ * @return        Whether registering the handler succeeded
+ */
+extern bool sva_register_general_exception(unsigned int vector,
+                                           genfault_handler_t handler);
 
-extern unsigned char
-sva_register_memory_exception (unsigned char, memfault_handler_t);
+/**
+ * Register a page fault handler with the Execution Engine.
+ *
+ * @param vector  The exception vector for which to register a handler
+ * @param handler The handler for the exception
+ * @return        Whether registering the handler succeeded
+ */
+extern bool sva_register_memory_exception(unsigned int vector,
+                                          memfault_handler_t handler);
 
-extern unsigned char
-sva_register_interrupt (unsigned char, interrupt_handler_t);
+/**
+ * Register an interrupt handler with the Execution Engine.
+ *
+ * @param vector  The interrupt vector for which to register a handler
+ * @param handler The handler for the interrupt
+ * @return        Whether registering the handler succeeded
+ */
+extern bool sva_register_interrupt(unsigned int vector,
+                                   interrupt_handler_t handler);
 
 extern unsigned char
 sva_register_syscall (unsigned char, syscall_t);
-
-#if 0
-extern void sva_register_old_interrupt (int number, void *interrupt);
-extern void sva_register_old_trap      (int number, void *interrupt);
-#endif
 
 /**************************** Inline Functions *******************************/
 
@@ -138,7 +153,7 @@ sva_load_lif (unsigned int enable)
   else
     __asm__ __volatile__ ("cli":::"memory");
 }
-                                                                                
+
 /*
  * Intrinsic: sva_save_lif()
  *

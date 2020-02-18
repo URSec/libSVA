@@ -353,31 +353,19 @@ bool sva_icontext_restart(void) {
   return true;
 }
 
-/*
- * Intrinsic: sva_register_general_exception()
- *
- * Description:
- *  Register a fault handler with the Execution Engine.  The handlers for these
- *  interrupts do not take any arguments.
- *
- * Return value:
- *  0 - No error
- *  1 - Some error occurred.
- */
-unsigned char
-sva_register_general_exception (unsigned char number,
-                                genfault_handler_t handler) {
+bool sva_register_general_exception(unsigned int vector,
+                                    genfault_handler_t handler)
+{
   SVA_PROF_ENTER();
 
   /*
    * First, ensure that the exception number is within range.
    */
-#if 0
-  if (number > 31) {
-    __asm__ __volatile__ ("int %0\n" :: "i" (sva_exception_exception));
-    return 1;
+  if (vector == 14 || vector >= 32) {
+    return false;
   }
 
+#if 0
   /*
    * Ensure that this is not one of the special handlers.
    */
@@ -398,24 +386,21 @@ sva_register_general_exception (unsigned char number,
   /*
    * Put the handler into our dispatch table.
    */
-  interrupt_table[number] = handler;
+  __atomic_store_n(&interrupt_table[vector], handler, __ATOMIC_RELAXED);
 
   SVA_PROF_EXIT(register_general_exception);
-  return 0;
+  return true;
 }
 
-/*
- * Intrinsic: sva_register_memory_exception()
- *
- * Description:
- *  Register a fault with the Execution Engine.  This fault handler will need
- *  the memory address that was used by the instruction when the fault occurred.
- */
-unsigned char
-sva_register_memory_exception (unsigned char number, memfault_handler_t handler) {
+bool sva_register_memory_exception(unsigned int vector,
+                                   memfault_handler_t handler)
+{
   /*
-   * Ensure that this is not one of the special handlers.
+   * Ensure that this is a page fault handler.
    */
+  if (vector != 14) {
+    return false;
+  }
 #if 0
   switch (number) {
     case 14:
@@ -432,38 +417,32 @@ sva_register_memory_exception (unsigned char number, memfault_handler_t handler)
   }
 #endif
 
-  interrupt_table[number] = handler;
+  /*
+   * Put the handler into our dispatch table.
+   */
+  __atomic_store_n(&interrupt_table[vector], handler, __ATOMIC_RELAXED);
 
-  return 0;
+  SVA_PROF_EXIT(register_memory_exception);
+  return true;
 }
 
-/*
- * Intrinsic: sva_register_interrupt ()
- *
- * Description:
- *  This intrinsic registers an interrupt handler with the Execution Engine.
- */
-unsigned char
-sva_register_interrupt (unsigned char number, interrupt_handler_t interrupt) {
+bool sva_register_interrupt(unsigned int vector, interrupt_handler_t handler) {
   SVA_PROF_ENTER();
 
   /*
    * Ensure that the number is within range.
    */
-#if 0
-  if (number < 32) {
-    __asm__ __volatile__ ("int %0\n" :: "i" (sva_interrupt_exception));
-    return 1;
+  if (vector < 32 || vector >= 256) {
+    return false;
   }
-#endif
 
   /*
-   * Put the handler into the system call table.
+   * Put the handler into our dispatch table.
    */
-  interrupt_table[number] = interrupt;
+  __atomic_store_n(&interrupt_table[vector], handler, __ATOMIC_RELAXED);
 
   SVA_PROF_EXIT(register_interrupt);
-  return 0;
+  return true;
 }
 
 #if 0

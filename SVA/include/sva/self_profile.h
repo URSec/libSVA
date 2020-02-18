@@ -66,6 +66,7 @@ enum SVA_OS_NAME {
   sva_icontext_setretval_api,
   sva_icontext_restart_api,
   sva_register_general_exception_api,
+  sva_register_memory_exception_api,
   sva_register_interrupt_api,
   sva_mm_load_pgtable_api,
   sva_load_cr0_api,
