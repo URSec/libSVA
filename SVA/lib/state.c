@@ -538,12 +538,13 @@ static bool checkThreadForLoad(struct SVAThread* newThread,
  */
 static inline void
 flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
+/*
+ * In the Xen port, the SVA VM's internal memory is also mapped by the PTE that
+ * gets cleared below. Since Xen PV guests aren't using ghost memory, we can
+ * just avoid doing this for now.
+ */
+#ifndef XEN
   if (vg && oldThread->secmemSize > 0) {
-    /*
-     * Save the CR3 register.  We'll need it later for sva_release_stack().
-     */
-    oldThread->integerState.cr3 = read_cr3();
-
     /*
      * Get a pointer into the page tables for the secure memory region.
      */
@@ -558,6 +559,10 @@ flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
     *secmemp = 0;
     protect_paging();
   }
+#else
+  /* Silence an unused parameter warning. */
+  (void)oldThread;
+#endif
 
   /*
    * Invalidate all TLBs (including those with the global flag).  We do this
