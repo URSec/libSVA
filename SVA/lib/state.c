@@ -477,6 +477,17 @@ static bool checkThreadForLoad(struct SVAThread* newThread,
     panic("sva_swap_integer: Invalid new-thread pointer");
   }
 
+  /*
+   * Check that the state is valid for loading and simultaneously mark it
+   * invalid so that no one else loads it.
+   */
+  bool valid = __atomic_exchange_n(&newThread->integerState.valid, false, __ATOMIC_ACQUIRE);
+  if (!valid) {
+    printf("SVA: WARNING: Attempt to load thread that isn't valid "
+           "or is currently active\n");
+    return false;
+  }
+
 #if SVA_CHECK_INTEGER
   /*
    * Determine whether the integer state is valid.
@@ -809,7 +820,7 @@ saveThread(struct SVAThread* oldThread, bool switchStack) {
   /*
    * Mark the saved integer state as valid.
    */
-  old->valid = true;
+  __atomic_store_n(&old->valid, true, __ATOMIC_RELEASE);
 
   return false;
 }
@@ -829,84 +840,72 @@ static bool loadThread(struct SVAThread* newThread) {
   sva_integer_state_t* new = &newThread->integerState;
 
   /*
-   * Now, reload the integer state pointed to by new.
+   * Verify that we can load the new integer state.
    */
-  if (new->valid) {
+  checkIntegerForLoad(new);
+
+  /*
+   * Switch the CPU over to using the new set of interrupt contexts.
+   */
+  cpup->currentThread = newThread;
+  cpup->tssp->ist3    = new->ist3;
+  cpup->newCurrentIC  = new->currentIC;
+
+  /*
+   * A NULL kernel stack indicates that this integer state was switched from
+   * without a kernel stack switch, so we can't switch kernel stacks when
+   * switching back to it.
+   */
+  if (new->kstackp != 0) {
+    cpup->tssp->rsp0 = new->kstackp;
+    cpup->gip = new->ifp;
+  }
+
+  /*
+   * If the new state uses secure memory, we need to map it into the page
+   * table.  Note that we refetch the state information from the CPUState
+   * to ensure that we're not accessing stale local variables.
+   */
+  if (vg && newThread->secmemSize > 0) {
     /*
-     * Verify that we can load the new integer state.
+     * Get a pointer into the page tables for the secure memory region.
      */
-    checkIntegerForLoad(new);
+    pml4e_t* root_pgtable =
+      (pml4e_t*)getVirtual((uintptr_t)get_root_pagetable());
+    pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(SECMEMSTART)];
 
     /*
-     * Invalidate the state that we're about to load.
+     * Restore the PML4E entry for the secure memory region.
      */
-    new->valid = false;
-
-    /*
-     * Switch the CPU over to using the new set of interrupt contexts.
-     */
-    cpup->currentThread = newThread;
-    cpup->tssp->ist3    = new->ist3;
-    cpup->newCurrentIC  = new->currentIC;
-
-    /*
-     * A NULL kernel stack indicates that this integer state was switched from
-     * without a kernel stack switch, so we can't switch kernel stacks when
-     * switching back to it.
-     */
-    if (new->kstackp != 0) {
-      cpup->tssp->rsp0 = new->kstackp;
-      cpup->gip = new->ifp;
+    uintptr_t mask = PG_P | PG_W | PG_U;
+    if ((newThread->secmemPML4e & mask) != mask) {
+      panic ("SVA: Not Present: %lx %lx\n", newThread->secmemPML4e, mask);
     }
+    unprotect_paging();
+    *secmemp = newThread->secmemPML4e;
+    protect_paging();
+  }
 
-    /*
-     * If the new state uses secure memory, we need to map it into the page
-     * table.  Note that we refetch the state information from the CPUState
-     * to ensure that we're not accessing stale local variables.
-     */
-    if (vg && newThread->secmemSize > 0) {
-      /*
-       * Get a pointer into the page tables for the secure memory region.
-       */
-      pml4e_t* root_pgtable =
-        (pml4e_t*)getVirtual((uintptr_t)get_root_pagetable());
-      pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(SECMEMSTART)];
-
-      /*
-       * Restore the PML4E entry for the secure memory region.
-       */
-      uintptr_t mask = PG_P | PG_W | PG_U;
-      if ((newThread->secmemPML4e & mask) != mask) {
-        panic ("SVA: Not Present: %lx %lx\n", newThread->secmemPML4e, mask);
-      }
-      unprotect_paging();
-      *secmemp = newThread->secmemPML4e;
-      protect_paging();
-    }
-
-    bool segments_succeeded = load_user_segments(new);
+  bool segments_succeeded = load_user_segments(new);
 
 #ifndef SVA_LAZY_FPU
-    xrestore(&new->fpstate.inner);
+  xrestore(&new->fpstate.inner);
 #endif
 
-    /* We only save the GPRs during a context switch if we are switching kernel
-     * stacks, so only load them if we have a stack to switch to. */
-    if (new->kstackp != 0) {
-      // TODO: report potential failure of segment load to kernel
+  /* We only save the GPRs during a context switch if we are switching kernel
+   * stacks, so only load them if we have a stack to switch to. */
+  if (new->kstackp != 0) {
+    // TODO: report potential failure of segment load to kernel
 
-      /*
-       * Load the rest of the integer state.
-       */
-      load_integer(new);
-    } else {
-      /*
-       * We successfully loaded the new thread.
-       */
-      return segments_succeeded;
-    }
+    /*
+     * Load the rest of the integer state.
+     */
+    load_integer(new);
   } else {
-    return false;
+    /*
+     * We successfully loaded the new thread.
+     */
+    return segments_succeeded;
   }
 }
 
@@ -1516,14 +1515,15 @@ void sva_release_stack(uintptr_t id) {
   sva_integer_state_t * new =  newThread ? &(newThread->integerState) : 0;
 
   /*
-   * Ensure that we're not trying to release our own state.
+   * Ensure that we're not trying to release an active state.
+   * Active states always have `valid` set to `false`.
    */
-  if (newThread == getCPUState()->currentThread)
-  {
+  if (!__atomic_load_n(&new->valid, __ATOMIC_ACQUIRE)) {
     usersva_to_kernel_pcid();
     SVA_PROF_EXIT_MULTI(release_stack, 1);
     return;
   }
+
   /*
    * Release ghost memory belonging to the thread that we are deallocating.
    */
@@ -1533,12 +1533,6 @@ void sva_release_stack(uintptr_t id) {
     unsigned char * secmemStart = (unsigned char *)(SECMEMSTART);
     ghostFree (newThread, secmemStart, newThread->secmemSize);
   }
-
-  /*
-   * Mark the integer state as invalid.  This will prevent it from being
-   * context switched on to the CPU.
-   */
-  new->valid = false;
 
   /*
    * Mark the thread as available for reuse.
