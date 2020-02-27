@@ -943,6 +943,12 @@ uintptr_t sva_swap_integer(uintptr_t newint, uintptr_t* statep) {
     return 0;
   }
 
+  /*
+   * If the current state is using secure memory, we need to flush out the TLBs
+   * and caches that might contain it.
+   */
+  flushSecureMemory(oldThread, newThread);
+
   if (saveThread(oldThread, /* switchStack */ true)) {
     /*
      * We've awakened.
@@ -956,12 +962,6 @@ uintptr_t sva_swap_integer(uintptr_t newint, uintptr_t* statep) {
     SVA_PROF_EXIT_MULTI(swap_integer, 2);
     return 1;
   }
-
-  /*
-   * If the current state is using secure memory, we need to flush out the TLBs
-   * and caches that might contain it.
-   */
-  flushSecureMemory(oldThread, newThread);
 
   /*
    * Inform the caller of the location of the last state saved.
@@ -1013,13 +1013,13 @@ bool sva_swap_user_integer(uintptr_t newint, uintptr_t* statep) {
     return false;
   }
 
-  saveThread(oldThread, /* switchStack */ false);
-
   /*
    * If the current state is using secure memory, we need to flush out the TLBs
    * and caches that might contain it.
    */
   flushSecureMemory(oldThread, newThread);
+
+  saveThread(oldThread, /* switchStack */ false);
 
   /*
    * Inform the caller of the location of the last state saved.
