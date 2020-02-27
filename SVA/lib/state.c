@@ -691,6 +691,8 @@ static void save_user_segments(sva_integer_state_t* state) {
   state->es = get_seg(es);
   state->fs = get_seg(fs);
   state->gs = get_seg(gs);
+
+#undef get_seg
 }
 
 /**
