@@ -40,6 +40,9 @@ static uintptr_t frame_cache[FRAME_CACHE_SIZE];
 static int frame_cache_st = 0;
 static int frame_cache_ed = 0;
 
+/* Lock for the frame cache */
+static bool _frame_cache_lock = false;
+
 /*
  * Internal frame cache queue operations, should not be called anywhere
  * else except in alloc_frame() and free_frame().
@@ -338,6 +341,18 @@ release_frames(void) {
   }
 }
 
+static void frame_cache_lock(void) {
+  while (__atomic_test_and_set(&_frame_cache_lock, __ATOMIC_RELAXED)) {
+    __builtin_ia32_pause();
+  }
+
+  __atomic_thread_fence(__ATOMIC_ACQUIRE);
+}
+
+static void frame_cache_unlock(void) {
+  __atomic_clear(&_frame_cache_lock, __ATOMIC_RELEASE);
+}
+
 /*
  * Function: alloc_frame()
  *
@@ -372,7 +387,10 @@ release_frames(void) {
  */
 uintptr_t
 alloc_frame(void) {
-  return frame_dequeue();
+  frame_cache_lock();
+  uintptr_t paddr = frame_dequeue();
+  frame_cache_unlock();
+  return paddr;
 }
 
 /*
@@ -401,7 +419,9 @@ alloc_frame(void) {
  */
 void
 free_frame(uintptr_t paddr) {
+  frame_cache_lock();
   frame_enqueue(paddr);
+  frame_cache_unlock();
 }
 
 /*
