@@ -98,6 +98,7 @@
  */
 #define IDT_PF      14  /* #PF: Page Fault */
 
-#define PARANOID_STACK_SIZE (1 << 15) /* 8 pages */
+#define PERCPU_REGION_SIZE (1 << 15) /* 8 pages */
+#define PARANOID_STACK_SIZE (1 << 12) /* 1 page */
 
 #endif /* _OFFSETS_H */

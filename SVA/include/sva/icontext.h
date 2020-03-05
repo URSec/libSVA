@@ -314,6 +314,23 @@ struct CPUState {
   unsigned char fp_used;
 };
 
+struct sva_tls_area {
+  /** Pointer to this CPU's `struct CPUState`. */
+  struct CPUState* cpu_state;
+
+  /* Syscall scratch space. */
+  unsigned long rsp;
+  unsigned long rbp;
+  unsigned long gsbase;
+
+  unsigned long _unused;
+
+  /* WRMSR scratch space. */
+  unsigned long rax;
+  unsigned long rcx;
+  unsigned long rdx;
+} __attribute__((aligned(64)));
+
 /*
  * Function: get_cpuState()
  *

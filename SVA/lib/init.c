@@ -161,20 +161,7 @@ sva_debug (void) {
  * Initialize SVA's TLS and set up %gs.base
  */
 static void init_TLS(tss_t *tss) {
-  /* For now, just use a static allocation */
-  static char __svadata TLSBlock[64];
-
-  *(struct CPUState**)&TLSBlock[0] = sva_getCPUState(tss);
-
-  /*
-   * The rest of the TLS block is scratch space for saving registers in trap
-   * handlers.
-   */
-
-  wrgsbase((uintptr_t)TLSBlock);
-  char* paranoid_stack_top = (char*)(tss->ist4 & -PARANOID_STACK_SIZE);
-  char* paranoid_stack_bottom = paranoid_stack_top + PARANOID_STACK_SIZE;
-  *((uintptr_t*)paranoid_stack_bottom - 1) = (uintptr_t)TLSBlock;
+  sva_getCPUState(tss);
 }
 
 /**
@@ -621,8 +608,6 @@ sva_init_primary_xen(void *tss) {
   init_debug();
 #endif
 
-  init_TLS((tss_t*)tss);
-
 #if 0
   /* Initialize the processor ID */
   init_procID();
@@ -636,6 +621,8 @@ sva_init_primary_xen(void *tss) {
   init_idt(0);
 
   init_mmu();
+
+  init_TLS((tss_t*)tss);
 
   init_fpu();
   init_mpx();

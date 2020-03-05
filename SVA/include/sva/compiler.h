@@ -22,4 +22,6 @@
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
+#define alignof __alignof
+
 #endif /* _SVA_COMPILER_H */

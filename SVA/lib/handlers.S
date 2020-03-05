@@ -456,9 +456,9 @@ ENTRY(TrapParanoid)
   pushq $1
 
   /* Load the TLS pointer from the bottom of the stack */
-  movq $-PARANOID_STACK_SIZE, %rax
+  movq $-PERCPU_REGION_SIZE, %rax
   andq %rsp, %rax
-  movq (PARANOID_STACK_SIZE - 8)(%rax), %rax
+  movq (PERCPU_REGION_SIZE - 8)(%rax), %rax
   wrgsbase %rax
 
 #ifdef MPX

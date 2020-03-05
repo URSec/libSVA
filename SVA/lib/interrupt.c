@@ -15,8 +15,12 @@
 
 #include <sva/callbacks.h>
 #include <sva/config.h>
+#include <sva/frame_meta.h>
 #include <sva/icontext.h>
 #include <sva/interrupt.h>
+#include <sva/mmu.h>
+#include <sva/page.h>
+#include <sva/page_walk.h>
 #include <sva/self_profile.h>
 #include <sva/state.h>
 #include <sva/keys.h>
@@ -98,18 +102,209 @@ invalidIC (unsigned int vector) {
   return;
 }
 
+extern char __svadata __sva_percpu_region_base[];
+
 /**
- * Allocate and map a paranoid exception stack.
+ * Allocate and map per-cpu structures.
  *
- * This will both allocate frames from the kernel for use as a paranoid
- * exception stack and will map them into secure memory.
+ * This function will both allocate frames for use as per-cpu data and map them
+ * into secure memory.
  *
- * @return  A (virtual address) pointer to the new paranoid exception stack
+ * @return  A (virtual address) pointer to the per-cpu data region
  */
-static char* alloc_paranoid_stack() {
-  // TODO
-  return NULL;
+static void* alloc_percpu_region(size_t cpu_idx) {
+  void* percpu_region = __sva_percpu_region_base + cpu_idx * PERCPU_REGION_SIZE;
+
+  if (cpu_idx == 0) {
+    /*
+     * The direct map (which we need in order to walk page tables) isn't set up
+     * yet. However, we know that the BSP's per-cpu region is already
+     * allocated, so just return it.
+     */
+    return percpu_region;
+  }
+
+  cr3_t root = get_root_pagetable();
+  pdpte_t* l3_table = NULL;
+  pde_t* l2_table = NULL;
+  pte_t* l1_table = NULL;
+
+  int found = walk_page_table(root, (uintptr_t)percpu_region,
+                              NULL, &l3_table, &l2_table, &l1_table, NULL);
+
+  switch (found) {
+  case -5:
+  case -4:
+    SVA_ASSERT_UNREACHABLE("SVA: FATAL: Secure memory region not mapped\n");
+  case -3: {
+    /*
+     * No L3 entry for the address; allocate an L2 table.
+     */
+    uintptr_t l2_frame = alloc_frame();
+    frame_desc_t* l2_desc = get_frame_desc(l2_frame);
+    frame_morph(l2_desc, PGT_SML2);
+    frame_take(l2_desc, PGT_SML2);
+    l3_table[PG_L3_OFFSET(percpu_region)] =
+      l2_frame | PG_P | PG_W | PG_NX | PG_G;
+    /* fallthrough */
+  }
+  case -2: {
+    /*
+     * No L2 entry for the address; allocate an L1 table.
+     */
+    uintptr_t l1_frame = alloc_frame();
+    frame_desc_t* l1_desc = get_frame_desc(l1_frame);
+    frame_morph(l1_desc, PGT_SML1);
+    frame_take(l1_desc, PGT_SML1);
+    l2_table[PG_L2_OFFSET(percpu_region)] =
+      l1_frame | PG_P | PG_W | PG_NX | PG_G;
+    /* fallthrough */
+  }
+  case -1: {
+    /*
+     * Allocate and map the new per-cpu region.
+     */
+    for (int i = 0; i < 5; ++i) {
+      /*
+       * The low 3 pages are unused.
+       */
+      size_t idx = PG_L1_OFFSET(percpu_region) + 3 + i;
+
+      uintptr_t frame = alloc_frame();
+      frame_desc_t* frame_desc = get_frame_desc(frame);
+      frame_morph(frame_desc, PGT_SVA);
+      frame_take(frame_desc, PGT_SVA);
+
+      /*
+       * Map the page (rw-, supervisor, global).
+       */
+      l1_table[idx] = frame | PG_P | PG_W | PG_NX | PG_G;
+    }
+    break;
+  }
+  default:
+    SVA_ASSERT_UNREACHABLE("SVA: FATAL: Per-CPU region already allocated?\n");
+  }
+
+  return percpu_region;
 }
+
+/**
+ * Allocate the initial thread for the current CPU.
+ *
+ * @return  An initial thread for the CPU
+ */
+static struct SVAThread* alloc_initial_thread(void) {
+  struct SVAThread* st = findNextFreeThread();
+  st->isInitialForCPU = 1;
+  return st;
+}
+
+/**
+ * Create the per-cpu structures in the per-cpu region.
+ *
+ * This includes the `CPUState` structure, the TSS, and the "TLS area" that can
+ * be directly accessed off of the `%gs` segment.
+ *
+ * @param percpu_region The previously allocated per-cpu region
+ */
+static void create_percpu_structures(void* percpu_region) {
+  char* percpu_region_cur = (char*)percpu_region + PERCPU_REGION_SIZE;
+
+  /*
+   * Place a pointer to the TLS area at the very end of the per-cpu region, so
+   * that it can be easily accessed during paranoid entry.
+   */
+  uintptr_t* gsbase_paranoid_pointer = (uintptr_t*)percpu_region_cur - 1;
+  percpu_region_cur = (char*)gsbase_paranoid_pointer;
+
+  /*
+   * Allocate the CPU state structure.
+   */
+  struct CPUState* cpu_state = (struct CPUState*)percpu_region_cur - 1;
+  percpu_region_cur = (char*)cpu_state;
+
+  /*
+   * Allocate the TLS area.
+   */
+  size_t offset = (uintptr_t)percpu_region_cur % alignof(struct sva_tls_area);
+  percpu_region_cur -= offset;
+  struct sva_tls_area* tls_area = (struct sva_tls_area*)percpu_region_cur - 1;
+  percpu_region_cur = (char*)tls_area;
+
+  /*
+   * Allocate the TSS.
+   */
+  percpu_region_cur -= sizeof(tss_t);
+  /* Align the TSS to 16 bytes. */
+  percpu_region_cur = (char*)((uintptr_t)percpu_region_cur & -16);
+  tss_t* tss = (tss_t*)percpu_region_cur;
+
+  char* paranoid_stacks = percpu_region;
+
+  /*
+   * Initialize the structures.
+   */
+  cpu_state->tssp = tss;
+  cpu_state->gip = NULL;
+
+  tls_area->cpu_state = cpu_state;
+  wrgsbase((uintptr_t)tls_area);
+  *gsbase_paranoid_pointer = (uintptr_t)tls_area;
+
+  tss->ist4 = (uintptr_t)&paranoid_stacks[4 * PARANOID_STACK_SIZE];
+  tss->ist5 = (uintptr_t)&paranoid_stacks[5 * PARANOID_STACK_SIZE];
+  tss->ist6 = (uintptr_t)&paranoid_stacks[6 * PARANOID_STACK_SIZE];
+  tss->ist7 = (uintptr_t)&paranoid_stacks[7 * PARANOID_STACK_SIZE];
+}
+
+#ifdef XEN
+static void xen_tss_hack(const tss_t* tss) {
+  struct gdtr {
+    size_t limit:16;
+    uintptr_t base;
+  } __attribute__((packed)) gdtr;
+  asm ("sgdt %0" : "=m"(gdtr));
+
+  struct tss_desc {
+    size_t limit_low:16;
+    uintptr_t base_low:24;
+    unsigned int type:5;
+    unsigned int dpl:2;
+    bool present:1;
+    size_t limit_high:4;
+    bool avail:1;
+    unsigned int _reserved0:2;
+    bool granularity:1;
+    uintptr_t base_high:40;
+    unsigned int _reserved1:8;
+    unsigned int type_upper:5;
+    unsigned int _reserved2:19;
+  } __attribute__((aligned(8), packed)) desc = {
+    .base_low = (uintptr_t)tss,
+    .base_high = (uintptr_t)tss >> 24,
+    .limit_low = 0x67,
+    .limit_high = 0,
+    .granularity = 0,
+    .type = 0b01001,
+    .type_upper = 0,
+    .dpl = 0,
+    .present = true,
+    .avail = 0,
+    ._reserved0 = 0,
+    ._reserved1 = 0,
+    ._reserved2 = 0,
+  };
+
+  _Static_assert(sizeof(struct tss_desc) == 16,
+                 "TSS descriptor incorrect size");
+
+  const uint16_t xen_tss_desc = 0xe040;
+
+  *((struct tss_desc*)(gdtr.base + (xen_tss_desc & ~0x7))) = desc;
+  asm volatile ("ltr %w0" :: "rm"(xen_tss_desc));
+}
+#endif
 
 /**
  * Initialize the per-processor CPU state for this processor.
@@ -120,27 +315,8 @@ static char* alloc_paranoid_stack() {
 void* sva_getCPUState(tss_t* tssp) {
   SVA_PROF_ENTER();
 
-  static const size_t PREALLOC_PERCPU_BLOCKS = 16;
-
-  /**
-   * Pre-allocated per-CPU blocks.
-   */
-  static struct CPUState __svadata preallocCPUStates[PREALLOC_PERCPU_BLOCKS]
-    __attribute__((aligned(16)));
-
-  /** Index of next available CPU state */
+  /** Next CPU index */
   static size_t __svadata nextIndex = 0;
-
-  /**
-   * BSP's stack for paranoid exceptions (NMIs, #MCs, #DFs, and #DBs).
-   *
-   * This is statically allocated to avoid the need to request memory from the
-   * kernel during SVA initialization.
-   */
-  static char __svadata bsp_paranoid_exception_stack[PARANOID_STACK_SIZE]
-    __attribute__((aligned(PARANOID_STACK_SIZE)));
-
-  struct CPUState* cpup;
 
   /*
    * NB: No danger of overflow, as it would require a machine with over 4
@@ -148,33 +324,26 @@ void* sva_getCPUState(tss_t* tssp) {
    */
   size_t index = __atomic_fetch_add(&nextIndex, 1, __ATOMIC_RELAXED);
 
-  if (index < PREALLOC_PERCPU_BLOCKS) {
-    /*
-     * Fetch an unused CPUState from the set of those available.
-     */
-    cpup = &preallocCPUStates[index];
-  } else {
-    // TODO: allocate more per-cpu blocks
+  void* percpu_region = alloc_percpu_region(index);
 
-    SVA_PROF_EXIT_MULTI(getCPUState, 2);
-    panic("SVA: FATAL: Out of per-cpu blocks\n");
-  }
+  /*
+   * Initialize the per-cpu region.
+   */
+  create_percpu_structures(percpu_region);
+
+  /*
+   * Once `create_percpu_structures` returns, everything is in place for
+   * `getCPUState` to work properly.
+   */
+  struct CPUState* cpup = getCPUState();
 
   /*
    * The first thread to be allocated is the initial thread that starts
    * SVA for this processor (CPU).  Create an initial thread for this CPU
    * and mark it as an initial thread for this CPU.
    */
-  struct SVAThread* st = cpup->currentThread = findNextFreeThread();
-  st->isInitialForCPU = 1;
-
-  /*
-   * Flag that the floating point unit has not been used.
-   */
-  cpup->fp_used = 0;
-
-  /* No one has used the floating point unit yet */
-  cpup->prevFPThread = 0;
+  struct SVAThread* st = alloc_initial_thread();
+  sva_icontext_t* ic = &st->interruptContexts[maxIC - 1];
 
   /*
    * Initialize a dummy interrupt context so that it looks like we
@@ -182,36 +351,55 @@ void* sva_getCPUState(tss_t* tssp) {
    * Interrupt Context should cause a fault if we ever try to put it back
    * on to the processor.
    */
-  cpup->newCurrentIC = &cpup->currentThread->interruptContexts[maxIC - 1];
-  cpup->newCurrentIC->rip     = 0xfead;
-  cpup->newCurrentIC->cs      = SVA_USER_CS_64;
-  cpup->gip                   = 0;
+  ic->rip     = 0xfead;
+  ic->cs      = SVA_USER_CS_64;
 
   /*
-   * Initialize the TSS pointer so that the SVA VM can find it when needed.
+   * Set our initial thread and interrupt context.
    */
-  cpup->tssp = tssp;
+  cpup->currentThread = st;
+  cpup->newCurrentIC = ic;
+
+  /*
+   * Flag that the floating point unit has not been used.
+   */
+  cpup->fp_used = false;
+  cpup->prevFPThread = NULL;
+
+  /*
+   * Set the kernel entry stack pointer.
+   */
+  cpup->tssp->rsp0 = tssp->rsp0;
+
+  /*
+   * Poison the stack pointers for entering rings 1 and 2.
+   */
+  cpup->tssp->rsp1 = 0xdead57ac00000000UL;
+  cpup->tssp->rsp2 = 0xdead57ac00000000UL;
+
+  /*
+   * Load the kernel's IST values. TODO: Maintain these in a separate structure.
+   */
+  cpup->tssp->ist1 = tssp->ist1;
+  cpup->tssp->ist2 = tssp->ist2;
 
   /*
    * Setup the Interrupt Stack Table (IST) entry so that the hardware places
    * the stack frame inside SVA memory.
    */
-  tssp->ist3 = (uintptr_t)st->integerState.ist3;
+  cpup->tssp->ist3 = (uintptr_t)st->integerState.ist3;
 
-  char* paranoid_stack;
-  if (index == 0) {
-    // BSP
-    paranoid_stack = bsp_paranoid_exception_stack;
-  } else {
-    paranoid_stack = alloc_paranoid_stack();
-  }
-
-  /** The size of a individual exception's portion of the paranoid stack. */
-  size_t part_size = PARANOID_STACK_SIZE / 8;
-  tssp->ist4 = (uintptr_t)&paranoid_stack[1 * part_size];
-  tssp->ist5 = (uintptr_t)&paranoid_stack[2 * part_size];
-  tssp->ist6 = (uintptr_t)&paranoid_stack[3 * part_size];
-  tssp->ist7 = (uintptr_t)&paranoid_stack[4 * part_size];
+#ifdef XEN
+  /*
+   * Xen TSS hack: Since we currently allow Xen to manage the global descriptor
+   * table for the benefit of PV guests, we overwrite Xen's TSS entry in its
+   * GDT.
+   */
+  xen_tss_hack(cpup->tssp);
+#else
+  // TODO: Create and load the new TSS descriptor
+#error Unimplemented
+#endif
 
   /*
    * Return the CPU State to the caller.
