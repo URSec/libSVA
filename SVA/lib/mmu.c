@@ -1580,10 +1580,13 @@ void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e) {
  * Note: This function allows the creation of writable+executable mappings as
  * well as setting unvetted data as executable. Use with caution.
  *
- * @param vaddr The virtual address for which to change permissions
- * @param perms The new permissions to set
+ * @param vaddr       The virtual address for which to change permissions
+ * @param perms       The new permissions to set
+ * @param allow_morph Allow changing a non-code page into a code page
  */
-static void protect_code_page(uintptr_t vaddr, page_entry_t perms) {
+static void protect_code_page(uintptr_t vaddr, page_entry_t perms,
+                              bool allow_morph)
+{
   // Get a pointer to the page table entry
   page_entry_t* leaf_entry = get_pgeVaddr(vaddr);
   SVA_ASSERT(leaf_entry != NULL && isPresent(*leaf_entry),
@@ -1593,8 +1596,13 @@ static void protect_code_page(uintptr_t vaddr, page_entry_t perms) {
   frame_desc_t* pgDesc = get_frame_desc(*leaf_entry);
   SVA_ASSERT(pgDesc != NULL,
     "SVA: FATAL: Page table entry maps invalid frame\n");
-  SVA_ASSERT(frame_get_type(pgDesc) == PGT_CODE,
-    "SVA: FATAL: Changing permissons on non-code page 0x%016lx\n", vaddr);
+  if (frame_get_type(pgDesc) != PGT_CODE) {
+    SVA_ASSERT(allow_morph,
+      "SVA: FATAL: Changing permissons on non-code page 0x%016lx\n", vaddr);
+    frame_morph(pgDesc, PGT_CODE);
+    frame_take(pgDesc, PGT_CODE);
+    frame_drop(pgDesc, PGT_FREE);
+  }
 
   *leaf_entry &= ~(PG_P | PG_W | PG_NX) | perms;
   *leaf_entry |= perms;
@@ -1611,7 +1619,7 @@ void sva_unprotect_code_page(void* vaddr) {
   unsigned long flags = sva_enter_critical();
   kernel_to_usersva_pcid();
 
-  protect_code_page((uintptr_t)vaddr, PG_P | PG_W | PG_NX);
+  protect_code_page((uintptr_t)vaddr, PG_P | PG_W | PG_NX, false);
 
   usersva_to_kernel_pcid();
   sva_exit_critical(flags);
@@ -1628,7 +1636,24 @@ void sva_protect_code_page(void* vaddr) {
   unsigned long flags = sva_enter_critical();
   kernel_to_usersva_pcid();
 
-  protect_code_page((uintptr_t)vaddr, PG_P);
+  protect_code_page((uintptr_t)vaddr, PG_P, false);
+
+  usersva_to_kernel_pcid();
+  sva_exit_critical(flags);
+
+  SVA_PROF_EXIT(update_l1_mapping);
+}
+
+void sva_debug_make_code_page(void* vaddr) {
+  SVA_ASSERT(mmuIsInitialized,
+    "SVA: FATAL: sva_unprotect_code_page called before MMU init\n");
+
+  SVA_PROF_ENTER();
+
+  unsigned long flags = sva_enter_critical();
+  kernel_to_usersva_pcid();
+
+  protect_code_page((uintptr_t)vaddr, PG_P, true);
 
   usersva_to_kernel_pcid();
   sva_exit_critical(flags);

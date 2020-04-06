@@ -202,6 +202,16 @@ extern void sva_unprotect_code_page(void* vaddr);
 extern void sva_protect_code_page(void* vaddr);
 
 /**
+ * Turn a read-only page into a code page.
+ *
+ * This is a hack which is intended to support limited uses of
+ * runtime-generated code which have not been fully ported.
+ *
+ * @param vaddr The virtual address for which to change protections
+ */
+extern void sva_debug_make_code_page(void* vaddr);
+
+/**
  * Flush all TLB's holding translations for the specified virtual address.
  *
  * @param address A virtual address for which all TLB entries will be flushed
