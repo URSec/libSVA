@@ -183,7 +183,11 @@ static void* alloc_percpu_region(size_t cpu_idx) {
     break;
   }
   default:
+#if 0
     SVA_ASSERT_UNREACHABLE("SVA: FATAL: Per-CPU region already allocated?\n");
+#else
+    break;
+#endif
   }
 
   return percpu_region;
