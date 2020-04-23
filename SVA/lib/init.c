@@ -108,6 +108,11 @@ static void init_debug (void);
 extern void init_mmu (void);
 static void init_dispatcher ();
 
+/**
+ * Register SVA's syscall handler.
+ */
+static void register_syscall_handler(void);
+
 /* Default LLVA interrupt, exception, and system call handlers */
 extern void default_interrupt (unsigned int number, void * icontext);
 
@@ -586,6 +591,7 @@ sva_init_primary () {
   init_interrupt_table(0);
   init_dispatcher ();
   init_idt (0);
+  register_syscall_handler();
 
   init_mmu ();
   init_mpx ();
@@ -627,6 +633,7 @@ sva_init_primary_xen(void *tss) {
   init_interrupt_table(0);
   init_dispatcher();
   init_idt(0);
+  register_syscall_handler();
 
   init_mmu();
 
@@ -675,6 +682,7 @@ sva_init_secondary () {
    * other processor's IDTs.
    */
   init_idt (0);
+  register_syscall_handler();
 
 #if 0
   init_mmu ();
@@ -687,6 +695,29 @@ sva_init_secondary () {
 #endif
 
   SVA_PROF_EXIT(init_secondary);
+}
+
+static void register_syscall_handler(void) {
+  extern void SVAsyscall(void);
+
+  wrmsr(MSR_FMASK, EFLAGS_IF | EFLAGS_IOPL(3) | EFLAGS_AC | EFLAGS_DF |
+                   EFLAGS_NT | EFLAGS_VM | EFLAGS_TF | EFLAGS_RF);
+  wrmsr(MSR_STAR, ((uint64_t)GSEL(GCODE_SEL, 0) << SYSCALL_CS_SHIFT) |
+                  ((uint64_t)SVA_USER_CS_32 << SYSRET_CS_SHIFT));
+  wrmsr(MSR_LSTAR, (uintptr_t)&SVAsyscall);
+#if 0
+  wrmsr(MSR_CSTAR, (uintptr_t)&SVAsyscall);
+#else
+  /* For now, we don't handle syscalls from 32-bit code */
+  wrmsr(MSR_CSTAR, (uintptr_t)NULL);
+#endif
+
+  /*
+   * We don't handle sysenter.
+   */
+  wrmsr(MSR_IA32_SYSENTER_CS, 0);
+  wrmsr(MSR_IA32_SYSENTER_EIP, 0);
+  wrmsr(MSR_IA32_SYSENTER_ESP, 0);
 }
 
 #define REGISTER_EXCEPTION(number)                                      \
@@ -715,7 +746,6 @@ init_dispatcher ()
   extern void trap126(void);
   extern void trap127(void);
   extern void SVAbadtrap(void);
-  extern void SVAsyscall(void);
   extern unsigned char * allocSecureMemory (uintptr_t size);
   extern void freeSecureMemory (unsigned char * p, uintptr_t size);
   extern void installNewPushTarget (void * f);
@@ -1004,28 +1034,6 @@ init_dispatcher ()
   register_hypercall(0x7d, installNewPushTarget);
   register_hypercall(0x7e, freeSecureMemory);
   register_hypercall(0x7f, (void(*)())allocSecureMemory);
-
-  /*
-   * Set up the syscall handler.
-   */
-  wrmsr(MSR_FMASK, EFLAGS_IF | EFLAGS_IOPL(3) | EFLAGS_AC | EFLAGS_DF |
-                   EFLAGS_NT | EFLAGS_VM | EFLAGS_TF | EFLAGS_RF);
-  wrmsr(MSR_STAR, ((uint64_t)GSEL(GCODE_SEL, 0) << SYSCALL_CS_SHIFT) |
-                  ((uint64_t)SVA_USER_CS_32 << SYSRET_CS_SHIFT));
-  wrmsr(MSR_LSTAR, (uintptr_t)&SVAsyscall);
-#if 0
-  wrmsr(MSR_CSTAR, (uintptr_t)&SVAsyscall);
-#else
-  /* For now, we don't handle syscalls from 32-bit code */
-  wrmsr(MSR_CSTAR, (uintptr_t)NULL);
-#endif
-
-  /*
-   * We don't handle sysenter.
-   */
-  wrmsr(MSR_IA32_SYSENTER_CS, 0);
-  wrmsr(MSR_IA32_SYSENTER_EIP, 0);
-  wrmsr(MSR_IA32_SYSENTER_ESP, 0);
 }
 
 static bool create_startup_region(uintptr_t start_page) {
