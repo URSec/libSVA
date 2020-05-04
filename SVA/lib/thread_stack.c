@@ -116,7 +116,7 @@ init_threads(void) {
 struct SVAThread *
 validateThreadPointer(uintptr_t p) {
   if (p < (uintptr_t) Threads) {
-    panic("SVA: validateThreadPointer: below start of array");
+    printf("SVA: WARNING: bad thread pointer: 0x%ld below start of array", p);
     //p is below the start of the array
     return NULL;
   }
@@ -126,7 +126,7 @@ validateThreadPointer(uintptr_t p) {
   uintptr_t index = offset / thread_alignment;
   if (offset % thread_alignment){
     //p does not point to the start of a thread
-    panic("SVA: validateThreadPointer: invalid offset");
+    printf("SVA: WARNING: invalid thread pointer: 0x%ld invalid offset", p);
     return NULL;
   }
 
@@ -136,7 +136,7 @@ validateThreadPointer(uintptr_t p) {
   }
 
   //We weren't within the bounds of the array
-  panic("SVA: validateThreadPointer: above end of array");
+  printf("SVA: WARNING: invalid thread pointer: 0x%ld above end of array", p);
   return NULL;
 }
 
