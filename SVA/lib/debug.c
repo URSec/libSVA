@@ -23,6 +23,7 @@
 #include <sva/icontext.h>
 #include <sva/interrupt.h>
 #include <sva/mmu.h>
+#include <sva/msr.h>
 #include <sva/self_profile.h>
 #include <sva/util.h>
 #include <sva/vmx.h>

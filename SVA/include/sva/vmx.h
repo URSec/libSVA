@@ -65,7 +65,6 @@ static const u_int MSR_SYSENTER_CS = 0x174;
 static const u_int MSR_SYSENTER_ESP = 0x175;
 static const u_int MSR_SYSENTER_EIP = 0x176;
 static const u_int MSR_DEBUGCTL = 0x1d9;
-static const u_int MSR_EFER = 0xc0000080;
 static const u_int MSR_FS_BASE = 0xc0000100;
 static const u_int MSR_GS_BASE = 0xc0000101;
 static const u_int CR0_TS_OFFSET = 0x0000008;

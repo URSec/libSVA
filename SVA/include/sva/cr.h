@@ -19,12 +19,21 @@
 #define _SVA_CR_H
 
 /* CR0 Flags */
+#define     CR0_PE      0x00000001      /* Protected mode enable */
 #define     CR0_MP      0x00000002      /* FPU Monitor */
 #define     CR0_EM      0x00000004      /* FPU emulation */
 #define     CR0_TS      0x00000008      /* Task switched */
+#define     CR0_NE      0x00000020      /* Native floating-point error */
 #define     CR0_WP      0x00010000      /* Write protect enable */
+#define     CR0_AM      0x00040000      /* Alignment check enable */
+#define     CR0_NW      0x20000000      /* Cache write-through */
+#define     CR0_CD      0x40000000      /* Cache disable */
+#define     CR0_PG      0x80000000      /* Paging enable */
 
 /* CR4 Flags */
+#define     CR4_DE          0x00000008      /* enable debug extentions */
+#define     CR4_PSE         0x00000010      /* enable huge pages */
+#define     CR4_PAE         0x00000020      /* enable physical address extention*/
 #define     CR4_PGE         0x00000080      /* enable global pages */
 #define     CR4_OSFXSR      0x00000200      /* enable FXSave and SSE */
 #define     CR4_OSXMMEXCPT  0x00000400      /* enable unmasked SSE exceptions */

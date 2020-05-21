@@ -20,6 +20,12 @@
 
 #include <sva/offsets.h>
 
+#define MSR_EFER 0xc0000080
+
+#define EFER_SCE 0x1
+#define EFER_LME 0x100
+#define EFER_NXE 0x800
+
 #define MSR_IA32_SYSENTER_CS  0x00000174
 #define MSR_IA32_SYSENTER_ESP 0x00000175
 #define MSR_IA32_SYSENTER_EIP 0x00000176
