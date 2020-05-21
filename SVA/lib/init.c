@@ -437,6 +437,11 @@ static void init_fpu(void) {
    * Set the task-switched bit to trigger a fault the next time the FPU is used.
    */
   cr0 |= CR0_TS;
+#else
+  /*
+   * Clear the task-switched bit.
+   */
+  cr0 &= ~CR0_TS;
 #endif
 
   write_cr0(cr0);
