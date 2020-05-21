@@ -654,48 +654,30 @@ static bool __svadata ap_startup_ack;
 static init_fn __svadata ap_startup_callback;
 void* __svadata ap_startup_stack;
 
-/*
- * Intrinsic: sva_init_secondary()
- *
- * Description:
- *  This routine initializes all of the information needed by the SVA
- *  Execution Engine.  We do things here like setting up the interrupt
- *  descriptor table.  Note that this should be called by secondary processors.
- */
-void
-sva_init_secondary () {
+void __attribute__((noreturn)) sva_init_secondary(void) {
   SVA_PROF_ENTER();
 
-#if 0
-  init_segs ();
-  init_debug ();
-#endif
+  init_fn startup_cb = ap_startup_callback;
+  __atomic_store_n(&ap_startup_ack, true, __ATOMIC_RELEASE);
 
-#if 0
-  init_interrupt_table(0);
-  init_dispatcher ();
-#endif
-  /*
-   * Initialize the IDT of the primary processor
-   * FIXME: For now, we use the primary processor's IDT.  When we can, we
-   * should have the kernel register whatever is in the primary IDT into the
-   * other processor's IDTs.
-   */
-  init_idt (0);
+  SVA_PROF_EXIT(init_secondary);
+  startup_cb();
+}
+
+#ifdef XEN
+void sva_init_secondary_xen(void* tss) {
+  SVA_PROF_ENTER();
+
+  init_TLS((tss_t*)tss);
+
+  init_idt(0);
   register_syscall_handler();
-
-#if 0
-  init_mmu ();
-#endif
-  init_mpx ();
-  init_fpu ();
-#if 0
-  llva_reset_counters();
-  llva_reset_local_counters();
-#endif
+  init_fpu();
+  init_mpx();
 
   SVA_PROF_EXIT(init_secondary);
 }
+#endif
 
 static void register_syscall_handler(void) {
   extern void SVAsyscall(void);
