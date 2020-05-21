@@ -15,44 +15,34 @@
 #ifndef _SVA_ASM_MACROS_H
 #define _SVA_ASM_MACROS_H
 
+#ifdef SVA_NO_CFI
+#define STARTFUNC
+#else
 #include "sva/cfi.h"
+#endif
+
 #include "sva/x86.h"
 
 #define ALIGN .p2align 5
 
-#define GLOBL(x)	\
-	.globl x;	\
+#define GLOBL(x)                \
+        .type x, @object;       \
+        .globl x;               \
 x:
 
-#define ENTRY(x)		\
-	ALIGN;                  \
-	.type x, @function;	\
-	GLOBL(x);               \
-	STARTFUNC
+#define LOCAL(x)                \
+        .type x, @object;       \
+        .local x;               \
+x:
 
-#define END(x)		\
-	.size x, . - x
-	
+#define ENTRY(x)                \
+        ALIGN;                  \
+        .globl x;               \
+        .type x, @function;     \
+x:                              \
+        STARTFUNC
 
-#define IC_STACK_SIZE 4096
-
-/**
- * Get a pointer to the TLS block
- *
- * Requires that the current stack (`%rsp`) be the interrupt context stack.
- *
- * @param reg The register into which to place the TLS pointer
- */
-.macro get_tls_ptr reg:req
-  movq %rsp, \reg
-  orq $(IC_STACK_SIZE - 1), \reg
-
-  /*
-   * At this point, `\reg` points to the last byte of the interrupt context
-   * stack. Since the TLS pointer is stored as the last quadword of the
-   * interrupt context stack, we need to offset `\reg` by -7.
-   */
-  movq -7(\reg), \reg
-.endm
+#define END(x)                  \
+        .size x, . - x
 
 #endif /* _SVA_ASM_MACROS_H */
