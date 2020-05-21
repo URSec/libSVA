@@ -74,7 +74,7 @@ typedef struct frame_desc_t {
    */
   frame_type_t type : 8;
 
-#define FR_REF_COUNT_BITS 12
+#define FR_REF_COUNT_BITS 28
 #define FR_REF_COUNT_MAX ((1U << FR_REF_COUNT_BITS) - 1)
 
   /**
@@ -86,7 +86,13 @@ typedef struct frame_desc_t {
    * Number of uses of this frame that force its current type.
    */
   unsigned type_count : FR_REF_COUNT_BITS;
-} frame_desc_t;
+} __attribute__((packed, aligned(8))) frame_desc_t;
+
+/*
+ * Prevent frame metadata from getting too big. We need it small so we can do
+ * atomic operations on it.
+ */
+_Static_assert(sizeof(frame_desc_t) <= 8, "Frame metadata too big");
 
 /**
  * Size in bytes of the maximum supported amount of physical memory
