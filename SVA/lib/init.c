@@ -82,6 +82,7 @@
  */
 
 #include <sva/types.h>
+#include <sva/apic.h>
 #include <sva/config.h>
 #include <sva/fpu.h>
 #include <sva/icontext.h>
