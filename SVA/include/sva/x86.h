@@ -133,6 +133,21 @@ typedef struct {
   unsigned int iomap __attribute__((packed));
 } tss_t;
 
+struct call_gate {
+  uintptr_t target_low: 16;
+  uint16_t target_sel;
+  unsigned int _reserved0: 8;
+  unsigned int type_lower: 5;
+  unsigned int dpl: 2;
+  bool present: 1;
+  uintptr_t target_high: 48;
+  unsigned int _reserved1: 8;
+  unsigned int type_upper: 5;
+  unsigned int _reserved2: 19;
+} __attribute__((packed, aligned(8)));
+
+_Static_assert(sizeof(struct call_gate) == 16, "Call gate too large");
+
 #endif /* !__ASSEMBLER__ */
 
 #endif /* _SVA_X86_H */

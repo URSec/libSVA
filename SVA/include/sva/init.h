@@ -17,3 +17,9 @@ extern void sva_init_primary_xen (void* tss);
 extern void sva_init_secondary ();
 #endif
 
+typedef void __attribute__((__noreturn__)) (*init_fn)(void);
+
+extern bool sva_launch_ap(uint32_t apic_id, uintptr_t start_page,
+                          init_fn init, void* stack);
+#endif /* SVA_INIT_H */
+

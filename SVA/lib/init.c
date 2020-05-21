@@ -81,6 +81,7 @@
  * $FreeBSD: release/9.0.0/sys/amd64/include/cpufunc.h 223796 2011-07-05 18:42:10Z jkim $
  */
 
+#include <sva/init.h>
 #include <sva/types.h>
 #include <sva/apic.h>
 #include <sva/config.h>
@@ -90,6 +91,7 @@
 #include <sva/util.h>
 #include <sva/mmu.h>
 #include <sva/interrupt.h>
+#include <sva/invoke.h>
 #include <sva/mpx.h>
 #include <sva/msr.h>
 #include <sva/self_profile.h>
@@ -641,6 +643,10 @@ sva_init_primary_xen(void *tss) {
   SVA_PROF_EXIT(init_primary);
 }
 
+static bool __svadata ap_startup_ack;
+static init_fn __svadata ap_startup_callback;
+void* __svadata ap_startup_stack;
+
 /*
  * Intrinsic: sva_init_secondary()
  *
@@ -1020,4 +1026,137 @@ init_dispatcher ()
   wrmsr(MSR_IA32_SYSENTER_CS, 0);
   wrmsr(MSR_IA32_SYSENTER_EIP, 0);
   wrmsr(MSR_IA32_SYSENTER_ESP, 0);
+}
+
+static bool create_startup_region(uintptr_t start_page) {
+  extern const char ap_start[];
+  extern const char ap_start_gdt[];
+  extern const char ap_start_gdt_desc[];
+  extern const char ap_start_pt[];
+  extern const char ap_start_end[];
+  extern void __attribute__((noreturn)) ap_start_64(void);
+
+  unsigned char* start_page_dm = getVirtual(start_page);
+  size_t start_area_len = ap_start_end - ap_start;
+  memcpy(start_page_dm, ap_start, start_area_len);
+
+  /*
+   * Handle relocation of the GDT base.
+   */
+  unsigned int* gdt_base_ptr =
+    (unsigned int*)(start_page_dm + (ap_start_gdt_desc - ap_start) + 2);
+  *gdt_base_ptr += start_page;
+
+  /*
+   * Inform the AP of the location of our root page table.
+   */
+  cr3_t root_pt = get_root_pagetable();
+  unsigned int* root_pt_ptr =
+    (unsigned int*)(start_page_dm + (ap_start_pt - ap_start));
+  *root_pt_ptr = root_pt;
+
+  /*
+   * Write the call gate for the jump to 64-bit mode into the GDT.
+   */
+  unsigned long* gdt_ptr =
+    (unsigned long*)(start_page_dm + (ap_start_gdt - ap_start));
+  struct call_gate* jmp_64_gate = (struct call_gate*)&gdt_ptr[2];
+  *jmp_64_gate = (struct call_gate) {
+    .target_low = (uintptr_t)ap_start_64,
+    .target_high = (uintptr_t)ap_start_64 >> 16,
+    .target_sel = GSEL(0x1, 0),
+    .type_lower = 0b01100,
+    .type_upper = 0,
+    .present = true,
+    .dpl = 0,
+    ._reserved0 = 0,
+    ._reserved1 = 0,
+    ._reserved2 = 0,
+  };
+
+  return true;
+}
+
+bool sva_launch_ap(uint32_t apic_id, uintptr_t start_page,
+                   init_fn init, void* stack)
+{
+  if (start_page >= 0x100000UL /* 1MB */) {
+    printf("SVA: WARNING: AP start page address (0x%lx) "
+           "higher than 1MB limit\n",
+           start_page);
+    return false;
+  }
+  if (start_page & (PG_L1_SIZE - 1)) {
+    printf("SVA: WARNING: AP start page address (0x%lx) not properly aligned\n",
+           start_page);
+    return false;
+  }
+
+  uintptr_t start_page_phys = getPhysicalAddr((void*)start_page);
+  if (start_page_phys != start_page) {
+    printf("SVA: WARNING: AP start page (at 0x%lx) not identity mapped\n",
+           start_page);
+    return false;
+  }
+
+  cr3_t root_pt = get_root_pagetable();
+  if (root_pt >= 0x100000000UL /* 4GB */) {
+    printf("SVA: WARNING: "
+           "Root page table (at 0x%lx) for AP start is higher than 4GB limit\n",
+           root_pt);
+    return false;
+  }
+
+  /*
+   * Take another reference to the root page table on behalf of the processor
+   * we are starting.
+   */
+  frame_take(get_frame_desc(root_pt), PGT_L4);
+
+  /*
+   * TODO: Check and (somehow?) lock the entry mapping the AP startup code.
+   */
+
+  ap_startup_callback = init;
+  ap_startup_stack = stack;
+  ap_startup_ack = false;
+
+  create_startup_region(start_page);
+
+  /*
+   * Send INIT IPI.
+   */
+  printf("SVA: DEBUG: Sending INIT to processor %u\n", apic_id);
+  apic_send_ipi(MAKE_INIT_IPI(apic_id));
+
+  /*
+   * Send de-assert INIT IPI.
+   */
+  apic_send_ipi(MAKE_INIT_DEASSERT_IPI());
+
+  /*
+   * Send Startup IPI.
+   */
+  printf("SVA: DEBUG: Sending startup IPI to processor %u\n", apic_id);
+  apic_send_ipi(MAKE_STARTUP_IPI(apic_id, start_page));
+
+  /*
+   * Wait up to 30 million clocks (about 10ms on most CPUs) for acknowledgement
+   * from the AP.
+   */
+  bool ack = false;
+  unsigned long start = sva_read_tsc();
+  do {
+    if (__atomic_load_n(&ap_startup_ack, __ATOMIC_RELAXED)) {
+      ack = true;
+    } else {
+      __builtin_ia32_pause();
+    }
+  } while (!ack && sva_read_tsc() < start + 30000000);
+
+  if (!ack) {
+    printf("SVA: WARNING: Failed to start CPU %x\n", apic_id);
+  }
+
+  return ack;
 }
