@@ -3,22 +3,13 @@
  *                     The LLVM Compiler Infrastructure
  *
  * This file was developed by the LLVM research group and is distributed under
- * the GNU General Public License Version 2. See the file named COPYING for
- * details.  Note that the code is provided with no warranty.
+ * the University of Illinois Open Source License. See LICENSE.TXT for details.
  *
  * Copyright 2019 The University of Rochester.
  * Copyright 2006-2009 University of Illinois.
  * Portions Copyright 1997 Andi Kleen <ak@muc.de>.
  * Portions Copyright 1997 Linus Torvalds.
  * 
- *===------------------------------------------------------------------------===
- *
- * The code from the Linux kernel was brought in and modified on 2006/05/09.
- * The code was primarily used for its fast strncpy() and strnlen()
- * implementations; the code for handling MMU faults during the memory
- * operations were modified for sva_invokestrncpy() and possibly modified for
- * sva_invokestrnlen().
- *
  *===------------------------------------------------------------------------===
  *
  * This is the code for the SVA Execution Engine that manages invoke/unwind
@@ -235,70 +226,4 @@ size_t sva_invokememset(char* dst, char val, size_t count) {
   invoke_frame_teardown(&frame);
 
   return count - remaining;
-}
-
-uintptr_t sva_invokestrncpy(char* dst, const char* src, size_t count) {
-  /*
-   * NOTE:
-   *  This function contains inline assembly code from the original i386 Linux
-   *  2.4.22 kernel code.  I believe it originates from the
-   *  __do_strncpy_from_user() macro in arch/i386/lib/usercopy.c.
-   */
-
-  /*
-   * TODO:
-   *  It is not clear whether this version will be as fast as the x86_64 version
-   *  in FreeBSD 9.0; this version is an x86_64 port of the original Linux 2.4.22
-   *  code for 32-bit processors.
-   */
-
-  SVA_PROF_ENTER();
-
-  kernel_to_usersva_pcid();
-  /* The invoke frame placed on the stack */
-  struct invoke_frame frame;
-
-  /* Return value */
-  uintptr_t res;
-
-  /* Other variables */
-  uintptr_t __d0, __d1, __d2;
-
-  /*
-   * Determine if there is anything to copy.  If not, then return now.
-   */
-  if (count == 0)
-  {
-    usersva_to_kernel_pcid();
-    SVA_PROF_EXIT_MULTI(invokestrncpy, 1);
-    return 0;
-  }
-
-  invoke_frame_setup(&frame);
-
-  /* Perform the strncpy */
-  stac();
-  __asm__ __volatile__(
-    " leaq 2f(%%rip), %%rbx\n"
-    "0: lodsb\n"
-    " stosb\n"
-    " testb %%al,%%al\n"
-    " jz 1f\n"
-    " decq %1\n"
-    " jnz 0b\n"
-    " jmp 1f\n"
-    "2: movq $0xffffffffffffffff, %0\n"
-    " jmp 3f\n"
-    "1: subq %1,%0\n"
-    "3:\n"
-    : "=d"(res), "=c"(count), "=&a" (__d0), "=&S" (__d1), "=&D" (__d2)
-    : "i"(0), "0"(count), "1"(count), "3"(src), "4"(dst)
-    : "rbx", "memory");
-  clac();
-
-  invoke_frame_teardown(&frame);
-
-  usersva_to_kernel_pcid();
-  SVA_PROF_EXIT_MULTI(invokestrncpy, 2);
-  return res;
 }

@@ -32,8 +32,6 @@ enum SVA_OS_NAME {
   sva_init_secondary_api,
   sva_iunwind_1_api,
   sva_iunwind_2_api,
-  sva_invokestrncpy_1_api,
-  sva_invokestrncpy_2_api,
   sva_translate_1_api,
   sva_translate_2_api,
   sva_translate_3_api,

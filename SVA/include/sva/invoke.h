@@ -68,16 +68,4 @@ extern size_t sva_invokememcpy(char* dst, const char* src, size_t count);
  */
 size_t sva_invokememset(char* dst, char val, size_t count);
 
-/**
- * Safely copy up to `count` bytes from `src` to `dst`, stoping after the first
- * 0 byte.
- *
- * @param dst   The destination buffer
- * @param src   The source buffer
- * @param count The maximum number of bytes to copy
- * @return      The number of bytes actually copied (not including the
- *              terminator), or -1 if a fault occured.
- */
-extern size_t sva_invokestrncpy(char* dst, const char* src, size_t count);
-
 #endif /* SVA_INVOKE_H */
