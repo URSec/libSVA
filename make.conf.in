@@ -1,3 +1,7 @@
+CPP=clang-cpp
+CC=clang
+CXX=clang++
+
 #
 # Include SVA header files
 #
