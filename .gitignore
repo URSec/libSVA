@@ -27,6 +27,7 @@ SVA/lib/*.d
 SVA/lib/*.o
 SVA/lib/libsva.a
 make.conf
+configure
 config.log
 config.status
 autoconf/autom4te.cache/*
