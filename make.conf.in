@@ -5,4 +5,4 @@ CXX=clang++
 #
 # Include SVA header files
 #
-CPPFLAGS += -I@abs_top_srcdir@/SVA/include
+CPPFLAGS += @sva_hacks_for@ -I@abs_top_srcdir@/SVA/include

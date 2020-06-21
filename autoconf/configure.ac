@@ -102,13 +102,23 @@ AC_ARG_ENABLE(debug-checks,
 dnl Enable Self-Profiling
 AC_ARG_ENABLE(self-profile,
               AS_HELP_STRING([--enable-self-profile],
-                             [Enable self-profiling(default is NO)]),
+                             [Enable self-profiling (default is NO)]),
                              [case "${enableval}" in
                               yes) AC_DEFINE(SVA_SELF_PROFILE) ;;
                               no)  AC_DEFINE(NOSVA_SELF_PROFILE) ;;
                               *)   AC_MSG_ERROR([bad value ${enableval} for --enable-self-profile]) ;;
                              esac],
                              AC_DEFINE(NOSVA_SELF_PROFILE))
+
+AC_ARG_WITH([hacks-for],
+            AS_HELP_STRING([--with-hacks-for],
+                           [Enable hacks for a particular kernel (such as Xen or FreeBSD)]),
+            [case "${withval}" in
+             xen)       AC_SUBST([sva_hacks_for], ["-DXEN"]) ;;
+             freebsd)   AC_SUBST([sva_hacks_for], ["-DFreeBSD"]) ;;
+             *)         AC_MSG_ERROR([bad value ${withval} for --with-hacks-for]) ;;
+             esac],
+            AC_SUBST([sva_hacks_for], []))
 
 dnl
 dnl Specify header files that need to be configured by configure
