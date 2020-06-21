@@ -1,5 +1,4 @@
 #
 # Include SVA header files
 #
-CFLAGS+=-I@abs_top_srcdir@/SVA/include
-
+CPPFLAGS += -I@abs_top_srcdir@/SVA/include
