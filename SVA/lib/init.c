@@ -474,67 +474,24 @@ static void init_fpu(void) {
   xsetbv(xsave_features);
 }
 
-/*
- * Function: init_mpx()
- *
- * Description:
- *  This function initializes the Intel MPX bounds checking registers for use
- *  with software fault isolation (SFI).
- *
- * Notes:
- *  This function will initialize the bounds register so that it contains
- *  the 1 TB direct map, the SVA VM internal memory, and the 512 GB kernel
- *  memory.  This is because the initial SVA implementation puts the SVA VM
- *  internal memory between the direct map and the kernel memory.  Therefore,
- *  this configuration will allow us to measure performance but will not
- *  actually protect SVA VM memory; we need to move SVA internal memory so
- *  that it does not sit between two regions of memory which the kernel needs
- *  to access.
+/**
+ * Initialize the Intel MPX bounds checking registers for use with software
+ * fault isolation (SFI).
  */
-static void
-init_mpx (void) {
+static void init_mpx(void) {
 #ifdef MPX
-
-  unsigned long cr4;
+  /*
+   * Enable bounds checking for kernel mode code.  We enable the
+   * bndEnable bit to enable bounds checking and the bndPreserve bit to
+   * ensure that control flow instructions do not clear the bounds registers.
+   */
+  wrmsr(MSR_IA32_BNDCFGS, BNDCFG_BNDENABLE | BNDCFG_BNDPRESERVE);
 
   /*
-   * Only configure MPX if we are configured to do so.
+   * Initialize the bounds registers for SFI.
    */
-  if (usempx) {
-    /*
-     * Enable the OSXSAVE feature in CR4.  This is needed to enable MPX.
-     */
-    write_cr4(read_cr4() | CR4_OSXSAVE);
-
-    /*
-     * Enable the XCR0.BNDREG and XCR0.BNDCSR bits in XCR0.  We must also
-     * enable XCR0.X87 to prevent a general protection fault.
-     */
-    __asm__ __volatile__ ("xgetbv\n"
-                          "orq %1, %%rax\n"
-                          "xsetbv\n"
-                          :
-                          : "c" (0), "i" (XCR0_BNDREG | XCR0_BNDCSR | XCR0_X87)
-                          : "%rax", "%rdx");
-
-    /*
-     * Enable bounds checking for kernel mode code.  We enable the
-     * bndEnable bit to enable bounds checking and the bndPreserve bit to
-     * ensure that control flow instructions do not clear the bounds registers.
-     */
-    wrmsr(MSR_IA32_BNDCFGS, BNDCFG_BNDENABLE | BNDCFG_BNDPRESERVE);
-
-    /*
-     * Load bounds information for kernel memory into the first bounds register
-     * (BND0).
-     */
-    __asm__ __volatile__ ("bndmk (%0,%1), %%bnd0\n"
-                          :
-                          : "a" (KERNELBASE), "d" (KERNELSIZE));
-
-  }
+  mpx_bnd_init();
 #endif
-  return;
 }
 
 /*
