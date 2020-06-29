@@ -85,42 +85,42 @@ typedef struct sva_icontext {
   /**
    * Whether the interrupt context is valid (can be returned to).
    */
-  bool valid: 1;                // 0x00
-  bool can_fork: 1;             // 0x00
+  bool valid: 1;
+  bool can_fork: 1;
 
   /* Segment bases */
-  uint64_t fsbase;              // 0x08
-  uint64_t gsbase;              // 0x10
+  uint64_t fsbase;
+  uint64_t gsbase;
 
-  uint64_t rdi;                 // 0x18
-  uint64_t rsi;                 // 0x20
+  uint64_t rdi;
+  uint64_t rsi;
 
-  uint64_t rax;                 // 0x28
-  uint64_t rbx;                 // 0x30
-  uint64_t rcx;                 // 0x38
-  uint64_t rdx;                 // 0x40
+  uint64_t rax;
+  uint64_t rbx;
+  uint64_t rcx;
+  uint64_t rdx;
 
-  uint64_t r8;                  // 0x48
-  uint64_t r9;                  // 0x50
-  uint64_t r10;                 // 0x58
-  uint64_t r11;                 // 0x60
-  uint64_t r12;                 // 0x68
-  uint64_t r13;                 // 0x70
-  uint64_t r14;                 // 0x78
-  uint64_t r15;                 // 0x80
+  uint64_t r8;
+  uint64_t r9;
+  uint64_t r10;
+  uint64_t r11;
+  uint64_t r12;
+  uint64_t r13;
+  uint64_t r14;
+  uint64_t r15;
 
   /*
    * Keep this register right here.  We'll use it in assembly code, and we
    * place it here for easy saving and recovery.
    */
-  uint64_t rbp;                 // 0x88
+  uint64_t rbp;
 
   /**
    * Error code.
    *
    * Only pushed automatically by some exceptions.
    */
-  uint32_t code;                // 0x90
+  uint32_t code;
 
   /**
    * Hardware trap number.
@@ -128,17 +128,17 @@ typedef struct sva_icontext {
    * We use the upper 32 bits of the error code slot, which are not used by
    * hardware.
    */
-  uint32_t trapno;              // 0x94
+  uint32_t trapno;
 
   /*
    * These values are automagically saved by the x86_64 hardware upon an
    * interrupt or exception.
    */
-  uint64_t rip;                 // 0x98
-  uint16_t cs;                  // 0xa0
-  uint64_t rflags;              // 0xa8
-  uint64_t* rsp;                // 0xb0
-  uint16_t ss;                  // 0xb8
+  uint64_t rip;
+  uint16_t cs;
+  uint64_t rflags;
+  uint64_t* rsp;
+  uint16_t ss;
 } __attribute__ ((aligned (16))) sva_icontext_t;
 
 /*
