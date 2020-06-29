@@ -28,6 +28,7 @@
 #include <sva/invoke.h>
 #include <sva/mmu.h>
 #include <sva/mmu_intrinsics.h>
+#include <sva/mpx.h>
 #include <sva/self_profile.h>
 #include <sva/x86.h>
 #include "thread_stack.h"
@@ -895,6 +896,15 @@ static bool loadThread(struct SVAThread* newThread) {
 
 #ifndef SVA_LAZY_FPU
   xrestore(&new->fpstate.inner);
+
+#ifdef MPX
+  /*
+   * `xrestore` clobbered our MPX bound registers, so reinitialize them for
+   * SFI. No need to worry abount clobbering userspace's bound registers: they
+   * are saved on the interrupt stack and will be restored when we iret.
+   */
+  mpx_bnd_init();
+#endif
 #endif
 
   /* We only save the GPRs during a context switch if we are switching kernel

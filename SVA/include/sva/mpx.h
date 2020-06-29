@@ -19,16 +19,26 @@
 
 #include <sva/mmu.h> /* Defines SECMESTART and SECMEMEND */
 
-/* First address of kernel memory */
-static uintptr_t const KERNELBASE = SECMEMEND - SECMEMSTART;
-static uintptr_t const KERNELSIZE = (0xffffffffffffffffu - KERNELBASE);
-
 /* Bits to configure the BNDCFGS register */
 static unsigned char BNDCFG_BNDENABLE = (1u << 0);
 static unsigned char BNDCFG_BNDPRESERVE = (1u << 1);
 
 /* ID number of the configuration register for MPX kernel mode code */
 static const unsigned MSR_IA32_BNDCFGS = 0x0d90;
+
+/**
+ * Initialize the bounds registers for SFI.
+ */
+static inline void mpx_bnd_init(void) {
+  asm volatile (
+    "bndmk (%0, %1), %%bnd0"
+    :
+    : "r"(SVADMAPEND - SECMEMSTART), "r"(-1UL));
+  asm volatile (
+    "bndmk (%0, %1), %%bnd1"
+    :
+    : "r"(0UL), "r"(-1UL));
+}
 
 /*
  * Intrinsic for use during development only. Prints MPX registers.

@@ -2288,8 +2288,7 @@ run_vm(unsigned char use_vmresume) {
    */
   wrmsr(MSR_IA32_BNDCFGS, BNDCFG_BNDENABLE | BNDCFG_BNDPRESERVE);
 
-  asm __volatile__ ("bndmk (%0,%1), %%bnd0\n"
-                    : : "a" (KERNELBASE), "d" (KERNELSIZE));
+  mpx_bnd_init();
 
   /* Save guest value of XCR0. */
   asm __volatile__ (
