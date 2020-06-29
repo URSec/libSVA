@@ -19,36 +19,36 @@
 /* Offsets for various fields in the SVA Interrupt Context */
 #define IC_VALID   0x00
 
-#define IC_FSBASE  0x08
-#define IC_GSBASE  0x10
+#define IC_FSBASE  (IC_VALID + 0x8)
+#define IC_GSBASE  (IC_FSBASE + 0x8)
 
-#define IC_RDI     0x18
-#define IC_RSI     0x20
+#define IC_RDI     (IC_GSBASE + 0x8)
+#define IC_RSI     (IC_RDI + 0x8)
 
-#define IC_RAX     0x28
-#define IC_RBX     0x30
-#define IC_RCX     0x38
-#define IC_RDX     0x40
+#define IC_RAX     (IC_RSI + 0x8)
+#define IC_RBX     (IC_RAX + 0x8)
+#define IC_RCX     (IC_RBX + 0x8)
+#define IC_RDX     (IC_RCX + 0x8)
 
-#define IC_R8      0x48
-#define IC_R9      0x50
-#define IC_R10     0x58
-#define IC_R11     0x60
-#define IC_R12     0x68
-#define IC_R13     0x70
-#define IC_R14     0x78
-#define IC_R15     0x80
+#define IC_R8      (IC_RDX + 0x8)
+#define IC_R9      (IC_R8 + 0x8)
+#define IC_R10     (IC_R9 + 0x8)
+#define IC_R11     (IC_R10 + 0x8)
+#define IC_R12     (IC_R11 + 0x8)
+#define IC_R13     (IC_R12 + 0x8)
+#define IC_R14     (IC_R13 + 0x8)
+#define IC_R15     (IC_R14 + 0x8)
 
-#define IC_RBP     0x88
+#define IC_RBP     (IC_R15 + 0x8)
 
-#define IC_CODE    0x90
-#define IC_TRAPNO  0x94
+#define IC_CODE    (IC_RBP + 0x8)
+#define IC_TRAPNO  (IC_CODE + 0x4)
 
-#define IC_RIP     0x98
-#define IC_CS      0xa0
-#define IC_RFLAGS  0xa8
-#define IC_RSP     0xb0
-#define IC_SS      0xb8
+#define IC_RIP     (IC_TRAPNO + 0x4)
+#define IC_CS      (IC_RIP + 0x8)
+#define IC_RFLAGS  (IC_CS + 0x8)
+#define IC_RSP     (IC_RFLAGS + 0x8)
+#define IC_SS      (IC_RSP + 0x8)
 
 /* Size of the interrupt context */
 #define IC_SIZE    (IC_SS + 0x8)
