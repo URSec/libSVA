@@ -24,6 +24,7 @@
 #include <sva/asmconfig.h>
 #include <sva/asm-macros.h>
 #include <sva/cr.h>
+#include <sva/secmem.h>
 
 .macro _TRAP name:req trapnum:req paranoid:req needsPushErrorCode:req
 ENTRY(\name)
@@ -144,18 +145,26 @@ ENTRY(Trap)
   /* Flag the interrupt context as valid */
   pushq $1
 
+#ifdef MPX
+  /* Save the MPX bound registers */
+  subq $0x20, %rsp
+  bndmov %bnd0, (%rsp)
+  bndmov %bnd1, 0x10 (%rsp)
+
+  /* Reset the MPX bounds register for SFI checks */
+  movabsq $SVADMAPEND - SECMEMSTART, %rax
+  movq $-1, %rdx
+  bndmk (%rax,%rdx), %bnd0
+
+  xor %eax, %eax
+  bndmk (%rax, %rdx), %bnd1
+#endif
+
   testq $0x3, IC_CS(%rsp)
   jz 1f
   /* We came from user space: switch to the kernel %gs.base */
   swapgs
 1:
-
-#ifdef MPX
-  /* Reset the MPX bounds register for SFI checks */
-  movabsq $412316860416, %rax     # imm = 0x6000000000
-  movabsq $-412316860417, %rdx    # imm = 0xFFFFFF9FFFFFFFFF
-  bndmk (%rax,%rdx), %bnd0
-#endif
 
   movq %gs:TLS_CPUSTATE, %rbp
 
@@ -312,6 +321,12 @@ ENTRY(sva_iret)
   movq CPU_TSSP(%rbp), %rbx
   addq $IC_SIZE, TSS_IST3(%rbx)
 
+#ifdef MPX
+  /* Restore the MPX bound registers */
+  bndmov IC_BND0(%rsp), %bnd0
+  bndmov IC_BND1(%rsp), %bnd1
+#endif
+
   /*
    * We need access to the TLS to determine if the application is ghosting, so
    * we delay restoring %gs.base until after the cache partition switch.
@@ -455,18 +470,26 @@ ENTRY(TrapParanoid)
   /* Flag the interrupt context as valid */
   pushq $1
 
+#ifdef MPX
+  /* Save the MPX bound registers */
+  subq $0x20, %rsp
+  bndmov %bnd0, (%rsp)
+  bndmov %bnd1, 0x10 (%rsp)
+
+  /* Reset the MPX bounds register for SFI checks */
+  movabsq $SVADMAPEND - SECMEMSTART, %rax
+  movq $-1, %rdx
+  bndmk (%rax,%rdx), %bnd0
+
+  xor %eax, %eax
+  bndmk (%rax, %rdx), %bnd1
+#endif
+
   /* Load the TLS pointer from the bottom of the stack */
   movq $-PERCPU_REGION_SIZE, %rax
   andq %rsp, %rax
   movq (PERCPU_REGION_SIZE - 8)(%rax), %rax
   wrgsbase %rax
-
-#ifdef MPX
-  /* Reset the MPX bounds register for SFI checks */
-  movabsq $412316860416, %rax     # imm = 0x6000000000
-  movabsq $-412316860417, %rdx    # imm = 0xFFFFFF9FFFFFFFFF
-  bndmk (%rax,%rdx), %bnd0
-#endif
 
   movq %gs:TLS_CPUSTATE, %rbp
 
@@ -574,6 +597,12 @@ ENTRY(TrapParanoid)
   movq CPU_TSSP(%rbp), %rax
   movq TSS_IST3(%rax), %rax
   movq %rax, CPU_NEWIC(%rbp)
+
+#ifdef MPX
+  /* Restore the MPX bound registers */
+  bndmov IC_BND0(%rsp), %bnd0
+  bndmov IC_BND1(%rsp), %bnd1
+#endif
 
   /*
    * We need access to the TLS to determine if the application is ghosting, so

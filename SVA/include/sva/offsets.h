@@ -17,7 +17,18 @@
 #define _OFFSETS_H
 
 /* Offsets for various fields in the SVA Interrupt Context */
+#ifdef MPX
+
+#define IC_BND0    0x00
+#define IC_BND1    (IC_BND0 + 0x10)
+
+#define IC_VALID   (IC_BND1 + 0x10)
+
+#else
+
 #define IC_VALID   0x00
+
+#endif
 
 #define IC_FSBASE  (IC_VALID + 0x8)
 #define IC_GSBASE  (IC_FSBASE + 0x8)

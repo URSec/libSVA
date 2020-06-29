@@ -82,6 +82,12 @@ struct invoke_frame {
  *     words.
  */
 typedef struct sva_icontext {
+#ifdef MPX
+  /* Bound registers */
+  mpx_bndreg bnd0;
+  mpx_bndreg bnd1;
+#endif
+
   /**
    * Whether the interrupt context is valid (can be returned to).
    */
