@@ -19,6 +19,7 @@
 #include <sva/types.h>
 #include <sva/callbacks.h>
 #include <sva/config.h>
+#include <sva/fpu.h>
 #include <sva/state.h>
 #include <sva/icontext.h>
 #include <sva/interrupt.h>
@@ -1636,14 +1637,7 @@ sva_print_mpx_regs(void) {
 
   /* Store XCR0 into memory. */
   uint64_t xcr0;
-  asm __volatile__ (
-      "xgetbv\n"
-      "shlq $32, %%rdx\n"
-      "orq %%rdx, %%rax\n"
-      : "=a" (xcr0)
-      : "c" (0 /* XCR number to read */)
-      : "rax", "rdx"
-      );
+  xcr0 = xgetbv();
 
   printf("MPX bounds registers:\n");
   printf("BND0: 0x%lx-0x%lx\tBND1: 0x%lx-0x%lx\n",

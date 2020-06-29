@@ -1793,14 +1793,7 @@ run_vm(unsigned char use_vmresume) {
 #if 0
   DBGPRNT(("Saving host XCR0...\n"));
 #endif
-  asm __volatile__ (
-      "xgetbv\n"
-      "shlq $32, %%rdx\n"
-      "orq %%rdx, %%rax\n"
-      : "=a" (host_state.xcr0)
-      : "c" (0 /* XCR number to read */)
-      : "rax", "rdx"
-      );
+  host_state.xcr0 = xgetbv();
 #if 0
   DBGPRNT(("Host XCR0 saved: 0x%lx\n", host_state.xcr0));
 #endif
@@ -1827,12 +1820,7 @@ run_vm(unsigned char use_vmresume) {
   DBGPRNT(("Loading guest XCR0 = 0x%lx...\n",
         host_state.active_vm->state.xcr0));
 #endif
-  asm __volatile__ (
-      "xsetbv\n"
-      : : "c" (0 /* XCR number to write */),
-          "a" (host_state.active_vm->state.xcr0),
-          "d" (host_state.active_vm->state.xcr0 >> 32)
-      );
+  xsetbv((uint32_t)host_state.active_vm->state.xcr0);
 #endif /* #ifdef MPX */
 
   /*
@@ -2291,22 +2279,10 @@ run_vm(unsigned char use_vmresume) {
   mpx_bnd_init();
 
   /* Save guest value of XCR0. */
-  asm __volatile__ (
-      "xgetbv\n"
-      "shlq $32, %%rdx\n"
-      "orq %%rdx, %%rax\n"
-      : "=a" (host_state.active_vm->state.xcr0)
-      : "c" (0 /* XCR number to read */)
-      : "rax", "rdx"
-      );
+  host_state.active_vm->state.xcr0 = xgetbv();
 
   /* Restore host value of XCR0. */
-  asm __volatile__ (
-      "xsetbv\n"
-      : : "c" (0 /* XCR number to write */),
-          "a" (host_state.xcr0),
-          "d" (host_state.xcr0 >> 32)
-      );
+  xsetbv((uint32_t)host_state.xcr0);
 #endif
 
   /* Clear the TS flag to avoid a fptrap */
