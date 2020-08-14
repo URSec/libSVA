@@ -107,6 +107,24 @@ bool sva_load_segment(enum sva_segment_register reg, uintptr_t val) {
     return false;
   }
 
+  /*
+   * Check that the selector is for user-mode (has its RPL = 3).
+   */
+  switch (reg) {
+  case SVA_SEG_CS:
+  case SVA_SEG_SS:
+  case SVA_SEG_DS:
+  case SVA_SEG_ES:
+  case SVA_SEG_FS:
+  case SVA_SEG_GS:
+    if ((val & 0x3) != 0x3) {
+      usersva_to_kernel_pcid();
+      return false;
+    }
+  default:
+    break;
+  }
+
   uint64_t rflags = sva_enter_critical();
 
   bool success = load_segment(reg, val, false);
