@@ -719,18 +719,10 @@ static void save_user_segments(sva_integer_state_t* state) {
 static bool load_user_segments(sva_integer_state_t* state) {
   bool success = true;
 
-  if (state->ds != 0) {
-    success &= load_segment(SVA_SEG_DS, state->ds, true);
-  }
-  if (state->es != 0) {
-    success &= load_segment(SVA_SEG_ES, state->es, true);
-  }
-  if (state->fs != 0) {
-    success &= load_segment(SVA_SEG_FS, state->fs, true);
-  }
-  if (state->gs != 0) {
-    success &= load_segment(SVA_SEG_GS, state->gs, true);
-  }
+  success &= load_segment(SVA_SEG_DS, state->ds, true);
+  success &= load_segment(SVA_SEG_ES, state->es, true);
+  success &= load_segment(SVA_SEG_FS, state->fs, true);
+  success &= load_segment(SVA_SEG_GS, state->gs, true);
 
   return success;
 }
