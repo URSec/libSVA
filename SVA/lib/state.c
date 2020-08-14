@@ -600,11 +600,6 @@ bool load_segment(enum sva_segment_register reg, uintptr_t val,
   bool res;                                                                   \
                                                                               \
   /*                                                                          \
-   * Force the segment's RPL to 3 (user mode).                                \
-   */                                                                         \
-  val |= 3;                                                                   \
-                                                                              \
-  /*                                                                          \
    * Set up the exception frame.                                              \
    */                                                                         \
   struct invoke_frame frame;                                                  \
