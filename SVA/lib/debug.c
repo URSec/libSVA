@@ -117,7 +117,7 @@ bool sva_load_segment(enum sva_segment_register reg, uintptr_t val) {
   case SVA_SEG_ES:
   case SVA_SEG_FS:
   case SVA_SEG_GS:
-    if ((val & 0x3) != 0x3) {
+    if (val != 0 && (val & 0x3) != 0x3) {
       usersva_to_kernel_pcid();
       return false;
     }
