@@ -49,5 +49,14 @@ typedef void __attribute__((__noreturn__)) (*init_fn)(void);
 
 extern bool sva_launch_ap(uint32_t apic_id, uintptr_t start_page,
                           init_fn init, void* stack);
+
+/**
+ * Register SVA's syscall handler.
+ *
+ * Called by sva_init_primary(), sva_init_primary_xen(), and
+ * sva_init_secondary_xen() during boot; and by run_vm() (downstream of
+ * sva_runvm()) to restore the SYSCALL MSRs after VM exits.
+ */
+void register_syscall_handler(void);
 #endif /* SVA_INIT_H */
 

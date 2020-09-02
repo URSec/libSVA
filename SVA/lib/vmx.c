@@ -19,6 +19,7 @@
 #include <sva/mmu.h>
 #include <sva/mpx.h>
 #include <sva/config.h>
+#include <sva/init.h> // for register_syscall_handler()
 
 #include "icat.h"
 
@@ -395,10 +396,33 @@ check_cr4_fixed_bits(void) {
 unsigned char
 sva_initvmx(void) {
   if (sva_vmx_initialized) {
+#ifndef XEN
     DBGPRNT(("Kernel called sva_initvmx(), but SVA's VMX support was "
              "already initialized. sva_initvmx() will return without "
              "doing anything.\n"));
     return 1;
+#else
+    /* FIXME: special-casing this for Xen is a hack for incremental porting.
+     * Shade doesn't support SMP yet so it doesn't understand that
+     * sva_initvmx() needs to be called more than once (per-CPU).
+     *
+     * It's actually harmless for Xen to call this function more than once,
+     * *so long as* it's only called once *on each CPU*. In fact, it should
+     * actually fail "cleanly" even if Xen were to call it a second time on
+     * the same CPU: VMXON would fail, which would lead to this function
+     * returning an error code farther down. The only bad consequence from
+     * SVA's perspective would be that the VMXON frame from the secmem frame
+     * cache will get leaked (but at that point the system has bigger
+     * problems since Xen shouldn't have called it twice on one CPU).
+     *
+     * Obviously, until we actually add SMP support to the Shade intrinsics,
+     * actually attempting to *use* any of SVA's VMX functionality would be
+     * hazardous at best (races galore). But we do need to at least do VMXON
+     * for each CPU to prevent Xen from freaking out when it tries to do
+     * not-yet-SVA-ported VMX operations thereafter.
+     */
+    DBGPRNT(("SVA: sva_initvmx() called for a secondary CPU.\n"));
+#endif
   }
 
   /* Zero-initialize the array of virtual machine descriptors.
@@ -618,6 +642,11 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
   /*
    * Ensure that the inputs are mapped and accessible.  If they are not, then
    * trap here.
+   *
+   * FIXME: we should really be using sva_check_buffer() here, since these
+   * are untrusted buffers. We need to check for security and not just
+   * accessibility, otherwise the system software could trick SVA by passing
+   * it pointers into secure memory.
    */
   /* FIXME: for now, skip this when building for Xen. At this stage in the
    * port we are expecting Xen to pass null pointers for these. */
@@ -951,6 +980,11 @@ sva_loadvm(int vmid) {
   /* Set the indicated VM as the active one. */
   host_state.active_vm = &vm_descs[vmid];
 
+  /* FIXME: disabled for incremental porting of Xen to Shade. Currently Xen
+   * is still responsibile for loading/unloading the VMCS and setting/reading
+   * most VMCS fields.
+   */
+#ifndef XEN
   /*
    * Use the VMPTRLD instruction to make the indicated VM's VMCS active on
    * the processor.
@@ -980,6 +1014,7 @@ sva_loadvm(int vmid) {
     sva_exit_critical(rflags);
     return -1;
   }
+#endif
 
   /*
    * If this is the first time this VMCS has been loaded, write the initial
@@ -1039,6 +1074,17 @@ sva_loadvm(int vmid) {
     writevmcs_unchecked(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
 
     /*
+     * FIXME: temporarily disabled during incremental port of Xen's VMX code
+     * to Shade.
+     *
+     * These likely collide with Xen's use of the MSR-load/store feature, and
+     * since we are, at present, calling sva_loadvm() directly before VM
+     * entry, these will override Xen's not-yet-ported (but functionally
+     * correct) settings of these VMCS fields which would've happened earlier
+     * prior to VM entry.
+     */
+#ifndef XEN
+    /*
      * Set VM-entry/exit MSR load/store counts to 0 to indicate that we will
      * not use the general-purpose MSR save/load feature.
      *
@@ -1048,7 +1094,28 @@ sva_loadvm(int vmid) {
     writevmcs_unchecked(VMCS_VM_ENTRY_MSR_LOAD_COUNT, 0);
     writevmcs_unchecked(VMCS_VM_EXIT_MSR_LOAD_COUNT, 0);
     writevmcs_unchecked(VMCS_VM_EXIT_MSR_STORE_COUNT, 0);
+#endif
 
+    /*
+     * FIXME: temporarily disabled during incremental port of Xen's VMX code
+     * to Shade.
+     *
+     * Currently Xen is still handling all VMCS control fields itself, so it
+     * is passing null pointers to sva_allocvm() for initial_ctrls and
+     * initial_state, and sva_allocvm() currently has the code disabled that
+     * would actually copy those into the VM descriptor. Thus SVA would just
+     * be loading 0's into the VMCS fields - which won't pass muster with the
+     * security checks in writevmcs_checked().
+     *
+     * (Hilariously enough, it apparently works fine with the checks
+     * disabled. I'm a little surprised the processor didn't complain about
+     * having 0's fed into a bunch of VMCS control fields with lots of bits
+     * with complicated default settings...)
+     *
+     * Ditto for the call to save_restore_guest_state(), since initial_state
+     * is also uninitialized.
+     */
+#ifndef XEN
     /*
      * Load the initial values of VMCS controls that were passed to
      * sva_allocvm() when this VM was created.
@@ -1066,6 +1133,21 @@ sva_loadvm(int vmid) {
      * errors cleanly
      */
     save_restore_guest_state(0 /* this is a "restore" operation */);
+#else
+    /* Silence unused-function warnings */
+    (void)update_vmcs_ctrls;
+    (void)save_restore_guest_state;
+
+    /*
+     * Initialize the guest's XSAVE area so that we won't #GP when trying to
+     * load it.
+     *
+     * FIXME: Normally we would initialize it with contents passed by Xen to
+     * sva_allocvm(), but at this stage in the port Xen is just passing a
+     * null pointer for initial_state.
+     */
+    xinit(&host_state.active_vm->state.fp.inner);
+#endif
 
     /*
      * Mark that we've initialized these fields so we don't try to do this
@@ -1127,6 +1209,11 @@ sva_unloadvm(void) {
     }
   }
 
+  /* FIXME: disabled for incremental porting of Xen to Shade. Currently Xen
+   * is still responsible for loading/unloading the VMCS and setting/reading
+   * most VMCS fields.
+   */
+#ifndef XEN
   /* Use the VMCLEAR instruction to unload the current VM from the processor.
    */
   DBGPRNT(("Using VMCLEAR to unload VMCS with address 0x%lx from the "
@@ -1160,6 +1247,14 @@ sva_unloadvm(void) {
     sva_exit_critical(rflags);
     return -1;
   }
+#else
+  /* FIXME: temporary: although we've currently disabled the code that does
+   * the actual unload since Xen is still responsible for that, we still need
+   * to maintain SVA's internal metadata as though we had done the unload.
+   */
+  host_state.active_vm->is_launched = 0;
+  host_state.active_vm = 0;
+#endif /* end #ifndef XEN */
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -1385,6 +1480,24 @@ sva_launchvm(void) {
     }
   }
 
+  /* FIXME: disabled during incremental port of Xen. Right now Xen is
+   * responsible for loading/unloading the VMCS, and it is calling
+   * sva_loadvmcs()/sva_unloadvmcs() immediately around VM entry/exit simply
+   * to keep SVA's metadata remotely sane. This means Xen "knows something SVA
+   * doesn't" about when it's appropriate to use VMLAUNCH vs. VMRESUME. For
+   * now, then, we must disable this check so that SVA doesn't wig out when
+   * Xen tries to use the "wrong" instruction.
+   *
+   * (This is not a security hole in any case; the worst that'll happen is
+   * that VM entry will fail on the processor, ultimately leading to a
+   * still-clean failure being returned from this intrinsic. I'm of two minds
+   * on whether we should even have this check in the first place.
+   * Ultimately, I'd like to unify sva_launchvm() and sva_resumevm() into a
+   * single sva_runvm() intrinsic where SVA decides on its own which assembly
+   * instruction to use, and in fact that's how we presented it in the VEE
+   * '19 paper.)
+   */
+#ifndef XEN
   /* If the VM has been launched before since being loaded onto the
    * processor, the sva_resumevm() intrinsic must be used instead of this
    * one.
@@ -1399,6 +1512,7 @@ sva_launchvm(void) {
       return -1;
     }
   }
+#endif
 
   /* Mark the VM as launched. Until this VM is unloaded from the processor,
    * future entries to it must be performed using the sva_resumevm()
@@ -1493,6 +1607,11 @@ sva_resumevm(void) {
     }
   }
 
+  /* FIXME: disabled during incremental port of Xen. (See similar case in
+   * sva_launchvm() for an extensive comment explaining why this is currently
+   * necessary.)
+   */
+#ifndef XEN
   /* If the VM has not previously been launched at least once since being
    * loaded onto the processor, the sva_launchvm() intrinsic must be used
    * instead of this one.
@@ -1507,6 +1626,7 @@ sva_resumevm(void) {
       return -1;
     }
   }
+#endif
 
   /* Enter guest-mode execution (which will ultimately exit back into host
    * mode and return us here).
@@ -1581,6 +1701,8 @@ sva_resumevm(void) {
  */
 static int
 run_vm(unsigned char use_vmresume) {
+  /* FIXME: temporarily disabled during incremental port of Xen */
+#ifndef XEN
   /*
    * Load the VM's extended page table pointer (EPTP) from the VM descriptor.
    *
@@ -1592,6 +1714,7 @@ run_vm(unsigned char use_vmresume) {
    * to a valid top-level extended page table.
    */
   writevmcs_unchecked(VMCS_EPT_PTR, host_state.active_vm->eptp);
+#endif
 
   /*
    * Set the host-state-object fields to recognizable nonsense values so that
@@ -1777,7 +1900,17 @@ run_vm(unsigned char use_vmresume) {
   DBGPRNT(("run_vm: Saved host TR base.\n"));
 #endif
 
-  /* Various MSRs */
+  /* SYSENTER MSRs */
+  /*
+   * FIXME: SVA always sets the SYSENTER MSRs to 0 since it does not support
+   * that syscall mechanism (SYSCALL being preferred in 64-bit mode); we can
+   * optimize here by just setting these three VMCS fields to 0 when we're
+   * initializing the rest of the "set-and-forget" fields the first time
+   * sva_loadvm() is called for this VMCS. That'll allow us to save three
+   * WRMSRs and three VMCS writes. (Not sure if that'll make much of a
+   * performance difference, but this is on the critical path for VM-exit
+   * handling so it's probably a good idea.)
+   */
   uint64_t ia32_sysenter_cs = rdmsr(MSR_SYSENTER_CS);
   writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_CS, ia32_sysenter_cs);
   uint64_t ia32_sysenter_esp = rdmsr(MSR_SYSENTER_ESP);
@@ -1785,10 +1918,79 @@ run_vm(unsigned char use_vmresume) {
   uint64_t ia32_sysenter_eip = rdmsr(MSR_SYSENTER_EIP);
   writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
 #if 0
-  DBGPRNT(("Saved various host MSRs.\n"));
+  DBGPRNT(("Saved host SYSENTER MSRs.\n"));
 #endif
 
+  /*
+   * We've now saved all the host state fields that the processor restores
+   * atomically from the VMCS on VM exit. From here to VM entry, we save host
+   * and restore guest state that the ISA leaves for the system software to
+   * swap instead of handling atomically as part of entry/exit.
+   */
+
+  /*
+   * Restore guest SYSCALL-handling MSRs. (Unlike the SYSENTER MSRs we just
+   * dealt with above, the processor does *not* handle these atomically as
+   * part of entry/exit. I'm sure somebody at Intel has a good reason for
+   * that...)
+   *
+   * We do *not* need to save the host's values for these because SVA sets
+   * them to constant values at boot and never changes them. On VM exit,
+   * we'll simply restore them to those known values.
+   */
+  wrmsr(MSR_FMASK, host_state.active_vm->state.msr_fmask);
+  wrmsr(MSR_STAR, host_state.active_vm->state.msr_star);
+  wrmsr(MSR_LSTAR, host_state.active_vm->state.msr_lstar);
+  wrmsr(MSR_CSTAR, host_state.active_vm->state.msr_cstar);
+
+  /*
+   * Save host FPU state and Extended Control Register 0 (XCR0).
+   */
+  /*
+   * We will need to clear the TS flag to avoid an FP trap when
+   * saving/restoring FPU state, but we need to save whether TS was enabled
+   * so we can put it back the way it was after VM exit.
+   */
+  unsigned char orig_ts = 1 ? read_cr0() & CR0_TS_OFFSET : 0;
+  /* Clear the TS flag to avoid a fptrap */
+  fpu_enable();
+
+  /*
+   * Save the host FP state. Note that we must do this while the host XCR0 is
+   * still active so that we are saving the correct state components.
+   */
+  xsave(&host_state.fp.inner);
+
+  /*
+   * TODO: save host MPX bounds registers. We must do this here while the
+   * host XCR0 is active since MPX is controlled by XCR0 and the guest might
+   * not have MPX enabled.
+   *
+   * For now we can get away without doing this since only SVA is using MPX
+   * in host mode and we just unconditionally re-set the one bounds register
+   * it cares about after exit.
+   */
+
 #ifdef MPX
+  /*
+   * Restore guest MPX bounds registers. We must do this while the *host's*
+   * XCR0 is active since we need to save/restore these whether or not the
+   * guest has MPX enabled, and the BNDMOV instruction will cause a #UD if
+   * XCR0.MPX is not enabled.
+   */
+  asm __volatile__ (
+      "bndmov %[guest_bnd0], %%bnd0\n"
+      "bndmov %[guest_bnd1], %%bnd1\n"
+      "bndmov %[guest_bnd2], %%bnd2\n"
+      "bndmov %[guest_bnd3], %%bnd3\n"
+      : /* no outputs */
+      : [guest_bnd0] "m" (host_state.active_vm->state.bnd0),
+        [guest_bnd1] "m" (host_state.active_vm->state.bnd1),
+        [guest_bnd2] "m" (host_state.active_vm->state.bnd2),
+        [guest_bnd3] "m" (host_state.active_vm->state.bnd3)
+      );
+#endif /* end #ifdef MPX */
+
   /* Save host Extended Control Register 0 (XCR0) */
 #if 0
   DBGPRNT(("Saving host XCR0...\n"));
@@ -1809,34 +2011,63 @@ run_vm(unsigned char use_vmresume) {
    * be allowed.
    *
    * In this case, I think it's safe to load any value into XCR0, because
-   * we're not using any XSAVE-related instructions between here and VM
-   * entry. The worst that could happen is we get a #GP exception if one of
-   * the reserved bits is set...and if that happens it's the system
-   * software's fault. (A crash isn't a security violation because there are
-   * a thousand ways the system software is free to crash the system if it so
-   * desires.)
+   * we're not using any XSAVE-related instructions between here and VM entry
+   * (except for loading/saving the guest's FPU state). The worst that could
+   * happen is we get a #GP exception if one of the reserved bits is
+   * set...and if that happens it's the system software's fault. (A crash
+   * isn't a security violation because there are a thousand ways the system
+   * software is free to crash the system if it so desires.)
    */
 #if 0
   DBGPRNT(("Loading guest XCR0 = 0x%lx...\n",
         host_state.active_vm->state.xcr0));
 #endif
   xsetbv((uint32_t)host_state.active_vm->state.xcr0);
-#endif /* #ifdef MPX */
+
+  /*
+   * Restore guest FP state. Since the guest's XCR0 is now active, this will
+   * restore exactly the set of X-state components which were saved on the
+   * last VM exit.
+   *
+   * FIXME: we should really be saving/restoring guest state in a way that
+   * includes *all* live X-state components, even the ones that the guest may
+   * not currently have enabled in XCR0. This is necessary to ensure
+   * continuity of FPU state for the guest as guaranteed by the ISA, which
+   * specifies that state corresponding to features disabled in XCR0 remain
+   * untouched unless and until they are re-enabled. Currently, we are only
+   * saving the state components *currently* enabled by the guest, which
+   * means any disabled ones could get clobbered by the host or other guests.
+   *
+   * More importantly, this could be a **SECURITY ISSUE** since it could
+   * result in X-state data leaking from the host or one guest to another. If
+   * the guest doesn't have a feature enabled on VM entry, whatever state was
+   * in place for that feature from the host or another guest remains
+   * untouched. The guest could read that data by enabling that feature. (It
+   * shouldn't be possible for any guest to *corrupt* the host's or another
+   * guest's X-state, though, except of course if that feature is currently
+   * disabled by the host or other VM, which we already covered above in the
+   * discussion of the "clobbering" issue.)
+   *
+   * Probably the correct behavior here is to just unconditionally
+   * save/restore *all* X-state components supported by the processor on
+   * every entry and exit. This could be achieved by temporarily loading a
+   * "maxed-out" XCR0 value, or perhaps by using the XSS MSR to permit XCR0
+   * to be overridden.
+   */
+  xrestore(&host_state.active_vm->state.fp.inner);
 
   /*
    * This is where the magic happens.
    *
    * In this assembly section, we:
-   *	- Save the host's Floating Point Unit (FPU) state to the 
-   *		host_state structure.
-   *
-   *  - Save the host's register state to the host_state structure.
+   *  - Save the host's general-purpose register state to the host_state
+   *    structure.
    *
    *  - Use the VMWRITE instruction to set the RIP and RSP values that will
    *    be loaded by the processor on the next VM exit.
    *
-   *  - Restore the guest's register state from the active VM's
-   *    descriptor (vm_desc_t structure).
+   *  - Restore the guest's general-purpose register state from the active
+   *    VM's descriptor (vm_desc_t structure).
    *
    *  - Execute VMLAUNCH/VMRESUME (as appropriate). This enters guest mode
    *    and runs the VM until an event occurs that triggers a VM exit.
@@ -1854,29 +2085,14 @@ run_vm(unsigned char use_vmresume) {
    *    query_vmx_result() to determine whether the VM entry succeeded (and
    *    thence a VM exit actually occurred).
    *
-   *  - Save the guest's register state.
+   *  - Save the guest's general-purpose register state.
    *
-   *  - Restore the host's register state.
+   *  - Restore the host's general-purpose register state.
    */
 #if 0
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
 #endif
   uint64_t vmexit_rflags, hostrestored_rflags;
-
-  uint64_t cr0_value = read_cr0();
-  
-  /* Save a copy of the TS flag status */
-  unsigned char orig_ts = 1 ? cr0_value & CR0_TS_OFFSET : 0;
-
-  /* Clear the TS flag to avoid a fptrap */
-  fpu_enable();
-
-  /* Save the host FP state */
-  xsave(&host_state.fp.inner);
-
-  /* Restore Guest FP state */
-  xrestore(&host_state.active_vm->state.fp.inner);
-
   asm __volatile__ (
       /* Save host RFLAGS.
        * 
@@ -1997,14 +2213,6 @@ run_vm(unsigned char use_vmresume) {
        */
       "movq %c[active_vm](%%rax), %%rax\n" // RAX <-- active_vm pointer
 
-#ifdef MPX
-      /*** Restore guest MPX bounds registers ***/
-      "bndmov %c[guest_bnd0](%%rax), %%bnd0\n"
-      "bndmov %c[guest_bnd1](%%rax), %%bnd1\n"
-      "bndmov %c[guest_bnd2](%%rax), %%bnd2\n"
-      "bndmov %c[guest_bnd3](%%rax), %%bnd3\n"
-#endif
-
       /*** Restore guest CR2 ***
        *
        * Note: we do not need to save/restore the host CR2 because it should
@@ -2119,14 +2327,6 @@ run_vm(unsigned char use_vmresume) {
       "movq %%cr2, %%rbp\n" // move guest CR2 to temp reg
       "movq %%rbp, %c[guest_cr2](%%rax)\n"
 
-#ifdef MPX
-      /*** Save guest MPX bounds registers ***/
-      "bndmov %%bnd0, %c[guest_bnd0](%%rax)\n"
-      "bndmov %%bnd1, %c[guest_bnd1](%%rax)\n"
-      "bndmov %%bnd2, %c[guest_bnd2](%%rax)\n"
-      "bndmov %%bnd3, %c[guest_bnd3](%%rax)\n"
-#endif
-
 #ifdef SVA_LLC_PART
       /*** Switch back to SVA cache partition for side-channel protection ***
        *
@@ -2222,17 +2422,57 @@ run_vm(unsigned char use_vmresume) {
          [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
          [guest_r15] "i" (offsetof(vm_desc_t, state.r15)),
          [guest_cr2] "i" (offsetof(vm_desc_t, state.cr2))
-#ifdef MPX
-         ,
-         [guest_bnd0] "i" (offsetof(vm_desc_t, state.bnd0)),
-         [guest_bnd1] "i" (offsetof(vm_desc_t, state.bnd1)),
-         [guest_bnd2] "i" (offsetof(vm_desc_t, state.bnd2)),
-         [guest_bnd3] "i" (offsetof(vm_desc_t, state.bnd3))
-#endif
       : "memory", "cc"
       );
 
+  /*
+   * Save guest FPU state. This must be done while the guest's XCR0 is still
+   * active to ensure we are saving the correct set of X-state components.
+   *
+   * FIXME: as detailed above where we're loading this prior to entry, we are
+   * not correctly handling state components corresponding to X-features that
+   * the guest currently has *disabled* (which, per the ISA, should remain
+   * intact until the guest might again re-enable them).
+   */
+  /* Clear the TS flag to avoid an FP trap when we execute XSAVE. */
+  fpu_enable();
+  /* Save guest FPU state. */
+  xsave(&host_state.active_vm->state.fp.inner);
+
+  /* Save guest value of XCR0. */
+  host_state.active_vm->state.xcr0 = xgetbv();
+
+  /* Restore host value of XCR0. */
+  xsetbv(host_state.xcr0);
+
+  /* Restore host FPU state. */
+  xrestore(&host_state.fp.inner);
+
+  /* Restore host TS flag if it was set before entry. */
+  if ( orig_ts ) {
+    /* Refetch CR0 in case it's changed */
+    write_cr0(read_cr0() | orig_ts);
+  }
+
 #ifdef MPX
+  /*
+   * Save guest MPX bounds registers. Note, as above when we restored them
+   * before entry, that we must do this while the *host's* XCR0 is active
+   * since we need to save/restore these whether or not the guest has MPX
+   * enabled, and the BNDMOV instruction will cause a #UD if XCR0.MPX is not
+   * enabled.
+   */
+  asm __volatile__ (
+      "bndmov %%bnd0, %[guest_bnd0]\n"
+      "bndmov %%bnd1, %[guest_bnd1]\n"
+      "bndmov %%bnd2, %[guest_bnd2]\n"
+      "bndmov %%bnd3, %[guest_bnd3]\n"
+      : [guest_bnd0] "=m" (host_state.active_vm->state.bnd0),
+        [guest_bnd1] "=m" (host_state.active_vm->state.bnd1),
+        [guest_bnd2] "=m" (host_state.active_vm->state.bnd2),
+        [guest_bnd3] "=m" (host_state.active_vm->state.bnd3)
+      );
+
   /*
    * Save guest's MPX supervisor-mode configuration register (the MSR
    * IA32_BNDCFGS).
@@ -2277,30 +2517,51 @@ run_vm(unsigned char use_vmresume) {
   wrmsr(MSR_IA32_BNDCFGS, BNDCFG_BNDENABLE | BNDCFG_BNDPRESERVE);
 
   mpx_bnd_init();
+#endif /* end #ifdef MPX */
 
-  /* Save guest value of XCR0. */
-  host_state.active_vm->state.xcr0 = xgetbv();
+  /* Save guest SYSCALL-handling MSRs. */
+  host_state.active_vm->state.msr_fmask = rdmsr(MSR_FMASK);
+  host_state.active_vm->state.msr_star = rdmsr(MSR_STAR);
+  host_state.active_vm->state.msr_lstar = rdmsr(MSR_LSTAR);
+  host_state.active_vm->state.msr_cstar = rdmsr(MSR_CSTAR);
 
-  /* Restore host value of XCR0. */
-  xsetbv((uint32_t)host_state.xcr0);
-#endif
-
-  /* Clear the TS flag to avoid a fptrap */
-  fpu_enable();
-
-  /* Save Guest FPU state */
-  xsave(&host_state.active_vm->state.fp.inner);
-
-  /* Restore Host FPU state */
-  xrestore(&host_state.fp.inner);
-
-  /* Restore TS flag */
-  if ( orig_ts ) {
-    /* Refetch CR0 in case it's changed */
-    cr0_value = read_cr0() | orig_ts;
-
-    write_cr0(cr0_value);
-  }
+  /*
+   * Restore host SYSCALL-handling MSRs.
+   *
+   * TODO: save the guest values somewhere and restore them before entry.
+   * Will need to extend interfaces to allow hypervisor to initialize/get/set
+   * these values. Long-term we want to create a general interface for VMX's
+   * MSR save/load feature, which can handle these and (most) any other MSRs
+   * SVA or Xen might care about; but we may be able to move more quickly by
+   * initially handling these MSRs ad-hoc as additions to the guest's
+   * SVA-managed "register" state.
+   *
+   * (If we end up using the MSR save/load feature for these, we shouldn't
+   * need to call register_syscall_handler() any more since that'll just
+   * automatically save/restore the correct values.)
+   *
+   * register_syscall_handler() sets the following MSRs to the values
+   * required for SVA to mediate syscall handling:
+   *  * MSR_FMASK = IF | IOPL(3) | AC | DF | NT | VM | TF | RF
+   *  * MSR_STAR = GSEL(GCODE_SEL, 0) for SYSCALL; SVA_USER_CS_32 for SYSRET
+   *  * MSR_LSTAR = &SVAsyscall
+   *  * MSR_CSTAR = NULL (we don't handle SYSCALL from 32-bit code)
+   * SVA does not support the SYSENTER mechanism, so we set its MSRs to 0:
+   *  * MSR_IA32_SYSENTER_CS = 0
+   *  * MSR_IA32_SYSENTER_EIP = 0
+   *  * MSR_IA32_SYSENTER_ESP = 0
+   *
+   * NOTE: restoring the SYSENTER MSRs here like this is redundant, since
+   * they are actually restored atomically by the CPU as part of VM exit. (We
+   * saved them to the VMCS above before VM entry for this reason.) If we
+   * want to optimize things and avoid doing three superfluous WRMSRs on the
+   * VM-exit critical performance path, we could either copy the four
+   * SYSCALL-specific lines here from register_syscall_handler(), or, if we
+   * want to avoid duplicating code with "magic values" like this (that being
+   * bad software engineering practice), we could factor them out into an
+   * inline function called both here and in register_syscall_handler().
+   */
+  register_syscall_handler();
 
 
   /* Confirm that the operation succeeded. */
@@ -3451,6 +3712,23 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
       retval = vm_descs[vmid].state.cr2;
       break;
 
+    case VM_REG_XCR0:
+      retval = vm_descs[vmid].state.xcr0;
+      break;
+
+    case VM_REG_MSR_FMASK:
+      retval = vm_descs[vmid].state.msr_fmask;
+      break;
+    case VM_REG_MSR_STAR:
+      retval = vm_descs[vmid].state.msr_star;
+      break;
+    case VM_REG_MSR_LSTAR:
+      retval = vm_descs[vmid].state.msr_lstar;
+      break;
+    case VM_REG_MSR_CSTAR:
+      retval = vm_descs[vmid].state.msr_cstar;
+      break;
+
 #ifdef MPX
     case VM_REG_BND0_LOWER:
       retval = vm_descs[vmid].state.bnd0[0];
@@ -3476,10 +3754,7 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
     case VM_REG_BND3_UPPER:
       retval = vm_descs[vmid].state.bnd3[1];
       break;
-    case VM_REG_XCR0:
-      retval = vm_descs[vmid].state.xcr0;
-      break;
-#endif
+#endif /* end #ifdef MPX */
 
     default:
       panic("sva_getvmreg(): Invalid register specified: %d\n", (int) reg);
@@ -3599,6 +3874,23 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
       vm_descs[vmid].state.cr2 = data;
       break;
 
+    case VM_REG_XCR0:
+      vm_descs[vmid].state.xcr0 = data;
+      break;
+
+    case VM_REG_MSR_FMASK:
+      vm_descs[vmid].state.msr_fmask = data;
+      break;
+    case VM_REG_MSR_STAR:
+      vm_descs[vmid].state.msr_star = data;
+      break;
+    case VM_REG_MSR_LSTAR:
+      vm_descs[vmid].state.msr_lstar = data;
+      break;
+    case VM_REG_MSR_CSTAR:
+      vm_descs[vmid].state.msr_cstar = data;
+      break;
+
 #ifdef MPX
     case VM_REG_BND0_LOWER:
       vm_descs[vmid].state.bnd0[0] = data;
@@ -3624,16 +3916,153 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
     case VM_REG_BND3_UPPER:
       vm_descs[vmid].state.bnd3[1] = data;
       break;
-    case VM_REG_XCR0:
-      vm_descs[vmid].state.xcr0 = data;
-      break;
-#endif
+#endif /* end #ifdef MPX */
 
     default:
       panic("sva_setvmreg(): Invalid register specified: %d. "
           "Value that would have been written: 0x%lx\n", (int) reg, data);
       break;
   }
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+}
+
+/*
+ * Intrinsic: sva_getvmfpu()
+ *
+ * Description:
+ *  Gets the current contents of a guest VM's saved FPU (XSAVE) state.
+ *
+ * Parameters:
+ *  - vmid: the numeric handle of the virtual machine whose FPU state is to
+ *          be read.
+ *
+ *  - out_data [OUT-PARAMETER]: a pointer to a caller-owned object of type
+ *          "union xsave_area_max", into which this intrinsic will write the
+ *          FPU state being read.
+ *      NOTE: this pointer cannot be trusted by SVA and must be checked to
+ *      ensure it doesn't point into a protected memory region before SVA
+ *      dereferences it.
+ */
+void
+sva_getvmfpu(int vmid, union xsave_area_max *out_data) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
+  if (usevmx) {
+    if (!sva_vmx_initialized) {
+      panic("Fatal error: must call sva_initvmx() before any other "
+            "SVA-VMX intrinsic.\n");
+    }
+  }
+
+  /*
+   * Bounds check on vmid.
+   *
+   * vmid must be positive and less than MAX_VMS.
+   */
+  if (usevmx) {
+    if (vmid >= MAX_VMS || vmid <= 0) {
+      panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
+    }
+  }
+
+  /*
+   * Note: we don't need to check whether vmid corresponds to a VM that is
+   * actually allocated. See comment in sva_getvmreg() for explanation why.
+   */
+
+  /*
+   * Verify that the out_data pointer provided by the caller doesn't point to
+   * a protected memory region.
+   */
+  sva_check_buffer((uintptr_t)out_data, sizeof(*out_data));
+  /* Sanity check (should be statically optimized away) */
+  SVA_ASSERT(sizeof(*out_data) == sizeof(vm_descs[vmid].state.fp),
+      "Type mismatch between sva_getvmfpu() parameter and VM descriptor "
+      "FPU state object");
+
+  /*
+   * Copy the specified VM's FPU data from its descriptor to the buffer
+   * pointed to by out_data.
+   */
+  memcpy(out_data, &vm_descs[vmid].state.fp, sizeof(vm_descs[vmid].state.fp));
+
+  /* Restore interrupts and return to the kernel page tables. */
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+}
+
+/*
+ * Intrinsic: sva_setvmfpu()
+ *
+ * Description:
+ *  Sets a virtual machine's saved FPU (XSAVE) state to a new value.
+ *
+ * Parameters:
+ *  - vmid: the numeric handle of the virtual machine whose FPU state is to
+ *          be updated.
+ *
+ *  - in_data: a pointer to a caller-owned object of type "union
+ *          xsave_area_max", from which this intrinsic will read the new FPU
+ *          state being set.
+ *      NOTE: this pointer cannot be trusted by SVA and must be checked to
+ *      ensure it doesn't point into a protected memory region before SVA
+ *      dereferences it.
+ */
+void
+sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+
+  if (!sva_vmx_initialized) {
+    panic("Fatal error: must call sva_initvmx() before any other "
+          "SVA-VMX intrinsic.\n");
+  }
+
+  /*
+   * Bounds check on vmid.
+   *
+   * vmid must be positive and less than MAX_VMS.
+   */
+  if (usevmx) {
+    if (vmid >= MAX_VMS || vmid <= 0) {
+      panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
+    }
+  }
+
+  /*
+   * Note: we don't need to check whether vmid corresponds to a VM that is
+   * actually allocated. See comment in sva_setvmreg() for explanation why.
+   */
+
+  /*
+   * Verify that the in_data pointer provided by the caller doesn't point to
+   * a protected memory region.
+   */
+  sva_check_buffer((uintptr_t)in_data, sizeof(*in_data));
+  /* Sanity check (should be statically optimized away) */
+  SVA_ASSERT(sizeof(*in_data) == sizeof(vm_descs[vmid].state.fp),
+      "Type mismatch between sva_setvmfpu() parameter and VM descriptor "
+      "FPU state object");
+
+  /*
+   * Copy the new FPU data from the buffer pointed to by in_data to the
+   * specified VM's descriptor.
+   */
+  memcpy(&vm_descs[vmid].state.fp, in_data, sizeof(vm_descs[vmid].state.fp));
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();

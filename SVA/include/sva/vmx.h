@@ -25,7 +25,7 @@
 #include <sva/state.h>
 
 /* Set this to 1/0 respectively to turn verbose printf's on or off. */
-#define SVAVMX_DEBUG 1
+#define SVAVMX_DEBUG 0
 
 /* Debug print macro to allow verbose printf's to be turned on/off with
  * SVAVMX_DEBUG.
@@ -41,7 +41,7 @@
  *    c-define-macro-for-debug-printing#1644898
  */
 #define DBGPRNT(args) \
-  do { if (SVAVMX_DEBUG) printf("(SVA VMX debug) "); printf args; } while (0)
+  do { if (SVAVMX_DEBUG) { printf("(SVA VMX debug) "); printf args; } } while (0)
 
 /**********
  * Constants and Enumerations
@@ -493,15 +493,13 @@ typedef struct vmx_host_state_t {
   /* Host FP State that needs to be saved/restored across VM entries/exits */
   union xsave_area_max fp;
 
-#ifdef MPX
   /*
    * Extended Control Register 0 (XCR0)
    *
-   * This governs the use of the XSAVE feature and enables/disables MPX
-   * (since MPX is an XSAVE-enabled feature).
+   * This governs the use of processor feature sets controlled by the XSAVE
+   * instruction set. (This includes the FPU instruction sets and MPX.)
    */
   uint64_t xcr0;
-#endif
 } vmx_host_state_t;
 
 /**********

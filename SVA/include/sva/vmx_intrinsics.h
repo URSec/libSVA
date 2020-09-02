@@ -274,13 +274,15 @@ enum sva_vm_reg {
 
   VM_REG_CR2,
 
+  VM_REG_XCR0,
+
+  VM_REG_MSR_FMASK, VM_REG_MSR_STAR, VM_REG_MSR_LSTAR, VM_REG_MSR_CSTAR,
+
 #ifdef MPX
   VM_REG_BND0_LOWER, VM_REG_BND0_UPPER,
   VM_REG_BND1_LOWER, VM_REG_BND1_UPPER,
   VM_REG_BND2_LOWER, VM_REG_BND2_UPPER,
-  VM_REG_BND3_LOWER, VM_REG_BND3_UPPER,
-
-  VM_REG_XCR0
+  VM_REG_BND3_LOWER, VM_REG_BND3_UPPER
 #endif
 };
 
@@ -388,6 +390,7 @@ typedef struct sva_vmx_guest_state {
    * index 1.
    */
   uint64_t bnd0[2], bnd1[2], bnd2[2], bnd3[2];
+#endif
 
   /*
    * Extended Control Register 0 (XCR0)
@@ -396,7 +399,14 @@ typedef struct sva_vmx_guest_state {
    * (since MPX is an XSAVE-enabled feature).
    */
   uint64_t xcr0;
-#endif
+
+  /*
+   * MSRs related to SYSCALL handling
+   *
+   * Unlike the SYSENTER MSRs, these are *not* switched atomically during VM
+   * entry/exit. (I'm sure someone at Intel has a good reason for that...)
+   */
+  uint64_t msr_fmask, msr_star, msr_lstar, msr_cstar;
 
   /*
    **** STATE THAT IS SAVED/RESTORED AUTOMATICALLY BY PROCESSOR
@@ -484,6 +494,8 @@ int sva_launchvm(void);
 int sva_resumevm(void);
 uint64_t sva_getvmreg(int vmid, enum sva_vm_reg reg);
 void sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data);
+void sva_getvmfpu(int vmid, union xsave_area_max *out_data);
+void sva_setvmfpu(int vmid, union xsave_area_max *in_data);
 
 /*
  * VMX-specific MMU intrinsics for managing Extended Page Tables.

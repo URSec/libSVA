@@ -108,11 +108,6 @@ static void init_debug (void);
 extern void init_mmu (void);
 static void init_dispatcher ();
 
-/**
- * Register SVA's syscall handler.
- */
-static void register_syscall_handler(void);
-
 /* Default LLVA interrupt, exception, and system call handlers */
 extern void default_interrupt (unsigned int number, void * icontext);
 
@@ -636,7 +631,7 @@ void sva_init_secondary_xen(void* tss) {
 }
 #endif
 
-static void register_syscall_handler(void) {
+void register_syscall_handler(void) {
   extern void SVAsyscall(void);
 
   wrmsr(MSR_FMASK, EFLAGS_IF | EFLAGS_IOPL(3) | EFLAGS_AC | EFLAGS_DF |
