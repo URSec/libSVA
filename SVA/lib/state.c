@@ -1132,8 +1132,7 @@ bool sva_ialloca(void* data, size_t size, size_t align) {
   return res;
 }
 
-bool sva_ialloca_newstack(uintptr_t stack, uint16_t stack_seg, void* data,
-                          size_t size, size_t align)
+bool sva_ialloca_switch_stack(uintptr_t stack, uint16_t stack_seg)
 {
   SVA_PROF_ENTER();
   kernel_to_usersva_pcid();
@@ -1154,14 +1153,18 @@ bool sva_ialloca_newstack(uintptr_t stack, uint16_t stack_seg, void* data,
    * Check that we aren't trying to set a privileged stack segment.
    */
   if ((stack_seg & 0x3) != 3) {
-    printf("SVA: WARNING: icontext push alignment privileged stack segment\n");
+    printf("SVA: WARNING: icontext stack switch to privileged segment 0x%hx\n",
+           stack_seg);
     goto out;
   }
 
-  if (!ialloca_common((void*)stack, data, size, align)) {
-    goto out;
-  }
-
+  /*
+   * Mark the interrupt context as invalid.  We don't want it to be placed
+   * back on to the processor until an sva_ipush_function() pushes a new stack
+   * frame on to the stack.
+   */
+  icontextp->valid = false;
+  icontextp->rsp = (unsigned long*)stack;
   icontextp->ss = stack_seg;
 
   res = true;
