@@ -500,6 +500,21 @@ typedef struct vmx_host_state_t {
    * instruction set. (This includes the FPU instruction sets and MPX.)
    */
   uint64_t xcr0;
+
+  /*
+   * GS Shadow register
+   *
+   * In a classic example of ISA-minimalism lawyering on Intel's part, they
+   * decided to leave the GS Shadow register - by itself - to be manually
+   * switched between host and guest values by the hypervisor on VM entry and
+   * exit, despite the fact that *every other part* of the segment registers
+   * (including the non-shadow GS Base) corresponds to a field in the VMCS
+   * and is switched automatically by the processor as part of VM entry/exit.
+   *
+   * Thus, we take care of switching GS Shadow in sva_runvm() along with the
+   * GPRs and other non-VMCS-resident control registers/MSRs stored here.
+   */
+  uint64_t gs_shadow;
 } vmx_host_state_t;
 
 /**********

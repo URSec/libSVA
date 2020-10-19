@@ -261,10 +261,12 @@ enum sva_vmcs_field {
  * enumeration - only the ones that SVA needs to load/save on VM entry and
  * exit.
  *
- * Other registers (e.g. some key control registers) are automatically
- * loaded/saved by the processor on VM entry/exit from VMCS fields. Those are
- * identified in the sva_vmcs_field enumeration above and can be accessed
- * directly using the sva_read/writevmcs() intrinsics.
+ * Other registers (e.g. some key control registers, most segment registers,
+ * etc.) are automatically loaded/saved by the processor on VM entry/exit
+ * from VMCS fields. Those registers' values therefore "live" in their
+ * respective VMCS fields and do not need to be tracked separately by SVA.
+ * The respective fields are identified in the sva_vmcs_field enumeration
+ * above and can be accessed using the sva_read/writevmcs() intrinsics.
  */
 enum sva_vm_reg {
   VM_REG_RAX, VM_REG_RBX, VM_REG_RCX, VM_REG_RDX,
@@ -277,6 +279,19 @@ enum sva_vm_reg {
   VM_REG_XCR0,
 
   VM_REG_MSR_FMASK, VM_REG_MSR_STAR, VM_REG_MSR_LSTAR, VM_REG_MSR_CSTAR,
+
+  /*
+   * In a classic example of ISA-minimalism lawyering on Intel's part, they
+   * decided to leave the GS Shadow register - by itself - to be manually
+   * switched between host and guest values by the hypervisor on VM entry and
+   * exit, despite the fact that *every other part* of the segment registers
+   * (including the non-shadow GS Base) corresponds to a field in the VMCS
+   * and is switched automatically by the processor as part of VM entry/exit.
+   *
+   * Thus, we take care of switching GS Shadow in sva_runvm() along with the
+   * GPRs and other non-VMCS-resident control registers/MSRs enumerated here.
+   */
+  VM_REG_GS_SHADOW,
 
 #ifdef MPX
   VM_REG_BND0_LOWER, VM_REG_BND0_UPPER,
@@ -407,6 +422,21 @@ typedef struct sva_vmx_guest_state {
    * entry/exit. (I'm sure someone at Intel has a good reason for that...)
    */
   uint64_t msr_fmask, msr_star, msr_lstar, msr_cstar;
+
+  /*
+   * GS Shadow register
+   *
+   * In a classic example of ISA-minimalism lawyering on Intel's part, they
+   * decided to leave the GS Shadow register - by itself - to be manually
+   * switched between host and guest values by the hypervisor on VM entry and
+   * exit, despite the fact that *every other part* of the segment registers
+   * (including the non-shadow GS Base) corresponds to a field in the VMCS
+   * and is switched automatically by the processor as part of VM entry/exit.
+   *
+   * Thus, we take care of switching GS Shadow in sva_runvm() along with the
+   * GPRs and other non-VMCS-resident control registers/MSRs stored here.
+   */
+  uint64_t gs_shadow;
 
   /*
    **** STATE THAT IS SAVED/RESTORED AUTOMATICALLY BY PROCESSOR

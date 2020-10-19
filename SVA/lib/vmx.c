@@ -1831,10 +1831,50 @@ run_vm(unsigned char use_vmresume) {
    * Segment and descriptor table base-address registers
    */
 
+  /* FIXME: use RD/WRFS/GSBASE instructions to access these instead of the
+   * MSRs, as they seem to be considered faster. SVA has helper functions for
+   * these in util.h; use those instead of inline assembly. */
   uint64_t fs_base = rdmsr(MSR_FS_BASE);
   writevmcs_unchecked(VMCS_HOST_FS_BASE, fs_base);
   uint64_t gs_base = rdmsr(MSR_GS_BASE);
   writevmcs_unchecked(VMCS_HOST_GS_BASE, gs_base);
+
+  /*
+   * Save host and load guest GS Shadow
+   *
+   * In a classic example of ISA-minimalism lawyering on Intel's part, they
+   * decided to leave the GS Shadow register - by itself - to be manually
+   * switched between host and guest values by the hypervisor on VM entry and
+   * exit, despite the fact that *every other part* of the segment registers
+   * (including the non-shadow GS Base) corresponds to a field in the VMCS
+   * and is switched automatically by the processor as part of VM entry/exit.
+   *
+   * Thus, we save this to SVA's host state structure instead of the VMCS,
+   * and load the incoming guest's GS Shadow from its VM descriptor at this
+   * time.
+   *
+   * It seems that the best/fastest way to access the GS Shadow register is
+   * to do SWAPGS, RD/WRGSBASE, and SWAPGS again. The ISA also provides an
+   * MSR for direct access to GS Shadow (alongside the similar MSRs for
+   * direct access to FS/GS Base), but it seems that the double-SWAPGS method
+   * is preferable (probably for performance?), because that's how Xen does
+   * it. (It makes sense that using the RD/WRGSBASE instructions is
+   * substantially faster than RD/WRMSR, otherwise there wouldn't have been
+   * much reason for Intel to introduce those instructions in the first
+   * place.)
+   */
+  asm __volatile__ (
+      "swapgs\n" /* Rotate shadow GS value into active GS Base slot */
+      "rdgsbase %[host_gss]\n"
+      "wrgsbase %[guest_gss]\n"
+      "swapgs\n" /* Rotate the value we loaded back into the shadow slot,
+                  * restoring SVA's GS Base to the main slot (this will be
+                  * replaced by the guest's GS Base from the VMCS during VM
+                  * entry, and on subsequent exit, restored to SVA's value
+                  * which we wrote to the VMCS just above) */
+      : [host_gss] "=&r" (host_state.gs_shadow)
+      : [guest_gss] "r" (host_state.active_vm->state.gs_shadow)
+      );
 
   unsigned char gdtr[10], idtr[10];
   /* The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
@@ -1907,9 +1947,15 @@ run_vm(unsigned char use_vmresume) {
    * optimize here by just setting these three VMCS fields to 0 when we're
    * initializing the rest of the "set-and-forget" fields the first time
    * sva_loadvm() is called for this VMCS. That'll allow us to save three
-   * WRMSRs and three VMCS writes. (Not sure if that'll make much of a
-   * performance difference, but this is on the critical path for VM-exit
-   * handling so it's probably a good idea.)
+   * RDMSRs and three VMCS writes. (Considering that MSR reads/writes seem to
+   * be considered slow operations, and this is on the VM-exit-handling
+   * critical path, this is probably a good idea.)
+   *
+   * FIXME: At the very least, we certainly don't need to be *reading* the
+   * MSRs here, as we can just write constant 0s to them. (I would make this
+   * change right now except that I noticed it in the middle of making other
+   * changes and don't want to change multiple things at once to avoid
+   * debugging complications.)
    */
   uint64_t ia32_sysenter_cs = rdmsr(MSR_SYSENTER_CS);
   writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_CS, ia32_sysenter_cs);
@@ -2551,7 +2597,7 @@ run_vm(unsigned char use_vmresume) {
    *  * MSR_IA32_SYSENTER_EIP = 0
    *  * MSR_IA32_SYSENTER_ESP = 0
    *
-   * NOTE: restoring the SYSENTER MSRs here like this is redundant, since
+   * FIXME: restoring the SYSENTER MSRs here like this is redundant, since
    * they are actually restored atomically by the CPU as part of VM exit. (We
    * saved them to the VMCS above before VM entry for this reason.) If we
    * want to optimize things and avoid doing three superfluous WRMSRs on the
@@ -2562,6 +2608,19 @@ run_vm(unsigned char use_vmresume) {
    * inline function called both here and in register_syscall_handler().
    */
   register_syscall_handler();
+
+  /*
+   * Save guest and restore host GS Shadow
+   */
+  asm __volatile__ (
+      "swapgs\n" /* Rotate shadow GS value into active GS Base slot */
+      "rdgsbase %[guest_gss]\n"
+      "wrgsbase %[host_gss]\n"
+      "swapgs\n" /* Rotate the value we loaded back into the shadow slot,
+                  * restoring SVA's GS Base to the main slot */
+      : [guest_gss] "=&r" (host_state.active_vm->state.gs_shadow)
+      : [host_gss] "r" (host_state.gs_shadow)
+      );
 
 
   /* Confirm that the operation succeeded. */
@@ -3729,6 +3788,10 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
       retval = vm_descs[vmid].state.msr_cstar;
       break;
 
+    case VM_REG_GS_SHADOW:
+      retval = vm_descs[vmid].state.gs_shadow;
+      break;
+
 #ifdef MPX
     case VM_REG_BND0_LOWER:
       retval = vm_descs[vmid].state.bnd0[0];
@@ -3889,6 +3952,10 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
       break;
     case VM_REG_MSR_CSTAR:
       vm_descs[vmid].state.msr_cstar = data;
+      break;
+
+    case VM_REG_GS_SHADOW:
+      vm_descs[vmid].state.gs_shadow = data;
       break;
 
 #ifdef MPX
