@@ -189,7 +189,7 @@ cpu_permit_vmx(void) {
     return 0;
 
   DBGPRNT(("Reading IA32_FEATURE_CONTROL MSR...\n"));
-  uint64_t feature_control_data = rdmsr(FEATURE_CONTROL_MSR);
+  uint64_t feature_control_data = rdmsr(MSR_FEATURE_CONTROL);
   DBGPRNT(("IA32_FEATURE_CONTROL MSR = 0x%lx\n", feature_control_data));
 
   uint64_t feature_control_locked =
@@ -231,10 +231,10 @@ cpu_permit_vmx(void) {
 
   DBGPRNT(("Writing new value of IA32_FEATURE_CONTROL MSR to permit VMX: "
       "0x%lx\n", feature_control_data));
-  wrmsr(FEATURE_CONTROL_MSR, feature_control_data);
+  wrmsr(MSR_FEATURE_CONTROL, feature_control_data);
 
   /* Read back the MSR to confirm this worked. */
-  if (rdmsr(FEATURE_CONTROL_MSR) != feature_control_data) {
+  if (rdmsr(MSR_FEATURE_CONTROL) != feature_control_data) {
     DBGPRNT(("Wrote new value to IA32_FEATURE_CONTROL MSR, but it didn't take.\n"));
     return 0;
   }
