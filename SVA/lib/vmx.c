@@ -2071,6 +2071,26 @@ run_vm(unsigned char use_vmresume) {
   xsetbv((uint32_t)host_state.active_vm->state.xcr0);
 
   /*
+   * Load guest XSS MSR.
+   *
+   * This is the counterpart of XCR0 which controls the subset of extended
+   * state components which are accessible only in supervisor mode. At
+   * present (2020-10-20), there is only one such feature in the ISA ("Trace
+   * Packet Configuration State"), which neither Xen nor SVA cares about
+   * using in host (VMX root) mode; but Xen supports the use of XSS features
+   * by guests, so we need to context-switch it for guests' benefit.
+   *
+   * This needs to happen at the same point in the FPU save/restore logic
+   * flow as loading of XSAVE, since the combination of the two (XCR0 |
+   * XSAVE) controls the selection of state components that are
+   * saved/restored by the XSAVES/XRSTORS instructions.
+   *
+   * We do *not* need to save the host's value of this MSR since we know it
+   * should always be 0.
+   */
+  wrmsr(MSR_XSS, host_state.active_vm->state.msr_xss);
+
+  /*
    * Restore guest FP state. Since the guest's XCR0 is now active, this will
    * restore exactly the set of X-state components which were saved on the
    * last VM exit.
@@ -2097,8 +2117,10 @@ run_vm(unsigned char use_vmresume) {
    * Probably the correct behavior here is to just unconditionally
    * save/restore *all* X-state components supported by the processor on
    * every entry and exit. This could be achieved by temporarily loading a
-   * "maxed-out" XCR0 value, or perhaps by using the XSS MSR to permit XCR0
-   * to be overridden.
+   * "maxed-out" XCR0|XSS value. (Doing so would probably require
+   * enumeration of the processor's supported features to avoid triggering a
+   * fault by setting too many bits. Or we might just hardcode it to match
+   * what our development hardware supports...)
    */
   xrestore(&host_state.active_vm->state.fp.inner);
 
@@ -2485,11 +2507,13 @@ run_vm(unsigned char use_vmresume) {
   /* Save guest FPU state. */
   xsave(&host_state.active_vm->state.fp.inner);
 
-  /* Save guest value of XCR0. */
+  /* Save guest XCR0 and XSS values. */
   host_state.active_vm->state.xcr0 = xgetbv();
+  host_state.active_vm->state.msr_xss = rdmsr(MSR_XSS);
 
-  /* Restore host value of XCR0. */
+  /* Restore host value of XCR0, and clear XSS to 0. */
   xsetbv(host_state.xcr0);
+  wrmsr(MSR_XSS, 0);
 
   /* Restore host FPU state. */
   xrestore(&host_state.fp.inner);
@@ -3774,6 +3798,9 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
     case VM_REG_XCR0:
       retval = vm_descs[vmid].state.xcr0;
       break;
+    case VM_REG_MSR_XSS:
+      retval = vm_descs[vmid].state.msr_xss;
+      break;
 
     case VM_REG_MSR_FMASK:
       retval = vm_descs[vmid].state.msr_fmask;
@@ -3935,6 +3962,9 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
 
     case VM_REG_CR2:
       vm_descs[vmid].state.cr2 = data;
+      break;
+    case VM_REG_MSR_XSS:
+      vm_descs[vmid].state.msr_xss = data;
       break;
 
     case VM_REG_XCR0:

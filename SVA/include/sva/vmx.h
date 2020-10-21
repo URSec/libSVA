@@ -60,7 +60,7 @@
 static const int MAX_VMS = 128;
 
 /* MSRs (non-VMX-related) */
-static const u_int FEATURE_CONTROL_MSR = 0x3a;
+static const u_int FEATURE_CONTROL_MSR = 0x3a; /* FIXME: make naming consistent */
 static const u_int MSR_SYSENTER_CS = 0x174;
 static const u_int MSR_SYSENTER_ESP = 0x175;
 static const u_int MSR_SYSENTER_EIP = 0x176;
@@ -68,6 +68,7 @@ static const u_int MSR_DEBUGCTL = 0x1d9;
 static const u_int MSR_FS_BASE = 0xc0000100;
 static const u_int MSR_GS_BASE = 0xc0000101;
 static const u_int CR0_TS_OFFSET = 0x0000008;
+static const u_int MSR_XSS = 0xda0;
 
 /* VMX-related MSRs */
 /* We are not necessarily using all of these (yet); they're defined here so

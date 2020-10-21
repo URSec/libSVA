@@ -276,7 +276,7 @@ enum sva_vm_reg {
 
   VM_REG_CR2,
 
-  VM_REG_XCR0,
+  VM_REG_XCR0, VM_REG_MSR_XSS,
 
   VM_REG_MSR_FMASK, VM_REG_MSR_STAR, VM_REG_MSR_LSTAR, VM_REG_MSR_CSTAR,
 
@@ -414,6 +414,24 @@ typedef struct sva_vmx_guest_state {
    * (since MPX is an XSAVE-enabled feature).
    */
   uint64_t xcr0;
+
+  /*
+   * XSS MSR (Extended Supervisor State Mask)
+   *
+   * This is the counterpart to XCR0 for XSAVE features which are accessible
+   * only in supervisor mode (i.e., via the XSAVES version of the
+   * instruction).
+   *
+   * As of this writing (2020-10-20), the only such feature is "Trace Packet
+   * Configuration State", which neither SVA nor Xen cares about using in
+   * host (VMX root) mode; however, Xen supports the use of XSS features by
+   * guests, so we must context-switch it in sva_runvm().
+   *
+   * Note that we do *not* need a corresponding field for this in struct
+   * vmx_host_state_t, since the correct value of this MSR for SVA/Xen in
+   * host mode is unconditionally 0.
+   */
+  uint64_t msr_xss;
 
   /*
    * MSRs related to SYSCALL handling
