@@ -1983,11 +1983,21 @@ run_vm(unsigned char use_vmresume) {
    * We do *not* need to save the host's values for these because SVA sets
    * them to constant values at boot and never changes them. On VM exit,
    * we'll simply restore them to those known values.
+   *
+   * (Note: we do not need to worry about CSTAR, as it's only relevant on AMD
+   * platforms. Intel never supported the SYSCALL instruction in 32-bit mode.
+   * Thus, we can get away with just leaving the host's value (0) in place at
+   * all times. This is consistent with how Xen expects CSTAR to work: it
+   * never actually changes CSTAR on the physical hardware, but since it
+   * takes a VM exit on all guest RD/WRMSRs to it, it provides read/write
+   * consistency by keeping track of what the guest thinks its value is in
+   * its own data structures for that guest. Since this MSR has no side
+   * effects on Intel hardware, the guest doesn't know the difference, but
+   * Xen doesn't have to waste time context-switching it.)
    */
   wrmsr(MSR_FMASK, host_state.active_vm->state.msr_fmask);
   wrmsr(MSR_STAR, host_state.active_vm->state.msr_star);
   wrmsr(MSR_LSTAR, host_state.active_vm->state.msr_lstar);
-  wrmsr(MSR_CSTAR, host_state.active_vm->state.msr_cstar);
 
   /*
    * Save host FPU state and Extended Control Register 0 (XCR0).
@@ -2593,7 +2603,6 @@ run_vm(unsigned char use_vmresume) {
   host_state.active_vm->state.msr_fmask = rdmsr(MSR_FMASK);
   host_state.active_vm->state.msr_star = rdmsr(MSR_STAR);
   host_state.active_vm->state.msr_lstar = rdmsr(MSR_LSTAR);
-  host_state.active_vm->state.msr_cstar = rdmsr(MSR_CSTAR);
 
   /*
    * Restore host SYSCALL-handling MSRs.
@@ -2615,7 +2624,12 @@ run_vm(unsigned char use_vmresume) {
    *  * MSR_FMASK = IF | IOPL(3) | AC | DF | NT | VM | TF | RF
    *  * MSR_STAR = GSEL(GCODE_SEL, 0) for SYSCALL; SVA_USER_CS_32 for SYSRET
    *  * MSR_LSTAR = &SVAsyscall
-   *  * MSR_CSTAR = NULL (we don't handle SYSCALL from 32-bit code)
+   *  * MSR_CSTAR = NULL (we don't handle SYSCALL from 32-bit code; this is
+   *                     actually superfluous on Intel hardware as 32-bit
+   *                     SYSCALL support was only ever provided by AMD, but
+   *                     we set this anyway in register_syscall_handler()
+   *                     since that part of SVA, unlike the VMX stuff here,
+   *                     is at least in theory Intel/AMD-agnostic)
    * SVA does not support the SYSENTER mechanism, so we set its MSRs to 0:
    *  * MSR_IA32_SYSENTER_CS = 0
    *  * MSR_IA32_SYSENTER_EIP = 0
@@ -2629,7 +2643,9 @@ run_vm(unsigned char use_vmresume) {
    * SYSCALL-specific lines here from register_syscall_handler(), or, if we
    * want to avoid duplicating code with "magic values" like this (that being
    * bad software engineering practice), we could factor them out into an
-   * inline function called both here and in register_syscall_handler().
+   * inline function called both here and in register_syscall_handler(). We
+   * can also safely skip resetting CSTAR when restoring (as opposed to
+   * initializing on boot) these MSRs.
    */
   register_syscall_handler();
 
@@ -3811,9 +3827,6 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
     case VM_REG_MSR_LSTAR:
       retval = vm_descs[vmid].state.msr_lstar;
       break;
-    case VM_REG_MSR_CSTAR:
-      retval = vm_descs[vmid].state.msr_cstar;
-      break;
 
     case VM_REG_GS_SHADOW:
       retval = vm_descs[vmid].state.gs_shadow;
@@ -3979,9 +3992,6 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
       break;
     case VM_REG_MSR_LSTAR:
       vm_descs[vmid].state.msr_lstar = data;
-      break;
-    case VM_REG_MSR_CSTAR:
-      vm_descs[vmid].state.msr_cstar = data;
       break;
 
     case VM_REG_GS_SHADOW:

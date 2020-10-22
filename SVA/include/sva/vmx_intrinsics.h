@@ -278,7 +278,7 @@ enum sva_vm_reg {
 
   VM_REG_XCR0, VM_REG_MSR_XSS,
 
-  VM_REG_MSR_FMASK, VM_REG_MSR_STAR, VM_REG_MSR_LSTAR, VM_REG_MSR_CSTAR,
+  VM_REG_MSR_FMASK, VM_REG_MSR_STAR, VM_REG_MSR_LSTAR,
 
   /*
    * In a classic example of ISA-minimalism lawyering on Intel's part, they
