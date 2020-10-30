@@ -76,4 +76,25 @@ static inline void SVA_NOOP_ASSERT(int res, char* st) {
   if (!res) res++;
 }
 
+/*
+ * Exit the current intrinsic if a condition doesn't hold.
+ *
+ * Requires that the function's return value be of integer type wide enough to
+ * hold `-(err)` and named `__sva_intrinsic_result`.
+ *
+ * Requires that the label `__sva_fail` be defined and that jumping to it will
+ * perform any necessary cleanup, then return.
+ *
+ * @param cond  The condition to check
+ * @param err   The error code to return to the caller on failure
+ */
+#define SVA_CHECK(cond, err)                                    \
+  do {                                                          \
+    if (!(cond)) {                                              \
+      printf("SVA: DEBUG: %s: Check failed: " #cond, __func__); \
+      __sva_intrinsic_result = -(err);                          \
+      goto __sva_fail;                                          \
+    }                                                           \
+  } while (0)                                                   \
+
 #endif /* SVA_ASSERT_H */
