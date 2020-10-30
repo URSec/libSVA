@@ -24,14 +24,21 @@
 /**
  * Cause a trap and show the execution state (GPRs and call stack).
  *
- * NOTE: Do not use this directly. Consider using `SVA_ASSERT` instead.
- *
  * TODO: Ideally, SVA would handle this, but for now we leave it to the kernel.
  */
 #define BUG()                                   \
   do {                                          \
     __asm__ __volatile__ ("ud2");               \
     __builtin_unreachable();                    \
+  } while (0)
+
+/**
+ * Conditionally cause a trap and show the execution state (GPRs and call
+ * stack).
+ */
+#define BUG_ON(condition)       \
+  do {                          \
+    if ((condition)) { BUG(); } \
   } while (0)
 
 /**
@@ -45,7 +52,7 @@
 #define SVA_ASSERT(cond, msg, ...)              \
   do {                                          \
     if (!(cond)) {                              \
-      printf((msg), ##__VA_ARGS__);  \
+      printf((msg), ##__VA_ARGS__);             \
       BUG();                                    \
     }                                           \
   } while (0)                                   \
