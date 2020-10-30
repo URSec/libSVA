@@ -46,35 +46,38 @@ void sva_icontext_setretval(unsigned long, unsigned long, unsigned char error);
 /**
  * Set the return value of a system call.
  *
- * This may fail if the current interrupt context isn't for a system call.
- *
  * @param ret The syscall return vaule
- * @return    Whether the operation succeeded.
+ * @return    0 on success, or an error code
+ *
+ * Errors:
+ *  EACCES  The current interrupt context is not for a syscall
  */
-bool sva_icontext_setretval(unsigned long ret);
+int sva_icontext_setretval(unsigned long ret);
 
 #endif
 
 /**
  * Set the values of the syscall argument registers.
  *
- * This may fail if the current interrupt context isn't for a system call.
- *
  * @param regs  The values of the argument registers
- * @return      Whether the operation was successful
+ * @return      0 on success, or an error code
+ *
+ * Errors:
+ *  EACCES  The current interrupt context is not for a syscall
  */
-bool sva_icontext_setsyscallargs(uint64_t regs[6]);
+int sva_icontext_setsyscallargs(uint64_t regs[6]);
 
 /**
  * Modify a user-space interrupt context so that it restarts a system call.
  *
  * System call restart is implemented by rewinding `%rip` by 2 bytes.
  *
- * This may fail if the current interrupt context isn't for a system call.
+ * @return  0 on success, or an error code
  *
- * @return  Whether the operation was successful
+ * Errors:
+ *  EACCES  The current interrupt context is not for a syscall
  */
-bool sva_icontext_restart(void);
+int sva_icontext_restart(void);
 
 /* Types for handlers */
 typedef void (*genfault_handler_t)(unsigned int vector);

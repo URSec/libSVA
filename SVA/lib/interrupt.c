@@ -13,6 +13,7 @@
  *===----------------------------------------------------------------------===
  */
 
+#include <sva/assert.h>
 #include <sva/callbacks.h>
 #include <sva/config.h>
 #include <sva/frame_meta.h>
@@ -28,6 +29,8 @@
 #include <sva/x86.h>
 
 #include "thread_stack.h"
+
+#include <errno.h>
 
 /* Debug flags for printing data */
 #define DEBUG       0
@@ -453,7 +456,9 @@ sva_icontext_setretval (unsigned long high,
 
 #else
 
-bool sva_icontext_setretval(unsigned long ret) {
+int sva_icontext_setretval(unsigned long ret) {
+  int __sva_intrinsic_result = 0;
+
   SVA_PROF_ENTER();
   kernel_to_usersva_pcid();
 
@@ -465,26 +470,24 @@ bool sva_icontext_setretval(unsigned long ret) {
   /*
    * Check that this interrupt context is indeed for a syscall.
    */
-  if (ic->trapno != 256) {
-    printf("SVA: WARNING: Set return non-syscall\n");
-    usersva_to_kernel_pcid();
-    SVA_PROF_EXIT(icontext_setretval);
-    return false;
-  }
+  SVA_CHECK(ic->trapno == 256, EACCES);
 
   /*
    * Set the return value.
    */
   ic->rax = ret;
 
+__sva_fail:
   usersva_to_kernel_pcid();
   SVA_PROF_EXIT(icontext_setretval);
-  return true;
+  return __sva_intrinsic_result;
 }
 
 #endif
 
-bool sva_icontext_setsyscallargs(uint64_t regs[6]) {
+int sva_icontext_setsyscallargs(uint64_t regs[6]) {
+  int __sva_intrinsic_result = 0;
+
   SVA_PROF_ENTER();
   kernel_to_usersva_pcid();
 
@@ -496,12 +499,7 @@ bool sva_icontext_setsyscallargs(uint64_t regs[6]) {
   /*
    * Check that this interrupt context is indeed for a syscall.
    */
-  if (ic->trapno != 256) {
-    printf("SVA: WARNING: Set return non-syscall\n");
-    usersva_to_kernel_pcid();
-    SVA_PROF_EXIT(icontext_setretval);
-    return false;
-  }
+  SVA_CHECK(ic->trapno == 256, EACCES);
 
   ic->rdi = regs[0];
   ic->rsi = regs[1];
@@ -510,12 +508,15 @@ bool sva_icontext_setsyscallargs(uint64_t regs[6]) {
   ic->r8 = regs[4];
   ic->r9 = regs[5];
 
+__sva_fail:
   usersva_to_kernel_pcid();
   SVA_PROF_EXIT(icontext_setretval);
-  return true;
+  return __sva_intrinsic_result;
 }
 
-bool sva_icontext_restart(void) {
+int sva_icontext_restart(void) {
+  int __sva_intrinsic_result = 0;
+
   SVA_PROF_ENTER();
   kernel_to_usersva_pcid();
 
@@ -527,12 +528,7 @@ bool sva_icontext_restart(void) {
   /*
    * Check that this interrupt context is indeed for a syscall.
    */
-  if (ic->trapno != 256) {
-    printf("SVA: WARNING: Restart non-syscall\n");
-    usersva_to_kernel_pcid();
-    SVA_PROF_EXIT(icontext_restart);
-    return false;
-  }
+  SVA_CHECK(ic->trapno == 256, EACCES);
 
   /*
    * Modify the saved `%rip` register so that it re-executes the syscall
@@ -540,9 +536,10 @@ bool sva_icontext_restart(void) {
    */
   ic->rip -= 2;
 
+__sva_fail:
   usersva_to_kernel_pcid();
   SVA_PROF_EXIT(icontext_restart);
-  return true;
+  return __sva_intrinsic_result;
 }
 
 bool sva_register_general_exception(unsigned int vector,
