@@ -24,4 +24,6 @@
 
 #define alignof __alignof
 
+#define __packed __attribute__((__packed__))
+
 #endif /* _SVA_COMPILER_H */
