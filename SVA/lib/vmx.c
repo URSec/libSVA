@@ -980,11 +980,6 @@ sva_loadvm(int vmid) {
   /* Set the indicated VM as the active one. */
   host_state.active_vm = &vm_descs[vmid];
 
-  /* FIXME: disabled for incremental porting of Xen to Shade. Currently Xen
-   * is still responsibile for loading/unloading the VMCS and setting/reading
-   * most VMCS fields.
-   */
-#ifndef XEN
   /*
    * Use the VMPTRLD instruction to make the indicated VM's VMCS active on
    * the processor.
@@ -1014,7 +1009,6 @@ sva_loadvm(int vmid) {
     sva_exit_critical(rflags);
     return -1;
   }
-#endif
 
   /*
    * If this is the first time this VMCS has been loaded, write the initial
@@ -1209,11 +1203,6 @@ sva_unloadvm(void) {
     }
   }
 
-  /* FIXME: disabled for incremental porting of Xen to Shade. Currently Xen
-   * is still responsible for loading/unloading the VMCS and setting/reading
-   * most VMCS fields.
-   */
-#ifndef XEN
   /* Use the VMCLEAR instruction to unload the current VM from the processor.
    */
   DBGPRNT(("Using VMCLEAR to unload VMCS with address 0x%lx from the "
@@ -1247,14 +1236,6 @@ sva_unloadvm(void) {
     sva_exit_critical(rflags);
     return -1;
   }
-#else
-  /* FIXME: temporary: although we've currently disabled the code that does
-   * the actual unload since Xen is still responsible for that, we still need
-   * to maintain SVA's internal metadata as though we had done the unload.
-   */
-  host_state.active_vm->is_launched = 0;
-  host_state.active_vm = 0;
-#endif /* end #ifndef XEN */
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -1465,7 +1446,8 @@ sva_launchvm(void) {
     }
   }
 
-  /* If there is no VM currently active on the processor, return failure.
+  /*
+   * If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
@@ -1480,25 +1462,8 @@ sva_launchvm(void) {
     }
   }
 
-  /* FIXME: disabled during incremental port of Xen. Right now Xen is
-   * responsible for loading/unloading the VMCS, and it is calling
-   * sva_loadvmcs()/sva_unloadvmcs() immediately around VM entry/exit simply
-   * to keep SVA's metadata remotely sane. This means Xen "knows something SVA
-   * doesn't" about when it's appropriate to use VMLAUNCH vs. VMRESUME. For
-   * now, then, we must disable this check so that SVA doesn't wig out when
-   * Xen tries to use the "wrong" instruction.
-   *
-   * (This is not a security hole in any case; the worst that'll happen is
-   * that VM entry will fail on the processor, ultimately leading to a
-   * still-clean failure being returned from this intrinsic. I'm of two minds
-   * on whether we should even have this check in the first place.
-   * Ultimately, I'd like to unify sva_launchvm() and sva_resumevm() into a
-   * single sva_runvm() intrinsic where SVA decides on its own which assembly
-   * instruction to use, and in fact that's how we presented it in the VEE
-   * '19 paper.)
-   */
-#ifndef XEN
-  /* If the VM has been launched before since being loaded onto the
+  /*
+   * If the VM has been launched before since being loaded onto the
    * processor, the sva_resumevm() intrinsic must be used instead of this
    * one.
    */
@@ -1512,9 +1477,9 @@ sva_launchvm(void) {
       return -1;
     }
   }
-#endif
 
-  /* Mark the VM as launched. Until this VM is unloaded from the processor,
+  /*
+   * Mark the VM as launched. Until this VM is unloaded from the processor,
    * future entries to it must be performed using the sva_resumevm()
    * intrinsic.
    */
@@ -1592,7 +1557,8 @@ sva_resumevm(void) {
     }
   }
 
-  /* If there is no VM currently active on the processor, return failure.
+  /*
+   * If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
@@ -1607,12 +1573,8 @@ sva_resumevm(void) {
     }
   }
 
-  /* FIXME: disabled during incremental port of Xen. (See similar case in
-   * sva_launchvm() for an extensive comment explaining why this is currently
-   * necessary.)
-   */
-#ifndef XEN
-  /* If the VM has not previously been launched at least once since being
+  /*
+   * If the VM has not previously been launched at least once since being
    * loaded onto the processor, the sva_launchvm() intrinsic must be used
    * instead of this one.
    */
@@ -1626,9 +1588,9 @@ sva_resumevm(void) {
       return -1;
     }
   }
-#endif
 
-  /* Enter guest-mode execution (which will ultimately exit back into host
+  /*
+   * Enter guest-mode execution (which will ultimately exit back into host
    * mode and return us here).
    *
    * This involves a lot of detailed assembly code to save/restore host
