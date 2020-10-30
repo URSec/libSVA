@@ -26,6 +26,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>
+
+typedef uintptr_t paddr_t;
 #endif
 
 #endif /* _SVA_TYPES_H */
