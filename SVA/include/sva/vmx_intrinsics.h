@@ -562,6 +562,52 @@ void sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val);
 void sva_load_eptable(int vmid, pml4e_t *epml4t);
 uintptr_t sva_save_eptable(int vmid);
 
+/*******************************************************************************
+ *                       APIC virtualization interface
+ ******************************************************************************/
+
+/**
+ * Disable the active VM's vlAPIC.
+ *
+ * @return  0 if successful or an error code
+ *
+ * Errors:
+ *  ENODEV: VMX is not initialized
+ *  ESRCH:  No active VM
+ */
+int sva_vlapic_disable(void);
+
+/**
+ * Set the active VM's vlAPIC to (legacy) APIC mode.
+ *
+ * If the active VM's vlAPIC is already in APIC mode, this intrinsic can be used
+ * to change the virtual APIC frame and/or APIC access frame.
+ *
+ * @param virtual_apic_frame  The host-physical address of the virtual APIC page
+ * @param apic_access_frame   The host-physical address of the APIC access page
+ * @return                    0 if successful or an error code
+ *
+ * Errors:
+ *  ENODEV: VMX is not initialized
+ *  ESRCH:  No active VM
+ */
+int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame);
+
+/**
+ * Set the active VM's vlAPIC to x2APIC mode.
+ *
+ * If the active VM's vlAPIC is already in x2APIc mode, this intrinsic can be
+ * used to change the virtual APIC frame.
+ *
+ * @param virtual_apic_frame  The host-physical address of the virtual APIC page
+ * @return                    0 if successful or an error code
+ *
+ * Errors:
+ *  ENODEV: VMX is not initialized
+ *  ESRCH:  No active VM
+ */
+int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame);
+
 /*
  * These intrinsics are for use during development.
  * They will be removed "soon" and are not part of the designed SVA-VMX

@@ -333,6 +333,38 @@ struct vmcs_vm_entry_interrupt_info_field {
 /**********
  * Structures
 **********/
+
+/**
+ * State of the guest's APIC virtualization.
+ */
+struct vlapic {
+  /**
+   * The current mode of this vlAPIC.
+   *
+   * If this is `VLAPIC_OFF`, the following fields need not be defined.
+   */
+  enum vlapic_mode {
+    VLAPIC_OFF,
+    VLAPIC_APIC,
+    VLAPIC_X2APIC,
+  } mode;
+
+  /**
+   * The host-physical address of the virtual APIC frame.
+   *
+   * Some guest reads and writes to APIC registers are redirected to this frame.
+   */
+  paddr_t virtual_apic_frame;
+
+  /**
+   * The host-physical address of the APIC access frame.
+   *
+   * Guest-mode accesses to this frame will cause a VM exit or emulation by
+   * hardware.
+   */
+  paddr_t apic_access_frame;
+};
+
 /*
  * Structure: vm_desc_t
  *
@@ -452,6 +484,11 @@ typedef struct vm_desc_t {
    *   hide this optimization from the SVA-OS API user.)
    */
   eptp_t eptp;
+
+  /**
+   * The VM's vlAPIC (virtual local APIC).
+   */
+  struct vlapic vlapic;
 } vm_desc_t;
 
 /*

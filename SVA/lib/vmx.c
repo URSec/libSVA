@@ -23,6 +23,7 @@
 
 #include "icat.h"
 
+#include <errno.h>
 #include <string.h>
 #include <stddef.h> // for offsetof()
 
@@ -4223,4 +4224,209 @@ sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
   sva_exit_critical(rflags);
+}
+
+int sva_vlapic_disable(void) {
+  int __sva_intrinsic_result = 0;
+
+  kernel_to_usersva_pcid();
+
+  SVA_CHECK(sva_vmx_initialized, ENODEV);
+
+  struct vm_desc_t* const active_vm = host_state.active_vm;
+  SVA_CHECK(active_vm != NULL, ESRCH);
+
+  DBGPRNT(("SVA: vlAPIC is in %d mode. Switching to OFF\n",
+           active_vm->vlapic.mode));
+
+  // HACK: Unconditionally disable posted interrupt processing, in case Xen has
+  // it enabled.
+  {
+    struct vmcs_pinbased_vm_exec_ctrls ctrls;
+    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, (uint64_t*)&ctrls));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              (uint64_t*)&secondary));
+
+    ctrls.process_posted_ints = false;
+    secondary.virtual_int_delivery = false;
+
+    BUG_ON(writevmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&ctrls));
+    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&secondary));
+  }
+
+  switch (active_vm->vlapic.mode) {
+  case VLAPIC_OFF:
+    /* Nothing to do */
+    break;
+  case VLAPIC_APIC:
+  case VLAPIC_X2APIC: {
+    // TODO: Use `active_vm->initial_ctrls` once it is consistent with the VMCS.
+    struct vmcs_primary_procbased_vm_exec_ctrls primary;
+    BUG_ON(readvmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+                              (uint64_t*)&primary));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              (uint64_t*)&secondary));
+
+    primary.use_tpr_shadow = false;
+    primary.cr8_load_exiting = true;
+    primary.cr8_store_exiting = true;
+    secondary.virtualize_apic_accesses = false;
+    secondary.virtualize_x2apic_mode = false;
+    secondary.apic_register_virtualization = false;
+    // TODO: Set x2APIC MSR intercepts
+
+    BUG_ON(writevmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&primary));
+    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&secondary));
+
+    // TODO: Drop frame references
+
+    break;
+  }
+  }
+
+  active_vm->vlapic.mode = VLAPIC_OFF;
+
+__sva_fail:
+  usersva_to_kernel_pcid();
+  return __sva_intrinsic_result;
+}
+
+int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
+  int __sva_intrinsic_result = 0;
+
+  kernel_to_usersva_pcid();
+
+  SVA_CHECK(sva_vmx_initialized, ENODEV);
+
+  struct vm_desc_t* const active_vm = host_state.active_vm;
+  SVA_CHECK(active_vm != NULL, ESRCH);
+
+  DBGPRNT(("SVA: vlAPIC is in %d mode. Switching to APIC\n",
+           active_vm->vlapic.mode));
+
+  switch (active_vm->vlapic.mode) {
+  case VLAPIC_OFF:
+  case VLAPIC_X2APIC: {
+    // TODO: Take frame references
+
+    active_vm->vlapic.virtual_apic_frame = virtual_apic_frame;
+    BUG_ON(writevmcs_unchecked(VMCS_VIRTUAL_APIC_ADDR, virtual_apic_frame));
+    active_vm->vlapic.apic_access_frame = apic_access_frame;
+    BUG_ON(writevmcs_unchecked(VMCS_APIC_ACCESS_ADDR, apic_access_frame));
+
+    // TODO: Check for CPU support of these features
+
+    /* Enable vlAPIC execution controls. */
+    struct vmcs_primary_procbased_vm_exec_ctrls primary;
+    BUG_ON(readvmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+                              (uint64_t*)&primary));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              (uint64_t*)&secondary));
+
+    primary.use_tpr_shadow = true;
+    primary.cr8_load_exiting = false;
+    primary.cr8_store_exiting = false;
+    secondary.virtualize_apic_accesses = true;
+    secondary.virtualize_x2apic_mode = false;
+    secondary.apic_register_virtualization = true;
+    // TODO: Set x2APIC MSR intercepts
+
+    BUG_ON(writevmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&primary));
+    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&secondary));
+
+    break;
+  }
+  case VLAPIC_APIC: {
+    /* Already in APIC mode: switch the virtual APIC and APIC access frames. */
+
+    // TODO: Take/drop frame references
+
+    active_vm->vlapic.virtual_apic_frame = virtual_apic_frame;
+    BUG_ON(writevmcs_unchecked(VMCS_VIRTUAL_APIC_ADDR, virtual_apic_frame));
+    active_vm->vlapic.apic_access_frame = apic_access_frame;
+    BUG_ON(writevmcs_unchecked(VMCS_APIC_ACCESS_ADDR, apic_access_frame));
+
+    break;
+  }
+  }
+
+  active_vm->vlapic.mode = VLAPIC_APIC;
+
+__sva_fail:
+  usersva_to_kernel_pcid();
+  return __sva_intrinsic_result;
+}
+
+int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame) {
+  int __sva_intrinsic_result = 0;
+
+  kernel_to_usersva_pcid();
+
+  SVA_CHECK(sva_vmx_initialized, ENODEV);
+
+  struct vm_desc_t* const active_vm = host_state.active_vm;
+  SVA_CHECK(active_vm != NULL, ESRCH);
+
+  DBGPRNT(("SVA: vlAPIC is in %d mode. Switching to x2APIC\n",
+           active_vm->vlapic.mode));
+
+  switch (active_vm->vlapic.mode) {
+  case VLAPIC_OFF:
+  case VLAPIC_APIC: {
+    // TODO: Take/drop frame references
+
+    active_vm->vlapic.virtual_apic_frame = virtual_apic_frame;
+    BUG_ON(writevmcs_unchecked(VMCS_VIRTUAL_APIC_ADDR, virtual_apic_frame));
+
+    // TODO: Check for CPU support of these features
+
+    /* Enable vlAPIC execution controls. */
+    struct vmcs_primary_procbased_vm_exec_ctrls primary;
+    BUG_ON(readvmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+                              (uint64_t*)&primary));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              (uint64_t*)&secondary));
+
+    primary.use_tpr_shadow = true;
+    primary.cr8_load_exiting = false;
+    primary.cr8_store_exiting = false;
+    secondary.virtualize_apic_accesses = false;
+    secondary.virtualize_x2apic_mode = true;
+    secondary.apic_register_virtualization = true;
+    // TODO: Clear x2APIC MSR intercepts
+
+    BUG_ON(writevmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&primary));
+    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&secondary));
+
+    break;
+  }
+  case VLAPIC_X2APIC: {
+    /* Already in x2APIC mode: switch the virtual APIC frame. */
+
+    // TODO: Take/drop frame references
+
+    active_vm->vlapic.virtual_apic_frame = virtual_apic_frame;
+    BUG_ON(writevmcs_unchecked(VMCS_VIRTUAL_APIC_ADDR, virtual_apic_frame));
+
+    break;
+  }
+  }
+
+  active_vm->vlapic.mode = VLAPIC_X2APIC;
+
+__sva_fail:
+  usersva_to_kernel_pcid();
+  return __sva_intrinsic_result;
 }
