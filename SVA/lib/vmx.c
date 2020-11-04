@@ -1338,7 +1338,15 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
    * Perform the read if it won't leak sensitive information to the system
    * software (or if it can be sanitized).
    */
+#ifdef XEN
+  /*
+   * FIXME: checks temporarily bypassed to support incremental porting of
+   * Xen.
+   */
+  int retval = readvmcs_unchecked(field, data);
+#else
   int retval = readvmcs_checked(field, data);
+#endif
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -1432,7 +1440,15 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
    * Vet the value to be written to ensure that it will not compromise system
    * security, and perform the write.
    */
+#ifdef XEN
+  /*
+   * FIXME: checks temporarily bypassed to support incremental porting of
+   * Xen.
+   */
+  int retval = writevmcs_unchecked(field, data);
+#else
   int retval = writevmcs_checked(field, data);
+#endif
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
