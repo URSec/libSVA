@@ -131,7 +131,7 @@ static const uint64_t RFLAGS_VM_FAIL_INVALID_1 = 0x1;
  * same as in VMsucceed.
  *
  * Test with:
- *  (RFLAGS & RFLAGS_VM_FAIL_VALID_0) == RFLSGS, and
+ *  (RFLAGS & RFLAGS_VM_FAIL_VALID_0) == RFLAGS, and
  *  (RFLAGS & RFLAGS_VM_FAIL_VALID_1).
  */
 static const uint64_t RFLAGS_VM_FAIL_VALID_0 = 0xFFFFFFFFFFFFF77A;

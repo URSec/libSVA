@@ -1273,8 +1273,23 @@ sva_unloadvm(void) {
  *    value returned is zero-extended, i.e., the higher bits will be 0.
  *
  * Return value:
- *  An error code indicating the result of this operation. 0 indicates
- *  success, and a negative value indicates failure.
+ *  An error code indicating the result of this operation:
+ *     0: indicates the VMREAD was performed successfully.
+ *
+ *    -1: indicates failure due to there being no VMCS currently loaded to
+ *        read from. (This corresponds to the VMfailInvalid error code
+ *        returned by VMREAD in the native ISA. If SVA is working correctly,
+ *        it will detect and return this condition via its own logic and
+ *        never actually issue VMREAD on the processor.)
+ *
+ *    -2: indicates failure due to an invalid VMCS field having been
+ *        specified. (This corresponds to the VMfailValid error code returned
+ *        by VMREAD in the native ISA. Currently, you shouldn't see this in
+ *        practice since SVA's VMCS read whitelist in readvmcs_checked()
+ *        should only contain valid fields, and attempting to read from a
+ *        field not on the whitelist results in a panic. We may potentially
+ *        choose to loosen that failure condition in the future to return
+ *        this error code instead of hard-panicking.)
  */
 int
 sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
@@ -1315,6 +1330,11 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
   }
 
   /*
+   * FIXME: check *data out-parameter pointer to ensure that the caller is
+   * not trying to trick us into overwriting secure memory!
+   */
+
+  /*
    * Perform the read if it won't leak sensitive information to the system
    * software (or if it can be sanitized).
    */
@@ -1351,8 +1371,23 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
  *    higher bits will be ignored.
  *
  * Return value:
- *  An error code indicating the result of this operation. 0 indicates
- *  success, and a negative value indicates failure.
+ *  An error code indicating the result of this operation:
+ *     0: indicates the VMWRITE was performed successfully.
+ *
+ *    -1: indicates failure due to there being no VMCS currently loaded to
+ *        read from. (This corresponds to the VMfailInvalid error code
+ *        returned by VMWRITE in the native ISA. If SVA is working correctly,
+ *        it will detect and return this condition via its own logic and
+ *        never actually issue VMWRITE on the processor.)
+ *
+ *    -2: indicates failure due to an invalid VMCS field having been
+ *        specified. (This corresponds to the VMfailValid error code returned
+ *        by VMWRITE in the native ISA. Currently, you shouldn't see this in
+ *        practice since SVA's VMCS write whitelist in writevmcs_checked()
+ *        should only contain valid fields, and attempting to write to a
+ *        field not on the whitelist results in a panic. We may potentially
+ *        choose to loosen that failure condition in the future to return
+ *        this error code instead of hard-panicking.)
  */
 int
 sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
@@ -3093,17 +3128,33 @@ readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data) {
       : "cc"
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result(rflags) == VM_SUCCEED) {
-
-    /* The specified field has been successfully read into the location
-     * pointed to by "data". Return success.
-     */
+  enum vmx_statuscode_t result = query_vmx_result(rflags);
+  if (result == VM_SUCCEED) {
+    /* Return success. */
     return 0;
-  } else {
-    DBGPRNT(("Error: failed to read VMCS field.\n"));
-
-    /* Return failure. */
+  } else if (result == VM_FAIL_INVALID) {
+    /*
+     * Indicates that the VMREAD failed due to no VMCS being currently loaded
+     * on the processor. Shouldn't happen if the caller is sva_readvmcs(),
+     * since it is supposed to ensure that a VMCS is loaded before calling
+     * this. (Can happen if SVA is doing a read internally, though.)
+     */
+    DBGPRNT(("SVA: Error: readvmcs_unchecked() failed due to no VMCS "
+             "being loaded. (ISA condition VMfailInvalid)\n"));
     return -1;
+  } else if (result == VM_FAIL_VALID) {
+    /*
+     * Indicates that the VMREAD failed due to the specified VMCS field being
+     * invalid (nonexistent). Shouldn't happen if the caller is
+     * sva_readvmcs(), unless we accidentally allowed a nonexistent field
+     * onto the read whitelist.
+     */
+    DBGPRNT(("SVA: Error: readvmcs_unchecked() failed due to invalid VMCS "
+             "field being specified. (ISA condition VMfailValid)\n"));
+    return -2;
+  } else {
+    panic("SVA: Error: Got nonsensical result (%d) from "
+          "query_vmx_result()!\n", (int)result);
   }
 }
 
@@ -3582,14 +3633,34 @@ writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data) {
       : "cc"
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result(rflags) == VM_SUCCEED) {
+  enum vmx_statuscode_t result = query_vmx_result(rflags);
+  if (result == VM_SUCCEED) {
     /* Return success. */
     return 0;
-  } else {
-    DBGPRNT(("Error: failed to write VMCS field.\n"));
-
-    /* Return failure. */
+  } else if (result == VM_FAIL_INVALID) {
+    /*
+     * Indicates that the VMWRITE failed due to no VMCS being currently
+     * loaded on the processor. Shouldn't happen if the caller is
+     * sva_writevmcs(), since it is supposed to ensure that a VMCS is loaded
+     * before calling this. (Can happen if SVA is doing a write internally,
+     * though.)
+     */
+    DBGPRNT(("SVA: Error: writevmcs_unchecked() failed due to no VMCS "
+             "being loaded. (ISA condition VMfailValid)\n"));
     return -1;
+  } else if (result == VM_FAIL_VALID) {
+    /*
+     * Indicates that the VMWRITE failed due to the specified VMCS field being
+     * invalid (nonexistent or read-only). Shouldn't happen if the caller is
+     * sva_writevmcs(), unless we accidentally allowed an invalid field onto
+     * the write whitelist.
+     */
+    DBGPRNT(("SVA: Error: writevmcs_unchecked() failed due to invalid VMCS "
+             "field being specified. (ISA condition VMfailValid)\n"));
+    return -2;
+  } else {
+    panic("SVA: Error: Got nonsensical result (%d) from "
+          "query_vmx_result()!\n", (int)result);
   }
 }
 
