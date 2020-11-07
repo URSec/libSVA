@@ -4430,3 +4430,81 @@ __sva_fail:
   usersva_to_kernel_pcid();
   return __sva_intrinsic_result;
 }
+
+int sva_posted_interrupts_disable(void) {
+  int __sva_intrinsic_result = 0;
+
+  kernel_to_usersva_pcid();
+
+  SVA_CHECK(sva_vmx_initialized, ENODEV);
+
+  struct vm_desc_t* const active_vm = host_state.active_vm;
+  SVA_CHECK(active_vm != NULL, ESRCH);
+
+  DBGPRNT(("SVA: disabling posted interrupt processing\n"));
+
+  if (active_vm->vlapic.posted_interrupts_enabled) {
+    struct vmcs_pinbased_vm_exec_ctrls pinbased;
+    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, (uint64_t*)&pinbased));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              (uint64_t*)&secondary));
+
+    pinbased.process_posted_ints = false;
+    secondary.virtual_int_delivery = false;
+
+    BUG_ON(writevmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&pinbased));
+    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&secondary));
+
+    // TODO: Drop frame references
+  }
+
+  active_vm->vlapic.posted_interrupts_enabled = false;
+
+__sva_fail:
+  usersva_to_kernel_pcid();
+  return __sva_intrinsic_result;
+}
+
+int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor) {
+  int __sva_intrinsic_result = 0;
+
+  kernel_to_usersva_pcid();
+
+  SVA_CHECK(sva_vmx_initialized, ENODEV);
+
+  struct vm_desc_t* const active_vm = host_state.active_vm;
+  SVA_CHECK(active_vm != NULL, ESRCH);
+
+  DBGPRNT(("SVA: enabling posted interrupt processing\n"));
+
+  // TODO: Take/Drop frame references
+
+  BUG_ON(writevmcs_unchecked(VMCS_POSTED_INTERRUPT_NOTIFICATION_VECTOR,
+                             vector));
+  BUG_ON(writevmcs_unchecked(VMCS_POSTED_INTERRUPT_DESC_ADDR, descriptor));
+
+  if (!active_vm->vlapic.posted_interrupts_enabled) {
+    struct vmcs_pinbased_vm_exec_ctrls pinbased;
+    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, (uint64_t*)&pinbased));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              (uint64_t*)&secondary));
+
+    pinbased.process_posted_ints = true;
+    secondary.virtual_int_delivery = true;
+
+    BUG_ON(writevmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&pinbased));
+    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&secondary));
+  }
+
+  active_vm->vlapic.posted_interrupts_enabled = true;
+
+__sva_fail:
+  usersva_to_kernel_pcid();
+  return __sva_intrinsic_result;
+}

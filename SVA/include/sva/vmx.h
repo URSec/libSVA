@@ -363,6 +363,23 @@ struct vlapic {
    * hardware.
    */
   paddr_t apic_access_frame;
+
+  /**
+   * Whether this guest has posted interrupts enabled.
+   *
+   * If this is `false`, the following two fields need not be defined.
+   */
+  bool posted_interrupts_enabled;
+
+  /**
+   * The IPI vector for notifying a CPU in guest mode about posted interrupts.
+   */
+  int posted_interrupt_vector;
+
+  /**
+   * The host-physical address of the structure used to send posted interrupts.
+   */
+  paddr_t posted_interrupt_descriptor;
 };
 
 /*

@@ -608,6 +608,37 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame);
  */
 int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame);
 
+/**
+ * Disable posted interrupt processing for the active VM.
+ *
+ * @return            0 if successful or an error code
+ *
+ * Errors:
+ *  ENODEV: VMX is not initialized
+ *  ESRCH:  No active VM
+ */
+int sva_posted_interrupts_disable(void);
+
+/**
+ * Enable posted interrupt processing for the active VM.
+ *
+ * If poster interrupt processing is already enabled on the active VM, this
+ * intrinsic can be used to change the posted interrupt notification vector or
+ * the address of the posted interrupt descriptor.
+ *
+ * Requires that the guest's vlAPIC be enabled first.
+ *
+ * @param vector      The posted interrupt notification vector
+ * @param descriptor  The host-physical address of the posted interrupt
+ *                    descriptor
+ * @return            0 if successful or an error code
+ *
+ * Errors:
+ *  ENODEV: VMX is not initialized
+ *  ESRCH:  No active VM
+ */
+int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor);
+
 /*
  * These intrinsics are for use during development.
  * They will be removed "soon" and are not part of the designed SVA-VMX
