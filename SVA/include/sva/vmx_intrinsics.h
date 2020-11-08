@@ -588,6 +588,7 @@ int sva_vlapic_disable(void);
  * @return                    0 if successful or an error code
  *
  * Errors:
+ *  EINVAL: A physical address is not page-aligned or is not a valid frame
  *  ENODEV: VMX is not initialized
  *  ESRCH:  No active VM
  */
@@ -603,6 +604,7 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame);
  * @return                    0 if successful or an error code
  *
  * Errors:
+ *  EINVAL: A physical address is not page-aligned or is not a valid frame
  *  ENODEV: VMX is not initialized
  *  ESRCH:  No active VM
  */
@@ -634,6 +636,9 @@ int sva_posted_interrupts_disable(void);
  * @return            0 if successful or an error code
  *
  * Errors:
+ *  EINVAL: The vector is less than 32
+ *          The descriptor address is not 64-byte aligned or is not a valid
+ *          physical address
  *  ENODEV: VMX is not initialized
  *  ENOENT: The active VM's vlAPIC is not enabled
  *  ESRCH:  No active VM

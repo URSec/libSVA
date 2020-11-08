@@ -857,20 +857,38 @@ sva_freevm(int vmid) {
       panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
     }
   }
+
+  struct vm_desc_t* vm = &vm_descs[vmid];
+
   /* If this VM's VMCS pointer is already null, this is a double free (or
    * freeing a VM ID which was never allocated).
    */
   if (usevmx) {
-    if (!vm_descs[vmid].vmcs_paddr) {
+    if (!vm->vmcs_paddr) {
       panic("Fatal error: tried to free a VM which was already unallocated!\n");
     }
   }
 
   /* Don't free a VM which is still active on the processor. */
   if (usevmx) {
-    if (host_state.active_vm == &vm_descs[vmid]) {
+    if (host_state.active_vm == vm) {
       panic("Fatal error: tried to free a VM which is active on the "
           "processor!\n");
+    }
+  }
+
+  /*
+   * Drop vlAPIC frames.
+   */
+  if (vm->vlapic.mode != VLAPIC_OFF) {
+    frame_drop(get_frame_desc(vm->vlapic.virtual_apic_frame), PGT_DATA);
+    if (vm->vlapic.mode == VLAPIC_APIC) {
+      frame_drop(get_frame_desc(vm->vlapic.apic_access_frame), PGT_DATA);
+    }
+    if (vm->vlapic.posted_interrupts_enabled) {
+      frame_desc_t* descriptor_frame_desc =
+        get_frame_desc(vm->vlapic.posted_interrupt_descriptor);
+      frame_drop(descriptor_frame_desc, PGT_DATA);
     }
   }
 
@@ -886,7 +904,7 @@ sva_freevm(int vmid) {
    * Decrement the refcount for the VM's top-level extended-page-table page
    * to reflect the fact that this VM is no longer using it.
    */
-  frame_desc_t *ptpDesc = get_frame_desc(vm_descs[vmid].eptp);
+  frame_desc_t *ptpDesc = get_frame_desc(vm->eptp);
   /*
    * Check that the refcount isn't already zero (in which case we'd
    * underflow). If so, our frame metadata has become inconsistent (as a
@@ -896,11 +914,11 @@ sva_freevm(int vmid) {
 #endif
 
   /* Return the VMCS frame to the frame cache. */
-  DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm_descs[vmid].vmcs_paddr));
-  free_frame(vm_descs[vmid].vmcs_paddr);
+  DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm->vmcs_paddr));
+  free_frame(vm->vmcs_paddr);
 
   /* Zero-fill this slot in the vm_descs struct to mark it as unused. */
-  memset(&vm_descs[vmid], 0, sizeof(vm_desc_t));
+  memset(vm, 0, sizeof(vm_desc_t));
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -4251,7 +4269,9 @@ static void posted_interrupts_disable(void) {
     BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
                                *(uint64_t*)&secondary));
 
-    // TODO: Drop frame references
+    frame_desc_t* pi_desc_frame_desc =
+      get_frame_desc(active_vm->vlapic.posted_interrupt_descriptor);
+    frame_drop(pi_desc_frame_desc, PGT_DATA);
   }
 
   active_vm->vlapic.posted_interrupts_enabled = false;
@@ -4299,7 +4319,10 @@ int sva_vlapic_disable(void) {
     BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
                                *(uint64_t*)&secondary));
 
-    // TODO: Drop frame references
+    frame_drop(get_frame_desc(active_vm->vlapic.virtual_apic_frame), PGT_DATA);
+    if (active_vm->vlapic.mode == VLAPIC_APIC) {
+      frame_drop(get_frame_desc(active_vm->vlapic.apic_access_frame), PGT_DATA);
+    }
 
     break;
   }
@@ -4325,16 +4348,43 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
   DBGPRNT(("SVA: vlAPIC is in %d mode. Switching to APIC\n",
            active_vm->vlapic.mode));
 
+  /* Take frame references. */
+  SVA_CHECK(is_aligned(virtual_apic_frame, PG_L1_SHIFT), EINVAL);
+  frame_desc_t* va_frame_desc = get_frame_desc(virtual_apic_frame);
+  SVA_CHECK(va_frame_desc != NULL, EINVAL);
+  SVA_CHECK(is_aligned(apic_access_frame, PG_L1_SHIFT), EINVAL);
+  frame_desc_t* aa_frame_desc = get_frame_desc(apic_access_frame);
+  SVA_CHECK(aa_frame_desc != NULL, EINVAL);
+
+  if (active_vm->vlapic.mode == VLAPIC_OFF ||
+      virtual_apic_frame != active_vm->vlapic.virtual_apic_frame) {
+    frame_take(va_frame_desc, PGT_DATA);
+    BUG_ON(writevmcs_unchecked(VMCS_VIRTUAL_APIC_ADDR, virtual_apic_frame));
+    if (active_vm->vlapic.mode != VLAPIC_OFF) {
+      frame_desc_t* old_va_frame_desc =
+        get_frame_desc(active_vm->vlapic.virtual_apic_frame);
+      frame_drop(old_va_frame_desc, PGT_DATA);
+    }
+    active_vm->vlapic.virtual_apic_frame = virtual_apic_frame;
+  }
+  if (active_vm->vlapic.mode != VLAPIC_APIC ||
+      apic_access_frame != active_vm->vlapic.apic_access_frame) {
+    frame_take(aa_frame_desc, PGT_DATA);
+    BUG_ON(writevmcs_unchecked(VMCS_APIC_ACCESS_ADDR, apic_access_frame));
+    if (active_vm->vlapic.mode == VLAPIC_APIC) {
+      frame_drop(get_frame_desc(active_vm->vlapic.apic_access_frame), PGT_DATA);
+    }
+    active_vm->vlapic.apic_access_frame = apic_access_frame;
+  }
+
   switch (active_vm->vlapic.mode) {
+  case VLAPIC_APIC: {
+    /* Already in APIC mode: nothing else to do */
+
+    break;
+  }
   case VLAPIC_OFF:
   case VLAPIC_X2APIC: {
-    // TODO: Take frame references
-
-    active_vm->vlapic.virtual_apic_frame = virtual_apic_frame;
-    BUG_ON(writevmcs_unchecked(VMCS_VIRTUAL_APIC_ADDR, virtual_apic_frame));
-    active_vm->vlapic.apic_access_frame = apic_access_frame;
-    BUG_ON(writevmcs_unchecked(VMCS_APIC_ACCESS_ADDR, apic_access_frame));
-
     // TODO: Check for CPU support of these features
 
     /* Enable vlAPIC execution controls. */
@@ -4360,18 +4410,6 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
 
     break;
   }
-  case VLAPIC_APIC: {
-    /* Already in APIC mode: switch the virtual APIC and APIC access frames. */
-
-    // TODO: Take/drop frame references
-
-    active_vm->vlapic.virtual_apic_frame = virtual_apic_frame;
-    BUG_ON(writevmcs_unchecked(VMCS_VIRTUAL_APIC_ADDR, virtual_apic_frame));
-    active_vm->vlapic.apic_access_frame = apic_access_frame;
-    BUG_ON(writevmcs_unchecked(VMCS_APIC_ACCESS_ADDR, apic_access_frame));
-
-    break;
-  }
   }
 
   active_vm->vlapic.mode = VLAPIC_APIC;
@@ -4394,14 +4432,28 @@ int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame) {
   DBGPRNT(("SVA: vlAPIC is in %d mode. Switching to x2APIC\n",
            active_vm->vlapic.mode));
 
+  SVA_CHECK(is_aligned(virtual_apic_frame, PG_L1_SHIFT), EINVAL);
+  frame_desc_t* va_frame_desc = get_frame_desc(virtual_apic_frame);
+  SVA_CHECK(va_frame_desc != NULL, EINVAL);
+
+  if (active_vm->vlapic.mode == VLAPIC_OFF ||
+      virtual_apic_frame != active_vm->vlapic.virtual_apic_frame) {
+    frame_take(va_frame_desc, PGT_DATA);
+    BUG_ON(writevmcs_unchecked(VMCS_VIRTUAL_APIC_ADDR, virtual_apic_frame));
+    if (active_vm->vlapic.mode != VLAPIC_OFF) {
+      frame_desc_t* old_va_frame_desc =
+        get_frame_desc(active_vm->vlapic.virtual_apic_frame);
+      frame_drop(old_va_frame_desc, PGT_DATA);
+    }
+    active_vm->vlapic.virtual_apic_frame = virtual_apic_frame;
+  }
+  if (active_vm->vlapic.mode == VLAPIC_APIC) {
+    frame_drop(get_frame_desc(active_vm->vlapic.apic_access_frame), PGT_DATA);
+  }
+
   switch (active_vm->vlapic.mode) {
   case VLAPIC_OFF:
   case VLAPIC_APIC: {
-    // TODO: Take/drop frame references
-
-    active_vm->vlapic.virtual_apic_frame = virtual_apic_frame;
-    BUG_ON(writevmcs_unchecked(VMCS_VIRTUAL_APIC_ADDR, virtual_apic_frame));
-
     // TODO: Check for CPU support of these features
 
     /* Enable vlAPIC execution controls. */
@@ -4428,12 +4480,7 @@ int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame) {
     break;
   }
   case VLAPIC_X2APIC: {
-    /* Already in x2APIC mode: switch the virtual APIC frame. */
-
-    // TODO: Take/drop frame references
-
-    active_vm->vlapic.virtual_apic_frame = virtual_apic_frame;
-    BUG_ON(writevmcs_unchecked(VMCS_VIRTUAL_APIC_ADDR, virtual_apic_frame));
+    /* Already in x2APIC mode: nothing to do. */
 
     break;
   }
@@ -4479,11 +4526,28 @@ int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor) {
 
   DBGPRNT(("SVA: enabling posted interrupt processing\n"));
 
-  // TODO: Take/Drop frame references
+  SVA_CHECK(vector >= 32, EINVAL);
+  if (!active_vm->vlapic.posted_interrupts_enabled ||
+      vector != active_vm->vlapic.posted_interrupt_vector) {
+    BUG_ON(writevmcs_unchecked(VMCS_POSTED_INTERRUPT_NOTIFICATION_VECTOR,
+                               vector));
+    active_vm->vlapic.posted_interrupt_vector = vector;
+  }
 
-  BUG_ON(writevmcs_unchecked(VMCS_POSTED_INTERRUPT_NOTIFICATION_VECTOR,
-                             vector));
-  BUG_ON(writevmcs_unchecked(VMCS_POSTED_INTERRUPT_DESC_ADDR, descriptor));
+  SVA_CHECK(is_aligned(descriptor, 6), EINVAL);
+  frame_desc_t* descriptor_frame_desc = get_frame_desc(descriptor);
+  SVA_CHECK(descriptor_frame_desc != NULL, EINVAL);
+  if (!active_vm->vlapic.posted_interrupts_enabled ||
+      descriptor != active_vm->vlapic.posted_interrupt_descriptor) {
+    frame_take(descriptor_frame_desc, PGT_DATA);
+    BUG_ON(writevmcs_unchecked(VMCS_POSTED_INTERRUPT_DESC_ADDR, descriptor));
+    if (active_vm->vlapic.posted_interrupts_enabled) {
+      frame_desc_t* old_descriptor_frame_desc =
+        get_frame_desc(active_vm->vlapic.posted_interrupt_descriptor);
+      frame_drop(old_descriptor_frame_desc, PGT_DATA);
+    }
+    active_vm->vlapic.posted_interrupt_descriptor = descriptor;
+  }
 
   if (!active_vm->vlapic.posted_interrupts_enabled) {
     struct vmcs_pinbased_vm_exec_ctrls pinbased;
