@@ -4226,6 +4226,37 @@ sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
   sva_exit_critical(rflags);
 }
 
+/**
+ * Disable posted interrupt processing.
+ *
+ * Outlined because we need it when disabling the vlAPIC.
+ *
+ * Requires that an active VM currently exists.
+ */
+static void posted_interrupts_disable(void) {
+  struct vm_desc_t* const active_vm = host_state.active_vm;
+
+  if (active_vm->vlapic.posted_interrupts_enabled) {
+    struct vmcs_pinbased_vm_exec_ctrls pinbased;
+    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, (uint64_t*)&pinbased));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              (uint64_t*)&secondary));
+
+    pinbased.process_posted_ints = false;
+    secondary.virtual_int_delivery = false;
+
+    BUG_ON(writevmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&pinbased));
+    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                               *(uint64_t*)&secondary));
+
+    // TODO: Drop frame references
+  }
+
+  active_vm->vlapic.posted_interrupts_enabled = false;
+}
+
 int sva_vlapic_disable(void) {
   int __sva_intrinsic_result = 0;
 
@@ -4239,23 +4270,7 @@ int sva_vlapic_disable(void) {
   DBGPRNT(("SVA: vlAPIC is in %d mode. Switching to OFF\n",
            active_vm->vlapic.mode));
 
-  // HACK: Unconditionally disable posted interrupt processing, in case Xen has
-  // it enabled.
-  {
-    struct vmcs_pinbased_vm_exec_ctrls ctrls;
-    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, (uint64_t*)&ctrls));
-    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              (uint64_t*)&secondary));
-
-    ctrls.process_posted_ints = false;
-    secondary.virtual_int_delivery = false;
-
-    BUG_ON(writevmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&ctrls));
-    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&secondary));
-  }
+  posted_interrupts_disable();
 
   switch (active_vm->vlapic.mode) {
   case VLAPIC_OFF:
@@ -4443,25 +4458,7 @@ int sva_posted_interrupts_disable(void) {
 
   DBGPRNT(("SVA: disabling posted interrupt processing\n"));
 
-  if (active_vm->vlapic.posted_interrupts_enabled) {
-    struct vmcs_pinbased_vm_exec_ctrls pinbased;
-    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, (uint64_t*)&pinbased));
-    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              (uint64_t*)&secondary));
-
-    pinbased.process_posted_ints = false;
-    secondary.virtual_int_delivery = false;
-
-    BUG_ON(writevmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&pinbased));
-    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&secondary));
-
-    // TODO: Drop frame references
-  }
-
-  active_vm->vlapic.posted_interrupts_enabled = false;
+  posted_interrupts_disable();
 
 __sva_fail:
   usersva_to_kernel_pcid();
