@@ -635,6 +635,7 @@ int sva_posted_interrupts_disable(void);
  *
  * Errors:
  *  ENODEV: VMX is not initialized
+ *  ENOENT: The active VM's vlAPIC is not enabled
  *  ESRCH:  No active VM
  */
 int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor);

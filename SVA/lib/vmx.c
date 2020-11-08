@@ -4478,6 +4478,8 @@ int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor) {
   struct vm_desc_t* const active_vm = host_state.active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
 
+  SVA_CHECK(active_vm->vlapic.mode != VLAPIC_OFF, ENOENT);
+
   DBGPRNT(("SVA: enabling posted interrupt processing\n"));
 
   // TODO: Take/Drop frame references
