@@ -23,6 +23,9 @@
 
 #define MSR_REG_EFER    0xC0000080      /* MSR for EFER register */
 
+#define is_aligned(val, align) \
+  (((val) & (__typeof__(val))((1 << (align)) - 1)) == (__typeof__(val))0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
