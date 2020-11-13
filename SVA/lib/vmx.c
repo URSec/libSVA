@@ -4255,19 +4255,26 @@ static void posted_interrupts_disable(void) {
   struct vm_desc_t* const active_vm = host_state.active_vm;
 
   if (active_vm->vlapic.posted_interrupts_enabled) {
-    struct vmcs_pinbased_vm_exec_ctrls pinbased;
-    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, (uint64_t*)&pinbased));
-    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              (uint64_t*)&secondary));
+    union {
+      struct vmcs_pinbased_vm_exec_ctrls ctrls;
+      uint64_t buf;
+    } pinbased;
+    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, &pinbased.buf));
 
-    pinbased.process_posted_ints = false;
-    secondary.virtual_int_delivery = false;
+    union {
+      struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
+      uint64_t buf;
+    } secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              &secondary.buf));
+
+    pinbased.ctrls.process_posted_ints = false;
+    secondary.ctrls.virtual_int_delivery = false;
 
     BUG_ON(writevmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&pinbased));
+                               pinbased.buf));
     BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&secondary));
+                               secondary.buf));
 
     frame_desc_t* pi_desc_frame_desc =
       get_frame_desc(active_vm->vlapic.posted_interrupt_descriptor);
@@ -4298,26 +4305,32 @@ int sva_vlapic_disable(void) {
     break;
   case VLAPIC_APIC:
   case VLAPIC_X2APIC: {
-    // TODO: Use `active_vm->initial_ctrls` once it is consistent with the VMCS.
-    struct vmcs_primary_procbased_vm_exec_ctrls primary;
+    union {
+      struct vmcs_primary_procbased_vm_exec_ctrls ctrls;
+      uint64_t buf;
+    } primary;
     BUG_ON(readvmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                              (uint64_t*)&primary));
-    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              (uint64_t*)&secondary));
+                              &primary.buf));
 
-    primary.use_tpr_shadow = false;
-    primary.cr8_load_exiting = true;
-    primary.cr8_store_exiting = true;
-    secondary.virtualize_apic_accesses = false;
-    secondary.virtualize_x2apic_mode = false;
-    secondary.apic_register_virtualization = false;
+    union {
+      struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
+      uint64_t buf;
+    } secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              &secondary.buf));
+
+    primary.ctrls.use_tpr_shadow = false;
+    primary.ctrls.cr8_load_exiting = true;
+    primary.ctrls.cr8_store_exiting = true;
+    secondary.ctrls.virtualize_apic_accesses = false;
+    secondary.ctrls.virtualize_x2apic_mode = false;
+    secondary.ctrls.apic_register_virtualization = false;
     // TODO: Set x2APIC MSR intercepts
 
     BUG_ON(writevmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&primary));
+                               primary.buf));
     BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&secondary));
+                               secondary.buf));
 
     frame_drop(get_frame_desc(active_vm->vlapic.virtual_apic_frame), PGT_DATA);
     if (active_vm->vlapic.mode == VLAPIC_APIC) {
@@ -4388,25 +4401,32 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
     // TODO: Check for CPU support of these features
 
     /* Enable vlAPIC execution controls. */
-    struct vmcs_primary_procbased_vm_exec_ctrls primary;
+    union {
+      struct vmcs_primary_procbased_vm_exec_ctrls ctrls;
+      uint64_t buf;
+    } primary;
     BUG_ON(readvmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                              (uint64_t*)&primary));
-    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              (uint64_t*)&secondary));
+                              &primary.buf));
 
-    primary.use_tpr_shadow = true;
-    primary.cr8_load_exiting = false;
-    primary.cr8_store_exiting = false;
-    secondary.virtualize_apic_accesses = true;
-    secondary.virtualize_x2apic_mode = false;
-    secondary.apic_register_virtualization = true;
+    union {
+      struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
+      uint64_t buf;
+    } secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              &secondary.buf));
+
+    primary.ctrls.use_tpr_shadow = true;
+    primary.ctrls.cr8_load_exiting = false;
+    primary.ctrls.cr8_store_exiting = false;
+    secondary.ctrls.virtualize_apic_accesses = true;
+    secondary.ctrls.virtualize_x2apic_mode = false;
+    secondary.ctrls.apic_register_virtualization = true;
     // TODO: Set x2APIC MSR intercepts
 
     BUG_ON(writevmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&primary));
+                               primary.buf));
     BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&secondary));
+                               secondary.buf));
 
     break;
   }
@@ -4457,25 +4477,32 @@ int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame) {
     // TODO: Check for CPU support of these features
 
     /* Enable vlAPIC execution controls. */
-    struct vmcs_primary_procbased_vm_exec_ctrls primary;
+    union {
+      struct vmcs_primary_procbased_vm_exec_ctrls ctrls;
+      uint64_t buf;
+    } primary;
     BUG_ON(readvmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                              (uint64_t*)&primary));
-    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              (uint64_t*)&secondary));
+                              &primary.buf));
 
-    primary.use_tpr_shadow = true;
-    primary.cr8_load_exiting = false;
-    primary.cr8_store_exiting = false;
-    secondary.virtualize_apic_accesses = false;
-    secondary.virtualize_x2apic_mode = true;
-    secondary.apic_register_virtualization = true;
+    union {
+      struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
+      uint64_t buf;
+    } secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              &secondary.buf));
+
+    primary.ctrls.use_tpr_shadow = true;
+    primary.ctrls.cr8_load_exiting = false;
+    primary.ctrls.cr8_store_exiting = false;
+    secondary.ctrls.virtualize_apic_accesses = false;
+    secondary.ctrls.virtualize_x2apic_mode = true;
+    secondary.ctrls.apic_register_virtualization = true;
     // TODO: Clear x2APIC MSR intercepts
 
     BUG_ON(writevmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&primary));
+                               primary.buf));
     BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&secondary));
+                               secondary.buf));
 
     break;
   }
@@ -4550,19 +4577,26 @@ int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor) {
   }
 
   if (!active_vm->vlapic.posted_interrupts_enabled) {
-    struct vmcs_pinbased_vm_exec_ctrls pinbased;
-    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, (uint64_t*)&pinbased));
-    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              (uint64_t*)&secondary));
+    union {
+      struct vmcs_pinbased_vm_exec_ctrls ctrls;
+      uint64_t buf;
+    } pinbased;
+    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, &pinbased.buf));
 
-    pinbased.process_posted_ints = true;
-    secondary.virtual_int_delivery = true;
+    union {
+      struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
+      uint64_t buf;
+    } secondary;
+    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
+                              &secondary.buf));
+
+    pinbased.ctrls.process_posted_ints = true;
+    secondary.ctrls.virtual_int_delivery = true;
 
     BUG_ON(writevmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&pinbased));
+                               pinbased.buf));
     BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               *(uint64_t*)&secondary));
+                               secondary.buf));
   }
 
   active_vm->vlapic.posted_interrupts_enabled = true;
