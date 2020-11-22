@@ -15,6 +15,9 @@
  *===------------------------------------------------------------------------===
  */
 
+#ifndef SVA_APIC_H
+#define SVA_APIC_H
+
 #include <sva/page.h>
 #include <sva/types.h>
 #include <sva/msr.h>
@@ -125,3 +128,5 @@ static inline void apic_send_ipi(struct apic_icr icr) {
   } convert = { .typed = icr };
   wrmsr(MSR_X2APIC_ICR, convert.raw);
 }
+
+#endif /* SVA_APIC_H */
