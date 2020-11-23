@@ -25,6 +25,7 @@
 
 #define MSR_APIC_BASE ...
 #define MSR_X2APIC_REG_BASE     0x800
+#define MSR_X2APIC_EOI          (MSR_X2APIC_REG_BASE + 0x0b)
 #define MSR_X2APIC_ICR          (MSR_X2APIC_REG_BASE + 0x30)
 
 struct apic_icr {
@@ -135,6 +136,10 @@ static inline void apic_send_ipi(struct apic_icr icr) {
     struct apic_icr typed;
   } convert = { .typed = icr };
   wrmsr(MSR_X2APIC_ICR, convert.raw);
+}
+
+static inline void apic_eoi(void) {
+  wrmsr(MSR_X2APIC_EOI, 0);
 }
 
 #endif /* SVA_APIC_H */
