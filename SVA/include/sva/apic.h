@@ -79,6 +79,14 @@ struct apic_icr {
 
 _Static_assert(sizeof(struct apic_icr) == 8, "APIC ICR wrong size");
 
+#define MAKE_IPI_BROADCAST(vec) ((struct apic_icr){     \
+    .destination_shorthand = APIC_SHORTHAND_ALLBUTSELF, \
+    .destination_mode = APIC_DEST_MODE_PHYSICAL,        \
+    .vector = (vec),                                    \
+    .delivery_mode = APIC_DM_FIXED,                     \
+    .level = APIC_LVL_ASSERT,                           \
+})
+
 #define MAKE_INIT_IPI(dest_id) ((struct apic_icr){  \
     .destination_shorthand = APIC_SHORTHAND_NONE,   \
     .destination_mode = APIC_DEST_MODE_PHYSICAL,    \
