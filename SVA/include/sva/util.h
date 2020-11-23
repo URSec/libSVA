@@ -274,6 +274,15 @@ sva_random(void) {
   return rand;
 }
 
+/**
+ * An expensive nop.
+ *
+ * Useful in spin-wait loops to delay iterations.
+ */
+static inline void pause() {
+  __builtin_ia32_pause();
+}
+
 #ifdef __cplusplus
 }
 #endif
