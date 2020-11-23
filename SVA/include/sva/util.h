@@ -188,6 +188,19 @@ sva_check_memory_write (void * memory, unsigned int size) {
 #endif
 }
 
+/**
+ * Save the current interruptability state.
+ *
+ * @return  The current interruptability state.
+ */
+static inline unsigned long sva_save_in_critical(void) {
+  unsigned long rflags;
+  asm ("pushfq\n\t"
+       "popq %0\n\t"
+       : "=r"(rflags));
+  return rflags;
+}
+
 /*
  * Function: sva_enter_critical()
  *
