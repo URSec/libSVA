@@ -25,6 +25,7 @@
 
 #define MSR_APIC_BASE ...
 #define MSR_X2APIC_REG_BASE     0x800
+#define MSR_X2APIC_ISR          (MSR_X2APIC_REG_BASE + 0x10)
 #define MSR_X2APIC_EOI          (MSR_X2APIC_REG_BASE + 0x0b)
 #define MSR_X2APIC_ICR          (MSR_X2APIC_REG_BASE + 0x30)
 
@@ -136,6 +137,11 @@ static inline void apic_send_ipi(struct apic_icr icr) {
     struct apic_icr typed;
   } convert = { .typed = icr };
   wrmsr(MSR_X2APIC_ICR, convert.raw);
+}
+
+static inline bool apic_isr_test(uint8_t idx) {
+  uint32_t reg = rdmsr(MSR_X2APIC_ISR + (idx / 32));
+  return !!(reg & (1U << (idx % 32)));
 }
 
 static inline void apic_eoi(void) {
