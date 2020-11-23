@@ -114,6 +114,8 @@ extern void default_interrupt (unsigned int number, void * icontext);
 /* Map logical processor ID to an array in the SVA data structures */
 struct procMap svaProcMap[numProcessors];
 
+unsigned int __svadata cpu_online_count;
+
 /*
  * Taken from FreeBSD: amd64/segments.h
  *
@@ -579,6 +581,8 @@ sva_init_primary_xen(void *tss) {
   init_procID();
 #endif
 
+  cpu_online_count = 1;
+
   init_threads();
 
   /*
@@ -615,7 +619,6 @@ sva_init_primary_xen(void *tss) {
   SVA_PROF_EXIT(init_primary);
 }
 
-static bool __svadata ap_startup_ack;
 static init_fn __svadata ap_startup_callback;
 void* __svadata ap_startup_stack;
 
@@ -623,7 +626,7 @@ void __attribute__((noreturn)) sva_init_secondary(void) {
   SVA_PROF_ENTER();
 
   init_fn startup_cb = ap_startup_callback;
-  __atomic_store_n(&ap_startup_ack, true, __ATOMIC_RELEASE);
+  __atomic_fetch_add(&cpu_online_count, 1, __ATOMIC_RELEASE);
 
   SVA_PROF_EXIT(init_secondary);
   startup_cb();
@@ -1074,7 +1077,7 @@ bool sva_launch_ap(uint32_t apic_id, uintptr_t start_page,
 
   ap_startup_callback = init;
   ap_startup_stack = stack;
-  ap_startup_ack = false;
+  int current_online_cpus = cpu_online_count;
 
   create_startup_region(start_page);
 
@@ -1102,10 +1105,11 @@ bool sva_launch_ap(uint32_t apic_id, uintptr_t start_page,
   bool ack = false;
   unsigned long start = sva_read_tsc();
   do {
-    if (__atomic_load_n(&ap_startup_ack, __ATOMIC_RELAXED)) {
+    int new_online_cpus = __atomic_load_n(&cpu_online_count, __ATOMIC_RELAXED);
+    if (new_online_cpus > current_online_cpus) {
       ack = true;
     } else {
-      __builtin_ia32_pause();
+      pause();
     }
   } while (!ack && sva_read_tsc() < start + 30000000);
 

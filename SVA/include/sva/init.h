@@ -51,6 +51,11 @@ extern bool sva_launch_ap(uint32_t apic_id, uintptr_t start_page,
                           init_fn init, void* stack);
 
 /**
+ * The number of currently online CPUs.
+ */
+extern unsigned int cpu_online_count;
+
+/**
  * Register SVA's syscall handler.
  *
  * Called by sva_init_primary(), sva_init_primary_xen(), and
