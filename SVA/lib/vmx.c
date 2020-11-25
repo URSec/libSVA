@@ -685,10 +685,31 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
   int vmid = -1;
   for (int i = 1; i < MAX_VMS; i++) {
     if (vm_descs[i].vmcs_paddr == 0) {
-      DBGPRNT(("First free VM ID found: %d\n", i));
+      /*
+       * Attempt to take the lock for this VM descriptor before confirming
+       * our selection of this slot. If we cannot take the lock, then it is
+       * currently in use by another processor, even if the vmcs_paddr
+       * pointer is null (the other processor may be in the middle of
+       * performing sva_allocvm() or sva_freevm() on it), so we should move
+       * on to the next one.
+       *
+       * Note that this can, in practice, mean that the system can run out of
+       * VM descriptor slots due to contention even if there are (slightly)
+       * fewer than MAX_VMS VMs active on the system. If this becomes a
+       * problem in practice, we could address it by having the loop continue
+       * back around repeatedly instead of giving up when it reaches the end
+       * of the array. That would effectively turn this into a spin-wait.
+       *
+       * If you find this happening in practice, you should probably just
+       * increase MAX_VMS, as it's exceedingly unlikely to happen unless
+       * you're already too close to the limit for comfort.
+       */
+      if (vm_desc_lock(&vm_descs[i])) {
+        DBGPRNT(("First free VM ID found: %d\n", i));
 
-      vmid = i;
-      break;
+        vmid = i;
+        break;
+      }
     }
   }
 
@@ -702,6 +723,8 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
     return -1;
   }
 
+  struct vm_desc_t* vm = &vm_descs[vmid];
+
   /* FIXME: similar to above where we call sva_check_memory_read() on these
    * two pointers, we need to disable these for now in the Xen config. At
    * this stage in the port, we are expecting Xen to pass null pointers for
@@ -712,12 +735,12 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    * VMCS is loaded. (Intel's hardware interface doesn't let us write to a
    * VMCS unless it is active on the processor, so we can't do that here.)
    */
-  vm_descs[vmid].initial_ctrls = *initial_ctrls;
+  vm->initial_ctrls = *initial_ctrls;
 
   /*
    * Initialize the guest system state (registers, program counter, etc.).
    */
-  vm_descs[vmid].state = *initial_state;
+  vm->state = *initial_state;
 #endif
 
   /*
@@ -736,16 +759,21 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
 #endif
 
   /*
+   * Initialize the vlAPIC mode setting to OFF.
+   */
+  vm->vlapic.mode = VLAPIC_OFF;
+
+  /*
    * Allocate a physical frame of SVA secure memory from the frame cache to
    * serve as this VM's Virtual Machine Control Structure.
    *
    * This frame is protected by SVA's SFI instrumentation, ensuring that
    * the OS cannot touch it without going through an SVA intrinsic.
    */
-  vm_descs[vmid].vmcs_paddr = alloc_frame();
+  vm->vmcs_paddr = alloc_frame();
 
   /* Zero-fill the VMCS frame, for good measure. */
-  unsigned char * vmcs_vaddr = getVirtual(vm_descs[vmid].vmcs_paddr);
+  unsigned char *vmcs_vaddr = getVirtual(vm->vmcs_paddr);
   memset(vmcs_vaddr, 0, VMCS_ALLOC_SIZE);
 
   /*
@@ -775,37 +803,46 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    * point, and my interpretation may be wrong.
    */
   DBGPRNT(("Using VMCLEAR to initialize VMCS with paddr 0x%lx...\n",
-        vm_descs[vmid].vmcs_paddr));
+        vm->vmcs_paddr));
   uint64_t rflags_vmclear;
   asm __volatile__ (
       "vmclear %1\n"
       "pushfq\n"
       "popq %0\n"
       : "=r" (rflags_vmclear)
-      : "m" (vm_descs[vmid].vmcs_paddr)
+      : "m" (vm->vmcs_paddr)
       : "cc"
       );
   /* Confirm that the operation succeeded. */
   if (query_vmx_result(rflags_vmclear) == VM_SUCCEED) {
     DBGPRNT(("Successfully initialized VMCS.\n"));
   } else {
+    /*
+     * TODO: rework the error handling here to follow a single path, as
+     * Colin's done with other intrinsics
+     */
+
     DBGPRNT(("Error: failed to initialize VMCS with VMCLEAR.\n"));
 
-    /* Return the VMCS frame to the frame cache. */
-    DBGPRNT(("Returning VMCS frame 0x%lx to SVA's frame cache.\n",
-          vm_descs[vmid].vmcs_paddr));
-    free_frame(vm_descs[vmid].vmcs_paddr);
-
-    /* Restore the VM descriptor to a clear state so that it is interpreted
-     * as a free slot.
+    /*
+     * Return the VMCS frame to the frame cache, and set its pointer to null
+     * so that this VM descriptor is once again interpreted as a free slot.
      */
-    memset(&vm_descs[vmid], 0, sizeof(vm_desc_t));
+    DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm->vmcs_paddr));
+    free_frame(vm->vmcs_paddr);
+    vm->vmcs_paddr = 0;
+
+    /* Release the VM descriptor lock. */
+    vm_desc_unlock(vm);
 
     /* Return failure. */
     usersva_to_kernel_pcid();
     sva_exit_critical(rflags);
     return -1;
   }
+
+  /* Release the VM descriptor lock. */
+  vm_desc_unlock(vm);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -821,9 +858,9 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
  * Description:
  *  Deallocates a virtual machine descriptor and its associated VMCS.
  *
- *  The VMCS frame will be returned to the frame cache, and the VM's
- *  descriptor structure will be zero-filled. This marks its numeric ID and
- *  slot in the vm_descs array as unused so they can be recycled.
+ *  The VMCS frame will be returned to the frame cache, and the pointer to it
+ *  in the VM descriptor will be cleared to null. This marks its numeric ID
+ *  and slot in the vm_descs array as unused so they can be recycled.
  *
  * Arguments:
  *  - vmid: the numeric handle of the virtual machine to be deallocated.
@@ -860,7 +897,13 @@ sva_freevm(int vmid) {
 
   struct vm_desc_t* vm = &vm_descs[vmid];
 
-  /* If this VM's VMCS pointer is already null, this is a double free (or
+  /* Attempt to acquire the VM descriptor lock. */
+  if (!vm_desc_lock(vm)) {
+    panic("sva_freevm(): Could not acquire VM descriptor lock!\n");
+  }
+
+  /*
+   * If this VM's VMCS pointer is already null, this is a double free (or
    * freeing a VM ID which was never allocated).
    */
   if (usevmx) {
@@ -913,12 +956,16 @@ sva_freevm(int vmid) {
   pgRefCountDec(ptpDesc, false);
 #endif
 
-  /* Return the VMCS frame to the frame cache. */
+  /*
+   * Return the VMCS frame to the frame cache, and set its pointer to null
+   * so that this VM descriptor is once again interpreted as a free slot.
+   */
   DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm->vmcs_paddr));
   free_frame(vm->vmcs_paddr);
+  vm->vmcs_paddr = 0;
 
-  /* Zero-fill this slot in the vm_descs struct to mark it as unused. */
-  memset(vm, 0, sizeof(vm_desc_t));
+  /* Release the VM descriptor lock. */
+  vm_desc_unlock(vm);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -996,6 +1043,15 @@ sva_loadvm(int vmid) {
     }
   }
 
+  /* If we cannot acquire the VM descriptor lock, return failure. */
+  if (!vm_desc_lock(&vm_descs[vmid])) {
+    DBGPRNT(("sva_loadvm(): Could not acquire VM descriptor lock!\n"));
+
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
+    return -1;
+  }
+
   /* Set the indicated VM as the active one. */
   host_state.active_vm = &vm_descs[vmid];
 
@@ -1022,6 +1078,15 @@ sva_loadvm(int vmid) {
 
     /* Unset the active_vm pointer. */
     host_state.active_vm = 0;
+
+    /*
+     * Release the VM descriptor lock.
+     *
+     * Note that we only do this on the error path; it needs to stay held on
+     * the success path since (in that case) the VMCS has been loaded and
+     * will remain so when this intrinsic returns.
+     */
+    vm_desc_unlock(host_state.active_vm);
 
     /* Return failure. */
     usersva_to_kernel_pcid();
@@ -1208,7 +1273,8 @@ sva_unloadvm(void) {
     }
   }
 
-  /* If there is no VM currently active on the processor, return failure.
+  /*
+   * If there is no VM currently active on the processor, return failure.
    *
    * A null active_vm pointer indicates there is no active VM.
    */
@@ -1222,39 +1288,55 @@ sva_unloadvm(void) {
     }
   }
 
-  /* Use the VMCLEAR instruction to unload the current VM from the processor.
+  /*
+   * Save the current active_vm pointer since we will need it to release the
+   * lock on this VM even after clearing active_vm.
+   */
+  struct vm_desc_t *vm = host_state.active_vm;
+
+  /*
+   * Use the VMCLEAR instruction to unload the current VM from the processor.
    */
   DBGPRNT(("Using VMCLEAR to unload VMCS with address 0x%lx from the "
-        "processor...\n", host_state.active_vm->vmcs_paddr));
+        "processor...\n", vm->vmcs_paddr));
   uint64_t rflags_vmclear;
   asm __volatile__ (
       "vmclear %1\n"
       "pushfq\n"
       "popq %0\n"
       : "=r" (rflags_vmclear)
-      : "m" (host_state.active_vm->vmcs_paddr)
+      : "m" (vm->vmcs_paddr)
       : "cc"
       );
   /* Confirm that the operation succeeded. */
   if (query_vmx_result(rflags_vmclear) == VM_SUCCEED) {
     DBGPRNT(("Successfully unloaded VMCS from the processor.\n"));
 
-    /* Mark the VM as "not launched". If we load it back onto the processor
+    /*
+     * Mark the VM as "not launched". If we load it back onto the processor
      * in the future, we will need to use sva_launchvm() instead of
      * sva_resumevm() to resume its guest-mode operation.
      */
-    host_state.active_vm->is_launched = 0;
+    vm->is_launched = 0;
 
     /* Set the active_vm pointer to indicate no VM is active. */
     host_state.active_vm = 0;
   } else {
     DBGPRNT(("Error: failed to unload VMCS from the processor.\n"));
 
+    /*
+     * Note: we must *not* release the VM descriptor lock on this error path,
+     * since the VMCS is (or at least may be) still loaded on the processor!
+     */
+
     /* Return failure. */
     usersva_to_kernel_pcid();
     sva_exit_critical(rflags);
     return -1;
   }
+
+  /* Release the VM descriptor lock. */
+  vm_desc_unlock(vm);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -1347,6 +1429,12 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
       return -1;
     }
   }
+
+  /*
+   * Note: now that we have confirmed there is a VM active on this processor,
+   * it is safe for us to freely access its VMCS and VM descriptor fields,
+   * since we know this processor currently holds the descriptor lock.
+   */
 
   /*
    * FIXME: check *data out-parameter pointer to ensure that the caller is
@@ -1456,6 +1544,12 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
   }
 
   /*
+   * Note: now that we have confirmed there is a VM active on this processor,
+   * it is safe for us to freely access its VMCS and VM descriptor fields,
+   * since we know this processor currently holds the descriptor lock.
+   */
+
+  /*
    * Vet the value to be written to ensure that it will not compromise system
    * security, and perform the write.
    */
@@ -1531,6 +1625,12 @@ sva_launchvm(void) {
       return -1;
     }
   }
+
+  /*
+   * Note: now that we have confirmed there is a VM active on this processor,
+   * it is safe for us to freely access its VMCS and VM descriptor fields,
+   * since we know this processor currently holds the descriptor lock.
+   */
 
   /*
    * If the VM has been launched before since being loaded onto the
@@ -1642,6 +1742,12 @@ sva_resumevm(void) {
       return -1;
     }
   }
+
+  /*
+   * Note: now that we have confirmed there is a VM active on this processor,
+   * it is safe for us to freely access its VMCS and VM descriptor fields,
+   * since we know this processor currently holds the descriptor lock.
+   */
 
   /*
    * If the VM has not previously been launched at least once since being
@@ -2761,6 +2867,9 @@ run_vm(unsigned char use_vmresume) {
  *  - The host_state.active_vm pointer should point to the VM descriptor
  *    corresponding to the VMCS loaded on the processor.
  *
+ *  - This processor should hold the lock in the VM descriptor pointed to by
+ *    host-state.active_vm.
+ *
  *  This function is meant to be used internally by SVA code that has already
  *  ensured these conditions hold. Particularly, this is true in run_vm()
  *  (which inherits these preconditions from its own broader precondition,
@@ -2836,13 +2945,14 @@ update_vmcs_ctrls() {
  *  - The host_state.active_vm pointer should point to the VM descriptor
  *    corresponding to the VMCS loaded on the processor.
  *
+ *  - This processor should hold the lock in the VM descriptor pointed to by
+ *    host-state.active_vm.
+ *
  *  This function is meant to be used internally by SVA code that has already
- *  ensured these conditions hold. Particularly, this is true in
- *  sva_getvmstate() (which checks those conditions before saving guest
- *  state) and run_vm() (which inherits these preconditions from its own
- *  broader precondition, namely, that it is only called at the end of
- *  sva_launch/resumevm() after all checks have been performed to ensure it
- *  is safe to enter a VM).
+ *  ensured these conditions hold. Particularly, this is true in run_vm()
+ *  (which inherits these preconditions from its own broader precondition,
+ *  namely, that it is only called at the end of sva_launch/resumevm() after
+ *  all checks have been performed to ensure it is safe to enter a VM).
  */
 static inline void
 save_restore_guest_state(unsigned char saverestore) {
@@ -3713,9 +3823,11 @@ writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data) {
  * Return value:
  *  True if fetching the guest FPU state succeeded.
  *  False otherwise
+ *
+ * FIXME: remove this intrinsic as it has been superseded by sva_getvmfpu()
  */
 unsigned char
-sva_getfp(int vmid, unsigned char *fp_state ) {
+sva_getfp(int vmid, unsigned char *fp_state) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -3742,6 +3854,13 @@ sva_getfp(int vmid, unsigned char *fp_state ) {
     }
   }
 
+  /*
+   * If the specified VM is currently active on this CPU, we already hold its
+   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_lock(&vm_descs[vmid]);
+
   const size_t fp_state_size = sizeof(struct xsave_legacy);
 
   if ( usevmx ) {
@@ -3751,6 +3870,10 @@ sva_getfp(int vmid, unsigned char *fp_state ) {
 
   /* Do the copy from the guest VM structure to the (pointed to) output buffer */
   memcpy(fp_state, &vm_descs[vmid].state.fp.inner.legacy, fp_state_size);
+
+  /* Release the VM descriptor lock if we took it earlier. */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -3808,21 +3931,24 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
    * Note: we don't need to check whether vmid corresponds to a VM that is
    * actually allocated. If it isn't, it is safe to return the "meaningless"
    * data in the unused descriptor's register fields because the VM
-   * descriptor array is zero-initialized during SVA-VMX init, ensuring that
-   * no sensitive uninitialized data is contained within.
+   * descriptor array is zero-initialized during sva_initvmx(), ensuring that
+   * no sensitive uninitialized data is retained within. Following that
+   * initialization, these register fields will only ever be used to store
+   * guest data, so in the event the hypervisor specifies a bad vmid and
+   * reads from an unallocated VM descriptor, it will read either a zero or
+   * some dead value from a previous VM which, in principle, the hypervisor
+   * already had access to - so this is not security-sensitive.
    *
-   * VM descriptors are cleared by sva_freevm(), so it's also not possible to
-   * read latent register state from a previously freed VM this way (although
-   * this will only be important for security when we implement "Virtual
-   * Ghost for VMs" in the future).
-   *
-   * The only case in which calling this intrinsic with a not-in-use vmid
-   * would result in a non-zero value being returned is if the system
-   * software had previously used sva_setvmreg() to *write* to that register
-   * field in the not-in-use VM descriptor. The data is still "meaningless"
-   * since it will be overwritten when a new VM is allocated in the slot
-   * (sva_allocvm() doesn't let you leave any registers uninitialized).
+   * (This assumption may no longer be true if and when we implement
+   * "Virtual Ghost for VMs".)
    */
+
+  /*
+   * If the specified VM is currently active on this CPU, we already hold its
+   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_lock(&vm_descs[vmid]);
 
   /*
    * Get the respective register from the specified VM's descriptor.
@@ -3932,6 +4058,10 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
       break;
   }
 
+  /* Release the VM descriptor lock if we took it earlier. */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_unlock(&vm_descs[vmid]);
+
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
   sva_exit_critical(rflags);
@@ -3986,6 +4116,13 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
    * be overwritten when a new VM is allocated in its slot, because
    * sva_allocvm() doesn't let you leave any registers uninitialized.
    */
+
+  /*
+   * If the specified VM is currently active on this CPU, we already hold its
+   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_lock(&vm_descs[vmid]);
 
   /*
    * Write to the respective register field in the specified VM's descriptor.
@@ -4099,6 +4236,10 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
       break;
   }
 
+  /* Release the VM descriptor lock if we took it earlier. */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_unlock(&vm_descs[vmid]);
+
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
   sva_exit_critical(rflags);
@@ -4155,6 +4296,13 @@ sva_getvmfpu(int vmid, union xsave_area_max *out_data) {
    */
 
   /*
+   * If the specified VM is currently active on this CPU, we already hold its
+   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_lock(&vm_descs[vmid]);
+
+  /*
    * Verify that the out_data pointer provided by the caller doesn't point to
    * a protected memory region.
    */
@@ -4169,6 +4317,10 @@ sva_getvmfpu(int vmid, union xsave_area_max *out_data) {
    * pointed to by out_data.
    */
   memcpy(out_data, &vm_descs[vmid].state.fp, sizeof(vm_descs[vmid].state.fp));
+
+  /* Release the VM descriptor lock if we took it earlier. */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -4224,6 +4376,13 @@ sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
    */
 
   /*
+   * If the specified VM is currently active on this CPU, we already hold its
+   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_lock(&vm_descs[vmid]);
+
+  /*
    * Verify that the in_data pointer provided by the caller doesn't point to
    * a protected memory region.
    */
@@ -4238,6 +4397,10 @@ sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
    * specified VM's descriptor.
    */
   memcpy(&vm_descs[vmid].state.fp, in_data, sizeof(vm_descs[vmid].state.fp));
+
+  /* Release the VM descriptor lock if we took it earlier. */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -4293,6 +4456,12 @@ int sva_vlapic_disable(void) {
 
   struct vm_desc_t* const active_vm = host_state.active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
+
+  /*
+   * Note: now that we have confirmed there is a VM active on this processor,
+   * it is safe for us to freely access its VMCS and VM descriptor fields,
+   * since we know this processor currently holds the descriptor lock.
+   */
 
   DBGPRNT(("SVA: vlAPIC is in %d mode. Switching to OFF\n",
            active_vm->vlapic.mode));
@@ -4357,6 +4526,12 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
 
   struct vm_desc_t* const active_vm = host_state.active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
+
+  /*
+   * Note: now that we have confirmed there is a VM active on this processor,
+   * it is safe for us to freely access its VMCS and VM descriptor fields,
+   * since we know this processor currently holds the descriptor lock.
+   */
 
   DBGPRNT(("SVA: vlAPIC is in %d mode. Switching to APIC\n",
            active_vm->vlapic.mode));
@@ -4449,6 +4624,12 @@ int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame) {
   struct vm_desc_t* const active_vm = host_state.active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
 
+  /*
+   * Note: now that we have confirmed there is a VM active on this processor,
+   * it is safe for us to freely access its VMCS and VM descriptor fields,
+   * since we know this processor currently holds the descriptor lock.
+   */
+
   DBGPRNT(("SVA: vlAPIC is in %d mode. Switching to x2APIC\n",
            active_vm->vlapic.mode));
 
@@ -4530,6 +4711,12 @@ int sva_posted_interrupts_disable(void) {
   struct vm_desc_t* const active_vm = host_state.active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
 
+  /*
+   * Note: now that we have confirmed there is a VM active on this processor,
+   * it is safe for us to freely access its VMCS and VM descriptor fields,
+   * since we know this processor currently holds the descriptor lock.
+   */
+
   DBGPRNT(("SVA: disabling posted interrupt processing\n"));
 
   posted_interrupts_disable();
@@ -4548,6 +4735,12 @@ int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor) {
 
   struct vm_desc_t* const active_vm = host_state.active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
+
+  /*
+   * Note: now that we have confirmed there is a VM active on this processor,
+   * it is safe for us to freely access its VMCS and VM descriptor fields,
+   * since we know this processor currently holds the descriptor lock.
+   */
 
   SVA_CHECK(active_vm->vlapic.mode != VLAPIC_OFF, ENOENT);
 

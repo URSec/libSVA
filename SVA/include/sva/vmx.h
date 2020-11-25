@@ -401,6 +401,31 @@ struct vlapic {
  */
 typedef struct vm_desc_t {
   /*
+   * Lock field indicating that this VM descriptor is currently "owned" by a
+   * particular logical processor. SVA code should always take this lock
+   * by calling vm_desc_lock() before attempting to read or write
+   * any field in this structure, or attempting to load (VMPTRLD) or clear
+   * (VMCLEAR) its associated VMCS; and likewise release the lock by calling
+   * vm_desc_unlock() when it is done.
+   *
+   * This is necessary to avoid race conditions on the vm_desc_t fields
+   * themselves, as well as to prevent attempting to load a VMCS on two
+   * different logical processors simultaneously, which (per the Intel
+   * manual) would be very bad and result in corruption of the VMCS and
+   * undefined behavior.
+   *
+   * Values:
+   *  0 (false): not in use
+   *  1 (true):  in use
+   * Note: code should treat any true (non-zero) value as indicating
+   * "in-use", but should refrain from writing any value other than 1 to this
+   * field when taking the lock. In the need arises in the future, we may
+   * extend this interface to distinguish different cases (e.g., which CPU
+   * holds the lock) by using different true values.
+   */
+  uint8_t in_use;
+
+  /*
    * Physical-address pointer to the VM's Virtual Machine Control Structure
    * (VMCS) frame.
    *
@@ -644,6 +669,38 @@ query_vmx_result(uint64_t rflags) {
 
   /* If none of these conditions matched, return an unknown value. */
   return VM_UNKNOWN;
+}
+
+/*
+ * Function: vm_desc_lock()
+ *
+ * Description:
+ *  Atomically acquires the "in_use" lock for a struct vm_desc_t.
+ *
+ * Arguments:
+ *  - vm: a pointer to the vm_desc_t structure to be locked.
+ *
+ * Return value:
+ *  True (non-zero) if the lock has been successfully acquired; false (zero)
+ *  if it was already locked and thus not acquired.
+ */
+static inline int
+vm_desc_lock(struct vm_desc_t *vm) {
+  return !__atomic_test_and_set(&vm->in_use, __ATOMIC_ACQUIRE);
+}
+
+/*
+ * Function: vm_desc_unlock()
+ *
+ * Description:
+ *  Release the "in_use" lock for a struct vm_desc_t.
+ *
+ * Arguments:
+ *  - vm: a pointer to the vm_desc_t structure to be unlocked.
+ */
+static inline void
+vm_desc_unlock(struct vm_desc_t *vm) {
+  __atomic_clear(&vm->in_use, __ATOMIC_RELEASE);
 }
 
 #endif /* _SVA_VMX_H */
