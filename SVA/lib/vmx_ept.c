@@ -25,6 +25,8 @@
 #include <sva/mmu.h>
 #include <sva/config.h>
 
+extern vmx_host_state_t __svadata host_state;
+
 /*
  * Intrinsic: sva_declare_l1_eptpage()
  *
@@ -212,7 +214,15 @@ sva_load_eptable(int vmid, pml4e_t *epml4t) {
     }
   }
 
-  /* If this VM descriptor indicated by this ID has a null VMCS pointer, it
+  /*
+   * If the specified VM is currently active on this CPU, we already hold its
+   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_lock(&vm_descs[vmid]);
+
+  /*
+   * If the VM descriptor indicated by this ID has a null VMCS pointer, it
    * is not a valid descriptor. (i.e., it is an empty slot not assigned to
    * any VM)
    */
@@ -225,6 +235,10 @@ sva_load_eptable(int vmid, pml4e_t *epml4t) {
    * the VM descriptor.
    */
   load_eptable_internal(vmid, epml4t, 0 /* is not initial setting */);
+
+  /* Release the VM descriptor lock if we took it earlier. */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);
@@ -361,7 +375,15 @@ sva_save_eptable(int vmid) {
     }
   }
 
-  /* If this VM descriptor indicated by this ID has a null VMCS pointer, it
+  /*
+   * If the specified VM is currently active on this CPU, we already hold its
+   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_lock(&vm_descs[vmid]);
+
+  /*
+   * If the VM descriptor indicated by this ID has a null VMCS pointer, it
    * is not a valid descriptor. (i.e., it is an empty slot not assigned to
    * any VM)
    */
@@ -376,6 +398,10 @@ sva_save_eptable(int vmid) {
    * top-level table.
    */
   uintptr_t epml4t_paddr = PG_ENTRY_FRAME(eptp);
+
+  /* Release the VM descriptor lock if we took it earlier. */
+  if (host_state.active_vm != &vm_descs[vmid])
+    vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
   sva_exit_critical(rflags);

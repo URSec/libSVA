@@ -96,7 +96,7 @@ struct vm_desc_t __svadata vm_descs[MAX_VMS];
  * at a specific time).
  *
  */
-static vmx_host_state_t __svadata host_state = {
+vmx_host_state_t __svadata host_state = {
   /* We use an explicit initializer here to ensure that the active_vm field
    * is initialized to a null pointer before any code can run. It's important
    * this be done before any SVA intrinsics can be called, because their
