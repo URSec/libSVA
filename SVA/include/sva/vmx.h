@@ -600,7 +600,6 @@ typedef struct vmx_host_state_t {
 /**********
  * Global variables
 **********/
-extern unsigned char sva_vmx_initialized; /* defined in vmx.c */
 extern struct vm_desc_t vm_descs[MAX_VMS]; /* defined in vmx.c */
 
 /**********

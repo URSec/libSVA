@@ -198,10 +198,8 @@ sva_load_eptable(int vmid, pml4e_t *epml4t) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
 
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_load_eptable(): Shade not yet initialized on this processor!\n");
 
   /*
    * Bounds check on vmid.
@@ -363,6 +361,9 @@ sva_save_eptable(int vmid) {
   kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
+
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_save_eptable(): Shade not yet initialized on this processor!\n");
 
   /*
    * Bounds check on vmid.

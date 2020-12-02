@@ -397,7 +397,29 @@ void initDeclaredPage(uintptr_t frame) {
    *    at all to the OS.
    */
   invltlb_all();
-  if (sva_vmx_initialized) {
+  if (getCPUState()->vmx_initialized) {
+    /*
+     * FIXME: there is a slight theoretical security hole here, in that the
+     * vmx_initialized flag is per-CPU, and we rely on the system software to
+     * call sva_initvmx() on each of those CPUs individually. In theory, the
+     * system software could trick us by initializing VMX on some CPUs but
+     * not others, and then taking advantage of the fact that
+     * initDeclaredPage() operations on the CPUs where VMX is not initialized
+     * will neglect to flush the EPT TLBs. We would need to think about this
+     * a bit more to determine whether a feasible attack could actually arise
+     * from this, but this comment stands for now out of an abundance of
+     * caution.
+     *
+     * In practice, this shouldn't be a problem as the system software will
+     * typically initialize VMX on all CPUs during boot. As SVA provides no
+     * mechanism to *disable* VMX on a CPU once it's enabled, an attacker
+     * could not exploit this thereafter. With security measures such as
+     * secure boot in place we can generally assume that such boot-time
+     * initialization will be performed as intended since most attack
+     * surfaces for compromise of the system software are not exposed until
+     * after (or later in) boot.
+     */
+
     invept_allcontexts();
     invvpid_allcontexts();
   }

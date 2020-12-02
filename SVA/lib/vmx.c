@@ -37,11 +37,6 @@
  * support SMP. For instance, we might want to store some of them on a
  * per-CPU basis in some structure already used for that purpose.)
 **********/
-/* Indicates whether sva_initvmx() has yet been called by the OS. No SVA-VMX
- * intrinsics may be called until this has been done.
- */
-unsigned char __svadata sva_vmx_initialized = 0;
-
 /* Physical address of the VMXON region. This is a special region of memory
  * that the active logical processor uses to "support VMX operation" (see
  * section 24.11.5 in the Intel reference manual, Oct. 2017).
@@ -384,11 +379,12 @@ check_cr4_fixed_bits(void) {
  * Intrinsic: sva_initvmx()
  *
  * Description:
- *  Prepares the SVA Execution Engine to support VMX operations.  (This may
- *  include, for instance, initializing internal data structures and issuing
- *  instructions which enable hardware VMX support.)
+ *  Prepares the SVA Execution Engine to support VMX operations.  (This
+ *  includes initializing internal data structures, setting control register
+ *  bits, and issuing the VMXON instruction to enable hardware VMX support.)
  *
- *  **Must be called before using any other SVA-VMX intrinsic!**
+ *  **Must be called on a processor before any other Shade intrinsic can be
+ *  used on that processor!**
  *
  * Return value:
  *  True if VMX initialization was successful (or initialization was not
@@ -396,45 +392,70 @@ check_cr4_fixed_bits(void) {
  */
 unsigned char
 sva_initvmx(void) {
-  if (sva_vmx_initialized) {
-#ifndef XEN
-    DBGPRNT(("Kernel called sva_initvmx(), but SVA's VMX support was "
-             "already initialized. sva_initvmx() will return without "
-             "doing anything.\n"));
+  /*
+   * Switch to the user/SVA page tables so that we can access SVA memory
+   * regions.
+   */
+  kernel_to_usersva_pcid();
+  /* Disable interrupts so that we appear to execute as a single instruction. */
+  unsigned long rflags = sva_enter_critical();
+
+  if (getCPUState()->vmx_initialized) {
+    printf("sva_initvmx(): Shade has already been initialized on this CPU.\n");
+
+    /* Restore interrupts and return to the kernel page tables. */
+    sva_exit_critical(rflags);
+    usersva_to_kernel_pcid();
+
     return 1;
-#else
-    /* FIXME: special-casing this for Xen is a hack for incremental porting.
-     * Shade doesn't support SMP yet so it doesn't understand that
-     * sva_initvmx() needs to be called more than once (per-CPU).
-     *
-     * It's actually harmless for Xen to call this function more than once,
-     * *so long as* it's only called once *on each CPU*. In fact, it should
-     * actually fail "cleanly" even if Xen were to call it a second time on
-     * the same CPU: VMXON would fail, which would lead to this function
-     * returning an error code farther down. The only bad consequence from
-     * SVA's perspective would be that the VMXON frame from the secmem frame
-     * cache will get leaked (but at that point the system has bigger
-     * problems since Xen shouldn't have called it twice on one CPU).
-     *
-     * Obviously, until we actually add SMP support to the Shade intrinsics,
-     * actually attempting to *use* any of SVA's VMX functionality would be
-     * hazardous at best (races galore). But we do need to at least do VMXON
-     * for each CPU to prevent Xen from freaking out when it tries to do
-     * not-yet-SVA-ported VMX operations thereafter.
-     */
-    DBGPRNT(("SVA: sva_initvmx() called for a secondary CPU.\n"));
-#endif
   }
 
-  /* Zero-initialize the array of virtual machine descriptors.
+  /*
+   * Zero-initialize the array of virtual machine descriptors.
    *
    * This has the effect of marking all VM IDs as free to be assigned.
+   *
+   * NOTE: sva_initvmx() must be called by the hypervisor for each processor
+   * it desires to set up for VMX operation, but since the VM descriptor
+   * array is shared, this memset() should only be done by the first such
+   * processor. We synchronize this operation on a shared lock variable to
+   * ensure that.
    */
-  for (int i = 0; i < MAX_VMS; i++) {
-    memset(&vm_descs[i], 0, sizeof(vm_desc_t));
+  static uint8_t __svadata vm_descs_initialized = 0;
+  uint8_t UNINIT = 0, INPROG = 1, DONE = 2;
+  if (__atomic_compare_exchange(&vm_descs_initialized,
+                                &UNINIT, &INPROG,
+                                false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+    /*
+     * We are the first processor on which sva_initvmx() has been called and
+     * are responsible for initializing the VM descriptor array.
+     */
+    printf("sva_initvmx(): initializing vm_descs array.\n");
+    for (int i = 0; i < MAX_VMS; i++) {
+      memset(&vm_descs[i], 0, sizeof(vm_desc_t));
+    }
+
+    /* Set the lock to INIT to indicate that initialization is complete. */
+    __atomic_store(&vm_descs_initialized, &DONE, __ATOMIC_RELEASE);
+  } else {
+    /*
+     * Another processor has claimed responsibility for initializing the
+     * array. If it hasn't yet finished doing so, spin until it has.
+     *
+     * (It's OK to spin here since sva_initvmx() is only called once per CPU
+     * during boot and thus not especially performance sensitive. The
+     * memset() should finish promptly enough for there to be no
+     * human-perceptible impact on boot time.)
+     */
+    printf("sva_initvmx(): waiting for vm_descs array initialization.\n");
+    uint8_t lockval;
+    do {
+      __atomic_load(&vm_descs_initialized, &lockval, __ATOMIC_ACQUIRE);
+    } while (lockval != DONE);
   }
 
-  /* Check to see if VMX is supported by the CPU, and if so, set the
+  /*
+   * Check to see if VMX is supported by the CPU, and if so, set the
    * IA32_FEATURE_CONTROL MSR to permit VMX operation. If this does not
    * succeed (e.g. because the BIOS or other kernel code has blocked the
    * feature), return failure.
@@ -442,10 +463,16 @@ sva_initvmx(void) {
   if (!cpu_permit_vmx()) {
     DBGPRNT(("CPU does not support VMX (or the feature is disabled in "
           "BIOS); cannot initialize SVA VMX support.\n"));
+
+    /* Restore interrupts and return to the kernel page tables. */
+    sva_exit_critical(rflags);
+    usersva_to_kernel_pcid();
+
     return 0;
   }
 
-  /* Sanity check: VMCS_ALLOC_SIZE should be exactly one frame (4 kB). If we
+  /*
+   * Sanity check: VMCS_ALLOC_SIZE should be exactly one frame (4 kB). If we
    * ever set VMCS_ALLOC_SIZE to something different, this code will need to
    * be restructured.
    */
@@ -482,7 +509,8 @@ sva_initvmx(void) {
   SVA_ASSERT(!(orig_cr4_value & CR4_ENABLE_SMX_BIT),
       "SVA: error: cannot enable VMX when SMX is enabled.\n");
 
-  /* Set the "enable VMX" bit in CR4. This enables VMX operation, allowing us
+  /*
+   * Set the "enable VMX" bit in CR4. This enables VMX operation, allowing us
    * to enter VMX operation by executing the VMXON instruction. Once we have
    * done so, we cannot unset the "enable VMX" bit in CR4 unless we have
    * first exited VMX operation by executing the VMXOFF instruction.
@@ -492,7 +520,8 @@ sva_initvmx(void) {
   write_cr4(new_cr4_value);
   DBGPRNT(("Confirming new CR4 value: 0x%lx\n", read_cr4()));
 
-  /* Confirm that the values of CR0 and CR4 are allowed for entry into VMX
+  /*
+   * Confirm that the values of CR0 and CR4 are allowed for entry into VMX
    * operation (i.e., they comport with MSRs which specify bits that must be
    * 0 or 1 in these registers during VMX operation).
    *
@@ -508,6 +537,10 @@ sva_initvmx(void) {
     DBGPRNT(("Restoring CR4 to its original value: 0x%lx\n", orig_cr4_value));
     write_cr4(orig_cr4_value);
     DBGPRNT(("Confirming CR4 restoration: 0x%lx\n", read_cr4()));
+
+    /* Restore interrupts and return to the kernel page tables. */
+    sva_exit_critical(rflags);
+    usersva_to_kernel_pcid();
 
     return 0;
   }
@@ -531,7 +564,8 @@ sva_initvmx(void) {
    */
   VMXON_paddr = alloc_frame();
 
-  /* Initialize the VMXON region.
+  /*
+   * Initialize the VMXON region.
    *
    * The Intel manual only specifies that we should write the VMCS revision
    * identifier to bits 30:0 of the first 4 bytes of the VMXON region, and
@@ -549,7 +583,8 @@ sva_initvmx(void) {
   uint64_t vmx_basic_data = rdmsr(MSR_VMX_BASIC);
   DBGPRNT(("IA32_VMX_BASIC MSR = %lx\n", vmx_basic_data));
 
-  /* Write the VMCS revision identifier to bits 30:0 of the first 4 bytes of
+  /*
+   * Write the VMCS revision identifier to bits 30:0 of the first 4 bytes of
    * the VMXON region, and clear bit 31 to 0. The VMCS revision identifier is
    * (conveniently) given in bits 30:0 of the IA32_VMX_BASIC MSR, and bit 31
    * of that MSR is guaranteed to always be 0, so we can just copy those
@@ -561,24 +596,29 @@ sva_initvmx(void) {
   *VMXON_id_field = VMCS_rev_id;
   DBGPRNT(("VMCS revision identifier written to VMXON region.\n"));
 
-  /* Enter VMX operation. This is done by executing the VMXON instruction,
+  /*
+   * Enter VMX operation. This is done by executing the VMXON instruction,
    * passing the physical address of the VMXON region as a memory operand.
    */
   DBGPRNT(("Entering VMX operation...\n"));
-  uint64_t rflags;
+  uint64_t rflags_vmxon;
   asm __volatile__ (
       "vmxon %1\n"
       "pushfq\n"
       "popq %0\n"
-      : "=r" (rflags)
+      : "=r" (rflags_vmxon)
       : "m" (VMXON_paddr)
       : "cc"
       );
   /* Confirm that the operation succeeded. */
-  if (query_vmx_result(rflags) == VM_SUCCEED) {
+  if (query_vmx_result(rflags_vmxon) == VM_SUCCEED) {
     DBGPRNT(("SVA VMX support successfully initialized.\n"));
 
-    sva_vmx_initialized = 1;
+    getCPUState()->vmx_initialized = 1;
+
+    /* Restore interrupts and return to the kernel page tables. */
+    sva_exit_critical(rflags);
+    usersva_to_kernel_pcid();
 
     return 1;
   } else {
@@ -598,6 +638,10 @@ sva_initvmx(void) {
      */
     DBGPRNT(("Returning VMXON frame to SVA.\n"));
     free_frame(VMXON_paddr);
+
+    /* Restore interrupts and return to the kernel page tables. */
+    sva_exit_critical(rflags);
+    usersva_to_kernel_pcid();
 
     return 0;
   }
@@ -646,16 +690,8 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
 
   DBGPRNT(("sva_allocvm() intrinsic called.\n"));
 
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      /*
-       * sva_initvmx() is responsible for zero-initializing the vm_descs
-       * array and thus marking its slots as free for use.
-       */
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_allocvm(): Shade not yet initialized on this processor!\n");
 
   /*
    * Ensure that the inputs are mapped and accessible.  If they are not, then
@@ -914,12 +950,8 @@ sva_freevm(int vmid) {
 
   DBGPRNT(("sva_freevm() intrinsic called for VM ID: %d\n", vmid));
 
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_freevm(): Shade not yet initialized on this processor!\n");
 
   /*
    * Bounds check on vmid.
@@ -1050,12 +1082,9 @@ sva_loadvm(int vmid) {
   kernel_to_usersva_pcid();
 
   DBGPRNT(("sva_loadvm() intrinsic called for VM ID: %d\n", vmid));
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_loadvm(): Shade not yet initialized on this processor!\n");
 
   /*
    * Bounds check on vmid.
@@ -1317,12 +1346,8 @@ sva_unloadvm(void) {
 
   DBGPRNT(("sva_unloadvm() intrinsic called.\n"));
 
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_unloadvm(): Shade not yet initialized on this processor!\n");
 
   /*
    * If there is no VM currently active on the processor, return failure.
@@ -1458,12 +1483,9 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
   print_vmcs_field_name(field);
   DBGPRNT((" (0x%lx), data=%p\n", field, data));
 #endif
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_readvmcs(): Shade not yet initialized on this processor!\n");
 
   /*
    * If there is no VM currently active on the processor, return failure.
@@ -1571,12 +1593,8 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
   DBGPRNT((" (0x%lx), data=0x%lx\n", field, data));
 #endif
 
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_writevmcs(): Shade not yet initialized on this processor!\n");
 
   /*
    * If there is no VM currently active on the processor, return failure.
@@ -1654,12 +1672,8 @@ sva_launchvm(void) {
 
   DBGPRNT(("sva_launchvm() intrinsic called.\n"));
 
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_launchvm(): Shade not yet initialized on this processor!\n");
 
   /*
    * If there is no VM currently active on the processor, return failure.
@@ -1771,12 +1785,9 @@ sva_resumevm(void) {
 #if 0
   DBGPRNT(("sva_resumevm() intrinsic called.\n"));
 #endif
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_resumevm(): Shade not yet initialized on this processor!\n");
 
   /*
    * If there is no VM currently active on the processor, return failure.
@@ -3887,12 +3898,8 @@ sva_getfp(int vmid, unsigned char *fp_state) {
    */
   kernel_to_usersva_pcid();
 
-  if ( usevmx ) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_getfp(): Shade not yet initialized on this processor!\n");
 
   /*
    * Bounds check on vmid.
@@ -3960,12 +3967,8 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
    */
   kernel_to_usersva_pcid();
   
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_getvmreg(): Shade not yet initialized on this processor!\n");
 
   /*
    * Bounds check on vmid.
@@ -4145,10 +4148,8 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
    */
   kernel_to_usersva_pcid();
 
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_setvmreg(): Shade not yet initialized on this processor!\n");
 
   /*
    * Bounds check on vmid.
@@ -4323,12 +4324,8 @@ sva_getvmfpu(int vmid, union xsave_area_max *out_data) {
    */
   kernel_to_usersva_pcid();
 
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_getvmfpu(): Shade not yet initialized on this processor!\n");
 
   /*
    * Bounds check on vmid.
@@ -4405,10 +4402,8 @@ sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
    */
   kernel_to_usersva_pcid();
 
-  if (!sva_vmx_initialized) {
-    panic("Fatal error: must call sva_initvmx() before any other "
-          "SVA-VMX intrinsic.\n");
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_setvmfpu(): Shade not yet initialized on this processor!\n");
 
   /*
    * Bounds check on vmid.
@@ -4503,7 +4498,7 @@ int sva_vlapic_disable(void) {
 
   kernel_to_usersva_pcid();
 
-  SVA_CHECK(sva_vmx_initialized, ENODEV);
+  SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
 
   struct vm_desc_t* const active_vm = host_state.active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
@@ -4573,7 +4568,7 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
 
   kernel_to_usersva_pcid();
 
-  SVA_CHECK(sva_vmx_initialized, ENODEV);
+  SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
 
   struct vm_desc_t* const active_vm = host_state.active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
@@ -4670,7 +4665,7 @@ int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame) {
 
   kernel_to_usersva_pcid();
 
-  SVA_CHECK(sva_vmx_initialized, ENODEV);
+  SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
 
   struct vm_desc_t* const active_vm = host_state.active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
@@ -4757,7 +4752,7 @@ int sva_posted_interrupts_disable(void) {
 
   kernel_to_usersva_pcid();
 
-  SVA_CHECK(sva_vmx_initialized, ENODEV);
+  SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
 
   struct vm_desc_t* const active_vm = host_state.active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
@@ -4782,7 +4777,7 @@ int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor) {
 
   kernel_to_usersva_pcid();
 
-  SVA_CHECK(sva_vmx_initialized, ENODEV);
+  SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
 
   struct vm_desc_t* const active_vm = host_state.active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);

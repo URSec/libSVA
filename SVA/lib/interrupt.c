@@ -409,6 +409,11 @@ void* sva_getCPUState(tss_t* tssp) {
 #endif
 
   /*
+   * Flag that VMX has not yet been initialized for this processor.
+   */
+  cpup->vmx_initialized = 0;
+
+  /*
    * Return the CPU State to the caller.
    */
   SVA_PROF_EXIT_MULTI(getCPUState, 1);

@@ -1756,12 +1756,8 @@ sva_get_vmcs_paddr(int vmid) {
    */
   kernel_to_usersva_pcid();
 
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_get_vmcs_paddr(): Shade not yet initialized on this processor!\n");
 
   /*
    * Bounds check on vmid.
@@ -1773,6 +1769,7 @@ sva_get_vmcs_paddr(int vmid) {
       panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
     }
   }
+
   /*
    * If this VM's VMCS pointer is null, then this VMID does not correspond to
    * a VM that is actually allocated. (It may have been freed, or never
@@ -1828,12 +1825,8 @@ sva_get_vmid_from_vmcs(uintptr_t vmcs_paddr) {
    */
   kernel_to_usersva_pcid();
 
-  if (usevmx) {
-    if (!sva_vmx_initialized) {
-      panic("Fatal error: must call sva_initvmx() before any other "
-            "SVA-VMX intrinsic.\n");
-    }
-  }
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_get_vmid_from_vmcs(): Shade not yet initialized on this processor!\n");
 
   /*
    * Search SVA's VM descriptor array to find the VM whose VMCS pointer

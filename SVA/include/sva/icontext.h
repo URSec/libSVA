@@ -318,6 +318,13 @@ struct CPUState {
 
   /* Flags whether the floating point unit has been used */
   unsigned char fp_used;
+
+  /*
+   * Flags whether the sva_initvmx() intrinsic has been called to enable VMX
+   * support (via the VMXON instruction) for this processor. No other Shade
+   * intrinsic may be called until this has been done.
+   */
+  unsigned char vmx_initialized;
 };
 
 struct sva_tls_area {
@@ -338,7 +345,7 @@ struct sva_tls_area {
 } __attribute__((aligned(64)));
 
 /*
- * Function: get_cpuState()
+ * Function: getCPUState()
  *
  * Description:
  *  This function finds the CPU state for the current process.

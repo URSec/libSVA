@@ -91,7 +91,7 @@ static inline void invlpg(uintptr_t addr) {
  *    instruction will not be valid to execute.
  */
 static inline void invept_allcontexts(void) {
-  SVA_ASSERT(sva_vmx_initialized,
+  SVA_ASSERT(getCPUState()->vmx_initialized,
       "SVA: Tried to call invept_allcontexts() without SVA-VMX being "
       "initialized. The INVEPT instruction is not valid unless the system "
       "is running in VMX operation.\n");
@@ -162,7 +162,7 @@ static inline void invept_allcontexts(void) {
  *    instruction will not be valid to execute.
  */
 static inline void invvpid_allcontexts(void) {
-  SVA_ASSERT(sva_vmx_initialized,
+  SVA_ASSERT(getCPUState()->vmx_initialized,
       "SVA: Tried to call invvpid_allcontexts() without SVA-VMX being "
       "initialized. The INVVPID instruction is not valid unless the system "
       "is running in VMX operation.\n");
