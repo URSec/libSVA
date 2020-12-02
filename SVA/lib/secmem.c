@@ -157,8 +157,28 @@ frame_dequeue(void) {
  */
 static inline uintptr_t
 get_frame_from_os(void) {
-  /* Ask the OS to give us a physical frame. */
+  /*
+   * Ask the OS to give us a physical frame.
+   *
+   * If we are running with interrupts disabled (which we probably are, since
+   * that's true of most if not all SVA code that could be calling this), we
+   * must re-enable them before returning control to the OS.
+   */
+  uintptr_t prev_rflags;
+  asm volatile (
+      "pushfq\n"
+      "popq %0\n"
+      "sti\n" /* Enable interrupts if they aren't enabled already */
+      : "=r" (prev_rflags)
+      :: "memory" /* prevents compiler from reordering memory ops after STI */
+      );
+
+  /* Perform the callback to the OS. */
   uintptr_t paddr = provideSVAMemory(FRAME_SIZE);
+
+  /* Re-disable interrupts if they were disabled before the callback. */
+  if (!(prev_rflags & 0x00000200))
+    asm volatile ("cli");
 
   /*
    * In provideSVAMemory(), the OS *should* have unmapped the frame from its
@@ -277,7 +297,28 @@ static inline void return_frame_to_os(uintptr_t paddr) {
     frame - frame_desc);
   frame_morph(frame, PGT_FREE);
 
+  /*
+   * Return the physical frame to the OS.
+   *
+   * If we are running with interrupts disabled (which we probably are, since
+   * that's true of most if not all SVA code that could be calling this), we
+   * must re-enable them before returning control to the OS.
+   */
+  uintptr_t prev_rflags;
+  asm volatile (
+      "pushfq\n"
+      "popq %0\n"
+      "sti\n" /* Enable interrupts if they aren't enabled already */
+      : "=r" (prev_rflags)
+      :: "memory" /* prevents compiler from reordering memory ops after STI */
+      );
+
+  /* Perform the callback to the OS. */
   releaseSVAMemory(paddr, FRAME_SIZE);
+
+  /* Re-disable interrupts if they were disabled before the callback. */
+  if (!(prev_rflags & 0x00000200))
+    asm volatile ("cli");
 }
 
 /*
@@ -384,6 +425,14 @@ static void frame_cache_unlock(void) {
  *  will be changed to PGT_GHOST, which is also protected by the MMU checks.
  *  Before it calls free_frame(), ghostFree() will call unmapSecurePage(),
  *  which removes the ghost mapping and sets the type back to PGT_SVA.
+ *
+ * WARNING:
+ *  This function will call back into the OS to request memory if SVA's frame
+ *  cache doesn't currently contain a free frame. During that callback,
+ *  interrupts are re-enabled and control is returned to the OS. Therefore,
+ *  care should be taken to make sure that SVA code calls alloc_frame() only
+ *  while the system is in a safe and consistent state for OS code to
+ *  execute.
  */
 uintptr_t
 alloc_frame(void) {
@@ -416,6 +465,14 @@ alloc_frame(void) {
  *  If these preconditions are not always upheld, insecure mappings could
  *  slip through the cracks and compromise the security of the system when
  *  the frame is later reused.
+ *
+ * WARNING:
+ *  This function will call back into the OS to return memory if SVA's frame
+ *  cache becomes full as a result of returning this frame to it. During that
+ *  callback, interrupts are re-enabled and control is returned to the OS.
+ *  Therefore, care should be taken to make sure that SVA code calls
+ *  alloc_frame() only while the system is in a safe and consistent state for
+ *  OS code to execute.
  */
 void
 free_frame(uintptr_t paddr) {
@@ -458,20 +515,14 @@ getNextSecureAddress (struct SVAThread * threadp, uintptr_t size) {
  */
 unsigned char *
 ghostMalloc (intptr_t size) {
-  /* Physical address of allocated secure memory pointer */
-  uintptr_t sp;
-
   /* Virtual address assigned to secure memory by SVA */
-  unsigned char * vaddrStart = 0;
-
-  /* The address of the PML4e page table */
-  pml4e_t pml4e = 0;
+  unsigned char *vaddrStart = 0;
 
   /*
    * Get the current interrupt context; the arguments will be in it.
    */
-  struct CPUState * cpup = getCPUState();
-  struct SVAThread * threadp = cpup->currentThread;
+  struct CPUState *cpup = getCPUState();
+  struct SVAThread *threadp = cpup->currentThread;
 
   /*
    * Determine if this is the first secure memory allocation.
@@ -482,22 +533,27 @@ ghostMalloc (intptr_t size) {
    * Determine where this ghost memory will be allocated and update the size
    * of the ghost memory.
    */
-  unsigned char * vaddr = vaddrStart = getNextSecureAddress (threadp, size);
+  unsigned char *vaddr = vaddrStart = getNextSecureAddress(threadp, size);
 
   /*
    * Get a page of memory from the operating system.  Note that the OS provides
    * the physical address of the allocated memory.
+   *
+   * NOTE: calling alloc_frame() may (temporarily) re-enable interrupts and
+   * return control to the system software via the provideSVAMemory()
+   * callback. We must, therefore, be sure the system is in a safe and
+   * consistent state at this time. We are safe here because we do not
+   * actually map the ghost page into the virtual addres space until after
+   * its physical frame has been successfully allocated.
    */
   for (intptr_t remaining = size; remaining > 0; remaining -= FRAME_SIZE) {
-    if ((sp = alloc_frame()) != 0) {
-      /* Physical address of the allocated page */
-      uintptr_t paddr = sp;
-
+    uintptr_t frame_paddr;
+    if ((frame_paddr = alloc_frame()) != 0) {
       /*
        * Map the memory into a part of the address space reserved for secure
        * memory.
        */
-      pml4e = mapSecurePage ((uintptr_t)vaddr, paddr);
+      pml4e_t pml4e = mapSecurePage((uintptr_t)vaddr, frame_paddr);
 
       /*
        * If this is the first piece of secure memory that we've allocated,
@@ -515,7 +571,7 @@ ghostMalloc (intptr_t size) {
        */
       vaddr += PG_L1_SIZE;
     } else {
-      panic ("SVA: Kernel secure memory allocation failed!\n");
+      panic("SVA: Kernel secure memory allocation failed!\n");
     }
   }
 
@@ -667,6 +723,16 @@ ghostFree (struct SVAThread * threadp, unsigned char * p, intptr_t size) {
          *  This code works around a limitation in the releaseSVAMemory()
          *  implementation in which it only releases one page at a time to the
          *  OS.
+         *
+         * NOTE: calling free_frame() may (temporarily) re-enable interrupts and
+         * return control to the system software via the releaseSVAMemory()
+         * callback. We must, therefore, be sure the system is in a safe and
+         * consistent state at this time. We are safe here because we have
+         * already unmapped the ghost page from the virtual address space
+         * and cleared its contents before returning control to the OS.
+         * Additionally, there is no further bookkeeping performed to keep
+         * SVA's metadata in order between freeing the frame and returning
+         * from this function (and from its caller, freeSecureMemory()).
          */
         /*
          * count == 1 means mapped only in SVA's DMAP, i.e. no more ghost
@@ -721,16 +787,11 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
-  /* Old interrupt flags */
-  uintptr_t rflags;
 
   /*
    * Disable interrupts.
    */
-  rflags = sva_enter_critical();
-
-  /* Physical address of allocated secure memory pointer */
-  uintptr_t sp;
+  uintptr_t rflags = sva_enter_critical();
 
   /*
    * Get the current interrupt context; the arguments will be in it.
@@ -741,22 +802,22 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
   /* copy-on-write page fault */
   if ((code & PGEX_P) && (code & PGEX_W)) {
     /* The address of the PML4e page table */
-    pml4e_t* pml4e = get_pml4eVaddr(get_root_pagetable(), vaddr);
+    pml4e_t *pml4e = get_pml4eVaddr(get_root_pagetable(), vaddr);
     if (!isPresent(*pml4e))
       panic("sva_ghost_fault: cow pgfault pml4e %p does not exist\n", pml4e);
 
-    pdpte_t* pdpte = get_pdpteVaddr(*pml4e, vaddr);
+    pdpte_t *pdpte = get_pdpteVaddr(*pml4e, vaddr);
     if (!isPresent(*pdpte))
       panic("sva_ghost_fault: cow pgfault pdpte %p does not exist\n", pdpte);
 
-    pde_t* pde = get_pdeVaddr(*pdpte, vaddr);
+    pde_t *pde = get_pdeVaddr(*pdpte, vaddr);
     if (!isPresent(*pde))
       panic("sva_ghost_fault: cow pgfault pde %p does not exist\n", pde);
 
-    pte_t* pte = get_pteVaddr(*pde, vaddr);
+    pte_t *pte = get_pteVaddr(*pde, vaddr);
     uintptr_t paddr = PG_L1_FRAME(*pte);
 
-    frame_desc_t* pgDesc_old = get_frame_desc(paddr);
+    frame_desc_t *pgDesc_old = get_frame_desc(paddr);
     SVA_ASSERT(pgDesc_old != NULL,
       "SVA: FATAL: Ghost memory mapped to non-existant frame\n");
     if (pgDesc_old->type != PGT_GHOST)
@@ -779,6 +840,13 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
       /*
        * Get a frame from the frame cache for the new process's copy of the
        * page, and check that it's suitable for use as ghost memory.
+       *
+       * NOTE: calling alloc_frame() may (temporarily) re-enable interrupts
+       * and return control to the system software via the provideSVAMemory()
+       * callback. We must, therefore, be sure the system is in a safe and
+       * consistent state at this time. We are safe here because we do not
+       * actually change the page table entry to use the new copy until its
+       * physical frame has been successfully allocated.
        */
       uintptr_t paddr_new = alloc_frame();
       void *vaddr_new = getVirtualSVADMAP(paddr_new);
@@ -819,16 +887,21 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
   /*
    * Get a page of memory from the operating system.  Note that the OS provides
    * the physical address of the allocated memory.
+   *
+   * NOTE: calling alloc_frame() may (temporarily) re-enable interrupts and
+   * return control to the system software via the provideSVAMemory()
+   * callback. We must, therefore, be sure the system is in a safe and
+   * consistent state at this time. We are safe here because we do not
+   * actually map the ghost page into the virtual addres space until after
+   * its physical frame has been successfully allocated.
    */
-  if ((sp = alloc_frame()) != 0) {
-    /* Physical address of the allocated page */
-    uintptr_t paddr = (uintptr_t) sp;
-
+  uintptr_t frame_paddr;
+  if ((frame_paddr = alloc_frame()) != 0) {
     /*
      * Map the memory into a part of the address space reserved for secure
      * memory.
      */
-    pml4e_t pml4e = mapSecurePage((uintptr_t) vaddr, paddr);
+    pml4e_t pml4e = mapSecurePage((uintptr_t) vaddr, frame_paddr);
 
     /*
      * If this is the first piece of secure memory that we've allocated,

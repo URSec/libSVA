@@ -512,9 +512,22 @@ sva_initvmx(void) {
     return 0;
   }
 
-  /* Allocate a frame of physical memory to use for the VMXON region.
+  /*
+   * Allocate a frame of physical memory to use for the VMXON region.
    * This should only be accessible to SVA (and the hardware), so we will NOT
    * map it into any kernel- or user-space page tables.
+   *
+   * NOTE: calling alloc_frame() may (temporarily) re-enable interrupts and
+   * return control to the system software via the provideSVAMemory()
+   * callback. We must, therefore, be sure the system is in a safe and
+   * consistent state at this time. We are safe here because the only changes
+   * we have made to system state so far has been to enable a few control
+   * register/MSR bits to enable the processor to recognize VMX instructions.
+   * As the system software cannot issue VMX instructions except via Shade
+   * intrinsics, and all Shade intrinsics will safely fail if
+   * getCPUState()->vmx_enabled is not set (which we have not done yet), our
+   * security posture has therefore not changed from what it was before this
+   * intrinsic was called.
    */
   VMXON_paddr = alloc_frame();
 
@@ -577,7 +590,11 @@ sva_initvmx(void) {
     write_cr4(orig_cr4_value);
     DBGPRNT(("Confirming CR4 restoration: 0x%lx\n", read_cr4()));
 
-    /* Free the frame of SVA secure memory we allocated for the VMXON region.
+    /*
+     * Free the frame of SVA secure memory we allocated for the VMXON region.
+     *
+     * NOTE: it is safe to call free_frame() here for the same reasons
+     * outlined in the comment on the preceding call to alloc_frame() above.
      */
     DBGPRNT(("Returning VMXON frame to SVA.\n"));
     free_frame(VMXON_paddr);
@@ -769,6 +786,15 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    *
    * This frame is protected by SVA's SFI instrumentation, ensuring that
    * the OS cannot touch it without going through an SVA intrinsic.
+   *
+   * NOTE: calling alloc_frame() may (temporarily) re-enable interrupts and
+   * return control to the system software via the provideSVAMemory()
+   * callback. We must, therefore, be sure the system is in a safe and
+   * consistent state at this time. We are safe here because the only thing
+   * left uninitialized for this VM, at this point in the function, is the
+   * VMCS itself. As the vmcs_paddr pointer has not yet been set, other SVA
+   * code will not interpret this VM descriptor as representing a valid VM
+   * and will refuse to operate on it.
    */
   vm->vmcs_paddr = alloc_frame();
 
@@ -827,10 +853,21 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
     /*
      * Return the VMCS frame to the frame cache, and set its pointer to null
      * so that this VM descriptor is once again interpreted as a free slot.
+     *
+     * NOTE: we must clear the vm->vmcs_paddr pointer *BEFORE* calling
+     * free_frame(), because free_frame() may (temporarily) re-enable
+     * interrupts and return control to the system software via the
+     * releaseSVAMemory() callback. We must, therefore, ensure that the
+     * system is in a safe and consistent state before doing so. If we were
+     * to leave vm->vmcs_paddr set at this time, the OS could call
+     * sva_loadvm() and trick SVA into loading this uninitialized VMCS onto
+     * the processor, since sva_loadvm() determines whether a VM is valid for
+     * loading by checking that the vm->vmcs_paddr is non-null.
      */
     DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm->vmcs_paddr));
-    free_frame(vm->vmcs_paddr);
+    uintptr_t vmcs_paddr = vm->vmcs_paddr;
     vm->vmcs_paddr = 0;
+    free_frame(vmcs_paddr);
 
     /* Release the VM descriptor lock. */
     vm_desc_unlock(vm);
@@ -959,6 +996,20 @@ sva_freevm(int vmid) {
   /*
    * Return the VMCS frame to the frame cache, and set its pointer to null
    * so that this VM descriptor is once again interpreted as a free slot.
+   *
+   * NOTE: calling free_frame() may (temporarily) re-enable interrupts and
+   * return control to the system software via the releaseSVAMemory()
+   * callback. We must, therefore, be sure the system is in a safe and
+   * consistent state at this time. We are safe here because:
+   *  1) We have already confirmed that this VMCS is not loaded on the
+   *     processor.
+   *  2) The OS could not re-load this VMCS during the callback by calling
+   *     sva_loadvm(), because we hold the lock here.
+   *  3) Any Shade intrinsics whose security assumptions could have been
+   *     invalidated by aspects of this VM's state having been freed prior to
+   *     this point (e.g., references to vlAPIC frames or the root EPTP
+   *     having been dropped) operate only on a currently-loaded VMCS, and
+   *     thus cannot act on the VM we are in the process of freeing.
    */
   DBGPRNT(("Returning VMCS frame 0x%lx to SVA.\n", vm->vmcs_paddr));
   free_frame(vm->vmcs_paddr);
