@@ -32,6 +32,14 @@ extern void * sva_getCPUState (tss_t * tssp);
 /** Table of functions that handle traps and interrupts */
 extern void (*interrupt_table[257])();
 
+/**
+ * Table of SVA's internal handlers for exceptions and interrupts.
+ *
+ * The return value is `true` if the interrupt doesn't need to be delivered to
+ * the kernel.
+ */
+extern bool (*sva_interrupt_table[257])();
+
 #ifdef FreeBSD
 
 /**
