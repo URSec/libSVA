@@ -3916,6 +3916,54 @@ writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data) {
   }
 }
 
+#define DEFINE_CTRLS_ACCESSORS(name, ty, field)                               \
+int vmcs_##name##_get(ty* out) {                                              \
+  union {                                                                     \
+    ty ctrls;                                                                 \
+    uint64_t buf;                                                             \
+  } get;                                                                      \
+                                                                              \
+  int res = readvmcs_unchecked((field), &get.buf);                            \
+  if (res == 0) {                                                             \
+    *out = get.ctrls;                                                         \
+  }                                                                           \
+                                                                              \
+  return res;                                                                 \
+}                                                                             \
+                                                                              \
+int vmcs_##name##_set(ty ctrls) {                                             \
+  union {                                                                     \
+    ty ctrls;                                                                 \
+    uint64_t buf;                                                             \
+  } set = { }; /* Avoid reading uninitialized bytes */                        \
+  set.ctrls = ctrls;                                                          \
+                                                                              \
+  return writevmcs_unchecked((field), set.buf);                               \
+}
+
+DEFINE_CTRLS_ACCESSORS(
+  pinctrls,
+  struct vmcs_pinbased_vm_exec_ctrls,
+  VMCS_PINBASED_VM_EXEC_CTRLS)
+DEFINE_CTRLS_ACCESSORS(
+  proc1ctrls,
+  struct vmcs_primary_procbased_vm_exec_ctrls,
+  VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS)
+DEFINE_CTRLS_ACCESSORS(
+  proc2ctrls,
+  struct vmcs_secondary_procbased_vm_exec_ctrls,
+  VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS)
+DEFINE_CTRLS_ACCESSORS(
+  entryctrls,
+  struct vmcs_vm_entry_ctrls,
+  VMCS_VM_ENTRY_CTRLS)
+DEFINE_CTRLS_ACCESSORS(
+  exitctrls,
+  struct vmcs_vm_exit_ctrls,
+  VMCS_VM_EXIT_CTRLS)
+
+#undef DEFINE_CTRLS_ACCESSORS
+
 /*
  * Intrinsic: sva_getfp()
  *

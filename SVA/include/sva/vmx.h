@@ -619,6 +619,56 @@ static inline int writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data);
 void load_eptable_internal(
     int vmid, pml4e_t *epml4t, unsigned char is_initial_setting);
 
+/**
+ * Get the pin-based execution controls.
+ */
+int vmcs_pinctrls_get(struct vmcs_pinbased_vm_exec_ctrls* out);
+
+/**
+ * Set the pin-based execution controls.
+ */
+int vmcs_pinctrls_set(struct vmcs_pinbased_vm_exec_ctrls ctrls);
+
+/**
+ * Get the primary processor-based execution controls.
+ */
+int vmcs_proc1ctrls_get(struct vmcs_primary_procbased_vm_exec_ctrls* out);
+
+/**
+ * Set the primary processor-based execution controls.
+ */
+int vmcs_proc1ctrls_set(struct vmcs_primary_procbased_vm_exec_ctrls ctrls);
+
+/**
+ * Get the secondary processor-based execution controls.
+ */
+int vmcs_proc2ctrls_get(struct vmcs_secondary_procbased_vm_exec_ctrls* out);
+
+/**
+ * Set the secondary processor-based execution controls.
+ */
+int vmcs_proc2ctrls_set(struct vmcs_secondary_procbased_vm_exec_ctrls ctrls);
+
+/**
+ * Get the entry controls.
+ */
+int vmcs_entryctrls_get(struct vmcs_vm_entry_ctrls* out);
+
+/**
+ * Set the entry controls.
+ */
+int vmcs_entryctrls_set(struct vmcs_vm_entry_ctrls ctrls);
+
+/**
+ * Get the exit controls.
+ */
+int vmcs_exitctrls_get(struct vmcs_vm_exit_ctrls* out);
+
+/**
+ * Set the exit controls.
+ */
+int vmcs_exitctrls_set(struct vmcs_vm_exit_ctrls ctrls);
+
 /*
  * Function: query_vmx_result()
  *
