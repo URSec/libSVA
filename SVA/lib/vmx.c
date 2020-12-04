@@ -4557,26 +4557,16 @@ static void posted_interrupts_disable(void) {
   struct vm_desc_t *const active_vm = getCPUState()->active_vm;
 
   if (active_vm->vlapic.posted_interrupts_enabled) {
-    union {
-      struct vmcs_pinbased_vm_exec_ctrls ctrls;
-      uint64_t buf;
-    } pinbased;
-    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, &pinbased.buf));
+    struct vmcs_pinbased_vm_exec_ctrls pinbased;
+    BUG_ON(vmcs_pinctrls_get(&pinbased));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(vmcs_proc2ctrls_get(&secondary));
 
-    union {
-      struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
-      uint64_t buf;
-    } secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              &secondary.buf));
+    pinbased.process_posted_ints = false;
+    secondary.virtual_int_delivery = false;
 
-    pinbased.ctrls.process_posted_ints = false;
-    secondary.ctrls.virtual_int_delivery = false;
-
-    BUG_ON(writevmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS,
-                               pinbased.buf));
-    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               secondary.buf));
+    BUG_ON(vmcs_pinctrls_set(pinbased));
+    BUG_ON(vmcs_proc2ctrls_set(secondary));
 
     frame_desc_t* pi_desc_frame_desc =
       get_frame_desc(active_vm->vlapic.posted_interrupt_descriptor);
@@ -4613,32 +4603,21 @@ int sva_vlapic_disable(void) {
     break;
   case VLAPIC_APIC:
   case VLAPIC_X2APIC: {
-    union {
-      struct vmcs_primary_procbased_vm_exec_ctrls ctrls;
-      uint64_t buf;
-    } primary;
-    BUG_ON(readvmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                              &primary.buf));
+    struct vmcs_primary_procbased_vm_exec_ctrls primary;
+    BUG_ON(vmcs_proc1ctrls_get(&primary));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(vmcs_proc2ctrls_get(&secondary));
 
-    union {
-      struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
-      uint64_t buf;
-    } secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              &secondary.buf));
-
-    primary.ctrls.use_tpr_shadow = false;
-    primary.ctrls.cr8_load_exiting = true;
-    primary.ctrls.cr8_store_exiting = true;
-    secondary.ctrls.virtualize_apic_accesses = false;
-    secondary.ctrls.virtualize_x2apic_mode = false;
-    secondary.ctrls.apic_register_virtualization = false;
+    primary.use_tpr_shadow = false;
+    primary.cr8_load_exiting = true;
+    primary.cr8_store_exiting = true;
+    secondary.virtualize_apic_accesses = false;
+    secondary.virtualize_x2apic_mode = false;
+    secondary.apic_register_virtualization = false;
     // TODO: Set x2APIC MSR intercepts
 
-    BUG_ON(writevmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                               primary.buf));
-    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               secondary.buf));
+    BUG_ON(vmcs_proc1ctrls_set(primary));
+    BUG_ON(vmcs_proc2ctrls_set(secondary));
 
     frame_drop(get_frame_desc(active_vm->vlapic.virtual_apic_frame), PGT_DATA);
     if (active_vm->vlapic.mode == VLAPIC_APIC) {
@@ -4715,32 +4694,21 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
     // TODO: Check for CPU support of these features
 
     /* Enable vlAPIC execution controls. */
-    union {
-      struct vmcs_primary_procbased_vm_exec_ctrls ctrls;
-      uint64_t buf;
-    } primary;
-    BUG_ON(readvmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                              &primary.buf));
+    struct vmcs_primary_procbased_vm_exec_ctrls primary;
+    BUG_ON(vmcs_proc1ctrls_get(&primary));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(vmcs_proc2ctrls_get(&secondary));
 
-    union {
-      struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
-      uint64_t buf;
-    } secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              &secondary.buf));
-
-    primary.ctrls.use_tpr_shadow = true;
-    primary.ctrls.cr8_load_exiting = false;
-    primary.ctrls.cr8_store_exiting = false;
-    secondary.ctrls.virtualize_apic_accesses = true;
-    secondary.ctrls.virtualize_x2apic_mode = false;
-    secondary.ctrls.apic_register_virtualization = true;
+    primary.use_tpr_shadow = true;
+    primary.cr8_load_exiting = false;
+    primary.cr8_store_exiting = false;
+    secondary.virtualize_apic_accesses = true;
+    secondary.virtualize_x2apic_mode = false;
+    secondary.apic_register_virtualization = true;
     // TODO: Set x2APIC MSR intercepts
 
-    BUG_ON(writevmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                               primary.buf));
-    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               secondary.buf));
+    BUG_ON(vmcs_proc1ctrls_set(primary));
+    BUG_ON(vmcs_proc2ctrls_set(secondary));
 
     break;
   }
@@ -4797,32 +4765,21 @@ int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame) {
     // TODO: Check for CPU support of these features
 
     /* Enable vlAPIC execution controls. */
-    union {
-      struct vmcs_primary_procbased_vm_exec_ctrls ctrls;
-      uint64_t buf;
-    } primary;
-    BUG_ON(readvmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                              &primary.buf));
+    struct vmcs_primary_procbased_vm_exec_ctrls primary;
+    BUG_ON(vmcs_proc1ctrls_get(&primary));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(vmcs_proc2ctrls_get(&secondary));
 
-    union {
-      struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
-      uint64_t buf;
-    } secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              &secondary.buf));
-
-    primary.ctrls.use_tpr_shadow = true;
-    primary.ctrls.cr8_load_exiting = false;
-    primary.ctrls.cr8_store_exiting = false;
-    secondary.ctrls.virtualize_apic_accesses = false;
-    secondary.ctrls.virtualize_x2apic_mode = true;
-    secondary.ctrls.apic_register_virtualization = true;
+    primary.use_tpr_shadow = true;
+    primary.cr8_load_exiting = false;
+    primary.cr8_store_exiting = false;
+    secondary.virtualize_apic_accesses = false;
+    secondary.virtualize_x2apic_mode = true;
+    secondary.apic_register_virtualization = true;
     // TODO: Clear x2APIC MSR intercepts
 
-    BUG_ON(writevmcs_unchecked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-                               primary.buf));
-    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               secondary.buf));
+    BUG_ON(vmcs_proc1ctrls_set(primary));
+    BUG_ON(vmcs_proc2ctrls_set(secondary));
 
     break;
   }
@@ -4909,26 +4866,16 @@ int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor) {
   }
 
   if (!active_vm->vlapic.posted_interrupts_enabled) {
-    union {
-      struct vmcs_pinbased_vm_exec_ctrls ctrls;
-      uint64_t buf;
-    } pinbased;
-    BUG_ON(readvmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS, &pinbased.buf));
+    struct vmcs_pinbased_vm_exec_ctrls pinbased;
+    BUG_ON(vmcs_pinctrls_get(&pinbased));
+    struct vmcs_secondary_procbased_vm_exec_ctrls secondary;
+    BUG_ON(vmcs_proc2ctrls_get(&secondary));
 
-    union {
-      struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
-      uint64_t buf;
-    } secondary;
-    BUG_ON(readvmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                              &secondary.buf));
+    pinbased.process_posted_ints = true;
+    secondary.virtual_int_delivery = true;
 
-    pinbased.ctrls.process_posted_ints = true;
-    secondary.ctrls.virtual_int_delivery = true;
-
-    BUG_ON(writevmcs_unchecked(VMCS_PINBASED_VM_EXEC_CTRLS,
-                               pinbased.buf));
-    BUG_ON(writevmcs_unchecked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-                               secondary.buf));
+    BUG_ON(vmcs_pinctrls_set(pinbased));
+    BUG_ON(vmcs_proc2ctrls_set(secondary));
   }
 
   active_vm->vlapic.posted_interrupts_enabled = true;
