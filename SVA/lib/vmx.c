@@ -16,6 +16,7 @@
 #include <sva/vmx.h>
 #include <sva/vmx_intrinsics.h>
 #include <sva/fpu.h>
+#include <sva/interrupt.h>
 #include <sva/mmu.h>
 #include <sva/mpx.h>
 #include <sva/config.h>
@@ -1845,6 +1846,46 @@ sva_resumevm(void) {
   return retval;
 }
 
+/**
+ * Apply any necessary special handling of VM exits before returning to the
+ * hypervisor.
+ */
+static void vmexit_handler(void) {
+  uint64_t exit_reason;
+  BUG_ON(readvmcs_unchecked(VMCS_VM_EXIT_REASON, &exit_reason));
+
+  switch (exit_reason & 0xffffUL) {
+  case VM_EXIT_EXTERNAL_INTERRUPT: {
+    struct vmcs_vm_exit_ctrls ctrls;
+    BUG_ON(vmcs_exitctrls_get(&ctrls));
+
+    if (ctrls.ack_int_on_exit) {
+      uint64_t info;
+      BUG_ON(readvmcs_unchecked(VMCS_VM_EXIT_INTERRUPTION_INFO, &info));
+
+      /* Ack interrupts on exit set, but interrupt info field is invalid? */
+      BUG_ON(!(info & (1UL << 31)));
+
+      uint8_t vector = info & 0xffUL;
+
+      /*
+       * Since this interrupt won't be delivered through the IDT, we need to
+       * call our handler here.
+       */
+      if (sva_interrupt_table[vector]) {
+        if (sva_interrupt_table[vector]()) {
+          /*
+           * The handler has reported that the exception doesn't need to go to
+           * the kernel.
+           */
+          // TODO: Replace kernel's view of exit reason
+        }
+      }
+    }
+  }
+  }
+}
+
 /*
  * Function: run_vm()
  *
@@ -2927,6 +2968,11 @@ run_vm(unsigned char use_vmresume) {
     DBGPRNT(("RFLAGS restored: 0x%lx\n", hostrestored_rflags));
     DBGPRNT(("--------------------\n"));
 #endif
+
+    /*
+     * Check if the exit needs special handling.
+     */
+    vmexit_handler();
 
     /* Return success. */
     return 0;
