@@ -1849,8 +1849,10 @@ sva_resumevm(void) {
 /**
  * Apply any necessary special handling of VM exits before returning to the
  * hypervisor.
+ *
+ * @return  Whether SVA handled the exit
  */
-static void vmexit_handler(void) {
+static bool vmexit_handler(void) {
   uint64_t exit_reason;
   BUG_ON(readvmcs_unchecked(VMCS_VM_EXIT_REASON, &exit_reason));
 
@@ -1879,11 +1881,14 @@ static void vmexit_handler(void) {
            * the kernel.
            */
           // TODO: Replace kernel's view of exit reason
+          return true;
         }
       }
     }
   }
   }
+
+  return false;
 }
 
 /*
@@ -1942,6 +1947,9 @@ static void vmexit_handler(void) {
  */
 static int
 run_vm(unsigned char use_vmresume) {
+entry:
+  (void)0;
+
   /*
    * Allocate a host_state structure on the stack to give us a place to stash
    * various host state elements that need to be restored after VM exit.
@@ -2972,10 +2980,20 @@ run_vm(unsigned char use_vmresume) {
     /*
      * Check if the exit needs special handling.
      */
-    vmexit_handler();
+    if (vmexit_handler()) {
+      /*
+       * SVA was able to handle the exit by itself.
+       */
+      use_vmresume = true;
 
-    /* Return success. */
-    return 0;
+      /*
+       * I wish C had proper tail calls.
+       */
+      goto entry;
+    } else {
+      /* Return success. */
+      return 0;
+    }
   } else if (result == VM_FAIL_VALID) {
     DBGPRNT(("Error: VM entry failed! See VM-instruction error field in "
           "VMCS for more details.\n"));
