@@ -233,17 +233,6 @@ sva_exit_critical (unsigned long rflags) {
   return;
 }
 
-/**
- * Determine if a virtual address is within the secure memory region.
- *
- * @param p The virtual address to test
- * @return  Whether or not `p` is in the secure memory region
- */
-static inline bool
-isInSecureMemory(uintptr_t p) {
-  return SECMEMSTART <= p && p < SVADMAPEND;
-}
-
 static inline void
 bochsBreak (void) {
   __asm__ __volatile__ ("xchg %bx, %bx\n");

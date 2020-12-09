@@ -152,7 +152,7 @@ ENTRY(Trap)
   bndmov %bnd1, 0x10 (%rsp)
 
   /* Reset the MPX bounds register for SFI checks */
-  movabsq $SVADMAPEND - SECMEMSTART, %rax
+  movabsq $SECMEMEND - SECMEMSTART, %rax
   movq $-1, %rdx
   bndmk (%rax,%rdx), %bnd0
 
@@ -477,7 +477,7 @@ ENTRY(TrapParanoid)
   bndmov %bnd1, 0x10 (%rsp)
 
   /* Reset the MPX bounds register for SFI checks */
-  movabsq $SVADMAPEND - SECMEMSTART, %rax
+  movabsq $SECMEMEND - SECMEMSTART, %rax
   movq $-1, %rdx
   bndmk (%rax,%rdx), %bnd0
 

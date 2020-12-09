@@ -516,7 +516,7 @@ free_frame(uintptr_t paddr) {
 static inline unsigned char *
 getNextSecureAddress (struct SVAThread * threadp, uintptr_t size) {
   /* Start of virtual address space used for secure memory */
-  unsigned char * secmemStartp = (unsigned char *) SECMEMSTART;
+  unsigned char * secmemStartp = (unsigned char *)GHOSTMEMSTART;
 
   /* Secure memory address to return */
   unsigned char * secmemp = secmemStartp + threadp->secmemSize;
@@ -685,8 +685,7 @@ allocSecureMemory (void) {
  *  size     - The amount of ghost memory in bytes to free.
  *
  */
-void
-ghostFree (struct SVAThread * threadp, unsigned char * p, intptr_t size) {
+void ghostFree(struct SVAThread* threadp, void* p, size_t size) {
   /* Per-CPU data structure maintained by SVA */
   struct CPUState *cpup;
 
@@ -715,14 +714,14 @@ ghostFree (struct SVAThread * threadp, unsigned char * p, intptr_t size) {
    * Verify that the memory is within the secure memory portion of the
    * address space.
    */
-  uintptr_t pint = (uintptr_t) p;
-  if ((SECMEMSTART <= pint) && (pint < SECMEMEND) &&
-     (SECMEMSTART <= (pint + size)) && ((pint + size) < SECMEMEND)) {
+  if (is_ghost_addr((uintptr_t)p) && is_ghost_addr((uintptr_t)p + size)
+      && size <= GHOSTMEMSIZE)
+  {
     /*
      * Loop through each page of the ghost memory until all of the frames
      * have been returned to the operating system kernel.
      */
-    for (unsigned char *ptr = p; ptr < (p + size); ptr += PG_L1_SIZE) {
+    for (char *ptr = p; ptr < ((char*)p + size); ptr += PG_L1_SIZE) {
       /*
        * Get the physical address before unmapping the page.  We do this
        * because unmapping the page may remove page table pages that are no
@@ -952,7 +951,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
 }
 
 bool trap_pfault_ghost(unsigned __attribute__((unused)) trapno, void* addr) {
-  if (isGhostVA((uintptr_t)addr)) {
+  if (is_ghost_addr((uintptr_t)addr)) {
     sva_icontext_t* p = getCPUState()->newCurrentIC;
     uintptr_t vaddr = PG_L1_DOWN(addr);
     sva_ghost_fault(vaddr, p->code);

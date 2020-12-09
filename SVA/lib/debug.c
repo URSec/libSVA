@@ -531,7 +531,7 @@ sva_print_icontext (char * s) {
                                        cpup->currentThread->interruptContexts + maxIC - 1);
   print_icontext (s, p);
   pml4e_t* root_pgtable = (pml4e_t*)getVirtual((uintptr_t)get_root_pagetable());
-  pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(SECMEMSTART)];
+  pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(GHOSTMEMSTART)];
   printf ("SVA: secmem: %lx %lx\n", threadp->secmemPML4e, *secmemp);
 
   usersva_to_kernel_pcid();

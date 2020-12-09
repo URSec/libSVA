@@ -15,6 +15,7 @@
 
 #include <sva/types.h>
 #include <sva/mmu.h>
+#include <sva/secmem.h>
 #include <sva/self_profile.h>
 #include <sva/util.h>
 
@@ -26,7 +27,7 @@ void sva_check_buffer(uintptr_t start, size_t len) {
    */
   uintptr_t end = start + len;
 
-  SVA_ASSERT(!isInSecureMemory(start) && !isInSecureMemory(end) &&
+  SVA_ASSERT(!is_secure_memory_addr(start) && !is_secure_memory_addr(end) &&
              (start - SECMEMSTART <= end - SECMEMSTART),
     "SVA: FATAL: Invalid buffer access: 0x%016lx 0x%016lx\n", start, end);
 

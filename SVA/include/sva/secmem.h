@@ -46,20 +46,39 @@
 
 #else /* !XEN */
 
-/* Start and end addresses of the secure memory (1TB) */
+/* Start and end addresses of the secure memory (2TB) */
 #define SECMEMSTART _ASM_CONST(0xffff860000000000, UL)
-#define SECMEMEND   _ASM_CONST(0xffff870000000000, UL)
+#define SECMEMEND   _ASM_CONST(0xffff880000000000, UL)
+#define SECMEMSIZE  (SECMEMEND - SECMEMSTART)
+
+/* Start and end addresses of SVA VM internal memory (0.5TB) */
+#define SVAVMMEMSTART _ASM_CONST(0xffff860000000000, UL)
+#define SVAVMMEMEND   _ASM_CONST(0xffff868000000000, UL)
+#define SVAVMMEMSIZE  (SVAVMMEMEND - SVAVMMEMSTART)
+
+/* Start and end addresses of the user ghost memory (0.5TB) */
+#define GHOSTMEMSTART _ASM_CONST(0xffff868000000000, UL)
+#define GHOSTMEMEND   _ASM_CONST(0xffff870000000000, UL)
+#define GHOSTMEMSIZE  (GHOSTMEMEND - GHOSTMEMSTART)
 
 /* Start and end addresses of the SVA direct mapping (1TB) */
 #define SVADMAPSTART _ASM_CONST(0xffff870000000000, UL)
 #define SVADMAPEND   _ASM_CONST(0xffff880000000000, UL)
+#define SVADMAPSIZE (SVADMAPEND - SVADMAPSTART)
+
+/* Start and end addresses of Xen's memory (6TB) */
+#define KERNELSTART _ASM_CONST(0xffff800000000000, UL)
+#define KERNELEND   _ASM_CONST(0xffff860000000000, UL)
+#define KERNELSIZE  (KERNELEND - KERNDMAPSTART)
 
 /* Start and end addresses of Xen's direct map (3TB) */
 #define KERNDMAPSTART _ASM_CONST(0xffff830000000000, UL)
 #define KERNDMAPEND   _ASM_CONST(0xffff860000000000, UL)
+#define KERNDMAPSIZE  (KERNDMAPEND - KERNDMAPSTART)
 
 /* Start address of PV guest memory (120TB) */
 #define GUESTSTART _ASM_CONST(0xffff880000000000, UL)
+#define GUESTSIZE  (_ASM_CONST(0, UL) - GUESTSTART)
 /* Guest memory ends at the end of the address space */
 
 #endif /* !XEN */
@@ -70,9 +89,26 @@
 
 #ifndef __ASSEMBLER__
 
-/* State whether this kernel virtual address is in the secure memory range */
-static inline int isGhostVA(uintptr_t va)
-    { return (va >= SECMEMSTART) && (va < SECMEMEND); }
+struct SVAThread;
+
+/**
+ * Check whether this virtual address is in the ghost memory region
+ */
+static inline bool is_ghost_addr(uintptr_t va) {
+  return va >= GHOSTMEMSTART && va < GHOSTMEMEND;
+}
+
+/**
+ * Determine if a virtual address is within the secure memory region.
+ *
+ * @param p The virtual address to test
+ * @return  Whether or not `p` is in the secure memory region
+ */
+static inline bool is_secure_memory_addr(uintptr_t p) {
+  return SECMEMSTART <= p && p < SECMEMEND;
+}
+
+void ghostFree(struct SVAThread* tp, void* p, size_t size);
 
 #endif /* !__ASSEMBLER__ */
 

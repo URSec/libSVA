@@ -1089,7 +1089,7 @@ uintptr_t unmapSecurePage(struct SVAThread* threadp, uintptr_t vaddr) {
 void ghostmemCOW(struct SVAThread* oldThread, struct SVAThread* newThread) {
   uintptr_t vaddr_start, vaddr_end, size;
 
-  vaddr_start = (uintptr_t)SECMEMSTART;
+  vaddr_start = (uintptr_t)GHOSTMEMSTART;
   size = oldThread->secmemSize;
   vaddr_end = vaddr_start + size;
 
@@ -1250,7 +1250,7 @@ void sva_mm_load_pgtable(cr3_t pg_ptr) {
      * the secure memory region.
      */
     pml4e_t* root_pgtable = (pml4e_t*)getVirtual(new_pml4);
-    pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(SECMEMSTART)];
+    pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(GHOSTMEMSTART)];
 
     /*
      * Write the PML4 entry for the secure memory region into the new
@@ -1434,7 +1434,7 @@ void sva_declare_l4_page(uintptr_t frame) {
   pml4e_t* new_l4_table = (pml4e_t*)getVirtual(frame);
 
   unprotect_paging();
-  for (size_t i = PG_L4_ENTRY(SECMEMSTART); i < PG_L4_ENTRY(SVADMAPEND); ++i) {
+  for (size_t i = PG_L4_ENTRY(SECMEMSTART); i < PG_L4_ENTRY(SECMEMEND); ++i) {
     pml4e_t l4e = current_l4_table[i];
     if (isPresent(l4e)) {
       frame_take(get_frame_desc(PG_ENTRY_FRAME(l4e)), PGT_SML3);

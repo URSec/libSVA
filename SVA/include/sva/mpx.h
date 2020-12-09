@@ -33,7 +33,7 @@ static inline void mpx_bnd_init(void) {
   asm volatile (
     "bndmk (%0, %1), %%bnd0"
     :
-    : "r"(SVADMAPEND - SECMEMSTART), "r"(-1UL));
+    : "r"(SECMEMEND - SECMEMSTART), "r"(-1UL));
   asm volatile (
     "bndmk (%0, %1), %%bnd1"
     :

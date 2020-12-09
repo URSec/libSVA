@@ -23,6 +23,7 @@
 #include <sva/config.h>
 #include <sva/mmu.h>
 #include <sva/mmu_intrinsics.h>
+#include <sva/secmem.h>
 #include <sva/x86.h>
 #include <sva/self_profile.h>
 #include <sva/state.h>
@@ -931,7 +932,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
         case PGT_SML3:
         case PGT_SML2:
         case PGT_SML1:
-          if (!isInSecureMemory(vaddr)) {
+          if (!is_secure_memory_addr(vaddr)) {
             perms = 0;
           }
           break;
@@ -1033,7 +1034,7 @@ import_existing_mappings(page_entry_t entry,
       }
 
       frame_type_t type;
-      if (isGhostVA(vaddr)) {
+      if (is_secure_memory_addr(vaddr)) {
         type = PGT_SVA;
       } else {
         type = perms & PG_NX ? PGT_CODE : PGT_DATA;
@@ -1119,12 +1120,7 @@ import_existing_mappings(page_entry_t entry,
       }
     }
 
-    bool isSecMemPageTable = isGhostVA(vaddr);
-#ifdef SVA_DMAP
-    isSecMemPageTable |= isSVADirectMap(vaddr);
-#endif
-
-    if (isSecMemPageTable) {
+    if (is_secure_memory_addr(vaddr)) {
       switch (ty) {
       case PGT_L3:
         ty = PGT_SML3;

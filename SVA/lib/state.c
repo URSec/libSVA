@@ -551,7 +551,7 @@ flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
      */
     pml4e_t* root_pgtable =
       (pml4e_t*)getVirtual((uintptr_t)get_root_pagetable());
-    pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(SECMEMSTART)];
+    pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(GHOSTMEMSTART)];
 
     /*
      * Mark the secure memory is unmapped in the page tables.
@@ -865,7 +865,7 @@ static bool loadThread(struct SVAThread* newThread) {
      */
     pml4e_t* root_pgtable =
       (pml4e_t*)getVirtual((uintptr_t)get_root_pagetable());
-    pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(SECMEMSTART)];
+    pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(GHOSTMEMSTART)];
 
     /*
      * Restore the PML4E entry for the secure memory region.
@@ -1444,10 +1444,7 @@ void sva_reinit_icontext(void* handle, bool priv, uintptr_t stackp,
    */
   if (vg && (threadp->secmemSize)) {
 
-    extern void
-    ghostFree (struct SVAThread * tp, unsigned char * p, intptr_t size);
-    unsigned char * secmemStart = (unsigned char *)(SECMEMSTART);
-    ghostFree (threadp, secmemStart, threadp->secmemSize);
+    ghostFree(threadp, (void*)GHOSTMEMSTART, threadp->secmemSize);
 
     /*
      * Delete the secure memory mappings from the SVA thread structure.
@@ -1533,10 +1530,7 @@ void sva_release_stack(uintptr_t id) {
    * Release ghost memory belonging to the thread that we are deallocating.
    */
   if (vg) {
-    extern void
-    ghostFree (struct SVAThread * tp, unsigned char * p, intptr_t size);
-    unsigned char * secmemStart = (unsigned char *)(SECMEMSTART);
-    ghostFree (newThread, secmemStart, newThread->secmemSize);
+    ghostFree(newThread, (void*)GHOSTMEMSTART, newThread->secmemSize);
   }
 
   /*
