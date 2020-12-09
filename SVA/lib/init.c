@@ -581,6 +581,21 @@ sva_init_primary_xen(void *tss) {
 
   init_threads();
 
+  /*
+   * Note: we must call init_TLS() to initialize SVA's per-CPU region for
+   * this CPU *before* taking control of its IDT. This is because
+   * alloc_percpu_region() (called downstream of init_TLS()) may need to
+   * temporarily re-enable interrupts in order to call back into the OS to
+   * request physical memory backing for the per-CPU region. Since the OS has
+   * not yet had the opportunity to register its interrupt handlers with SVA
+   * (it'll do that after sva_init_primary_xen() returns), any interrupts
+   * that come in during that window would be taken by SVA's default
+   * interrupt handler, which will likely lead to incorrect system behavior.
+   * (Our default interrupt handler merely prints a message and discards the
+   * interrupt.)
+   */
+  init_TLS((tss_t*)tss);
+
   /* Initialize the IDT of the primary processor */
   init_interrupt_table(0);
   init_dispatcher();
@@ -588,8 +603,6 @@ sva_init_primary_xen(void *tss) {
   register_syscall_handler();
 
   init_mmu();
-
-  init_TLS((tss_t*)tss);
 
   init_fpu();
   init_mpx();
