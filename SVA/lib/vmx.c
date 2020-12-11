@@ -578,22 +578,27 @@ sva_initvmx(void) {
         getCPUState()->vmxon_frame_paddr, vmxon_vaddr));
   memset(vmxon_vaddr, 0, VMCS_ALLOC_SIZE);
 
-  DBGPRNT(("Reading IA32_VMX_BASIC MSR...\n"));
-  uint64_t vmx_basic_data = rdmsr(MSR_VMX_BASIC);
-  DBGPRNT(("IA32_VMX_BASIC MSR = %lx\n", vmx_basic_data));
-
   /*
    * Write the VMCS revision identifier to bits 30:0 of the first 4 bytes of
-   * the VMXON region, and clear bit 31 to 0. The VMCS revision identifier is
-   * (conveniently) given in bits 30:0 of the IA32_VMX_BASIC MSR, and bit 31
-   * of that MSR is guaranteed to always be 0, so we can just copy those
-   * lower 4 bytes to the beginning of the VMXON region.
+   * the VMXON region. The VMCS revision identifier is (conveniently) given
+   * in bits 30:0 of the IA32_VMX_BASIC MSR, and bit 31 of that MSR is
+   * guaranteed to always be 0, so we can just copy those lower 4 bytes to
+   * the beginning of the VMXON region. (This also has the effect of saving a
+   * 0 to bit 31, but that is a no-op since we just cleared the whole frame.)
+   *
+   * We save a copy of this value in per-CPU data so that we don't have to do
+   * a (potentially slow) RDMSR each time we create a VMCS in sva_allocvm().
+   * It's a "hardwired" property of a particular processor and therefore will
+   * not change after boot (barring something like a microcode update, which
+   * we presently don't support). (Note that we still need to save this
+   * per-CPU, rather than globally, because we could potentially be running
+   * on a multi-processor machine where not all the processors are the same
+   * model.)
    */
-  uint32_t vmcs_rev_id = (uint32_t) vmx_basic_data;
-  DBGPRNT(("VMCS revision identifier: %x\n", vmcs_rev_id));
-  uint32_t *vmxon_id_field = (uint32_t *) vmxon_vaddr;
-  *vmxon_id_field = vmcs_rev_id;
-  DBGPRNT(("VMCS revision identifier written to VMXON region.\n"));
+  uint32_t vmcs_rev_id = (uint32_t) rdmsr(MSR_VMX_BASIC);
+  getCPUState()->VMCS_REV_ID = vmcs_rev_id;
+
+  *((uint32_t*) vmxon_vaddr) = vmcs_rev_id;
 
   /*
    * Enter VMX operation. This is done by executing the VMXON instruction,
@@ -839,15 +844,20 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
 
   /*
    * Write the processor's VMCS revision identifier to the first 31 bits of
-   * the VMCS frame, and clear the 32nd bit.
+   * the VMCS frame.
    *
-   * This value is given in the lower 31 bits of the IA32_VMX_BASIC MSR.
-   * Conveniently, the 32nd bit of that MSR is always guaranteed to be 0, so
-   * we can just copy the lower 4 bytes.
+   * The revision identifier can be obtained by reading bits 30:0 of the
+   * IA32_VMX_BASIC capability reporting MSR. We did so previously in
+   * sva_initvmx() for this logical processor, and saved a copy (as it won't
+   * change after boot) in per-CPU data so we don't have to repeat the
+   * (potentially slow) RDMSR each time we create a new VMCS.
+   *
+   * (Since we write this as a 32-bit value, this also has the effect of
+   * clearing bit 31, i.e. the "shadow-VMCS indicator" field - but we want
+   * that bit set to 0 anyway since this is not a shadow VMCS. Also, we just
+   * memset() the whole thing to 0 above so it would've been that anyway. :-))
    */
-  uint64_t vmx_basic_data = rdmsr(MSR_VMX_BASIC);
-  uint32_t vmcs_rev_id = (uint32_t) vmx_basic_data;
-  *((uint32_t*)vmcs_vaddr) = vmcs_rev_id;
+  *((uint32_t*) vmcs_vaddr) = getCPUState()->VMCS_REV_ID;
 
   /*
    * Use the VMCLEAR instruction to initialize any processor

@@ -358,6 +358,38 @@ struct CPUState {
    * case" we ever need/want to implement a VMXOFF intrinsic.
    */
   uintptr_t vmxon_frame_paddr;
+
+  /*
+   * The processor's "VMCS revision identifier" needs to be written to a
+   * field at the beginning of each VMCS or VMXON frame before it can be used
+   * by the processor.
+   *
+   * It is determined by reading the lower 32 bits (actually the lower 31,
+   * but the 32nd is guaranteed by the ISA to read as 0) of the capability
+   * reporting MSR IA32_VMX_BASIC.
+   *
+   * Its value should be constant for a particular logical processor, so we
+   * read its value once in sva_initvmx() and store it here so that we don't
+   * have to perform a (potentially slow) RDMSR each time the system software
+   * wants to create a new VMCS with sva_allocvm().
+   *
+   * Note that we must save this per-CPU, rather than as a single global,
+   * because it could potentially be different in a multi-processor machine
+   * where not all the processors are the same model.
+   *
+   * (It's not clear how much of a performance impact this would actually
+   * have in practice, since it seems unlikely that a hypervisor will be
+   * creating/destroying vCPUs fast enough for this to actually matter; but
+   * since we included sva_allocvm() in our microbenchmarking of Shade's
+   * overheads on VMX operations in the VEE '19 paper, and may do so again in
+   * the next paper, best to minimize unnecessary overhead so as to not
+   * create a number that "looks bad" in the paper even though nobody likely
+   * cares in practice.)
+   *
+   * (Field name capitalized since this should be considered a constant once
+   * it's set in sva_initvmx().)
+   */
+   uint32_t VMCS_REV_ID;
 };
 
 struct sva_tls_area {
