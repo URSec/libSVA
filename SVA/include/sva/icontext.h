@@ -325,6 +325,39 @@ struct CPUState {
    * intrinsic may be called until this has been done.
    */
   unsigned char vmx_initialized;
+
+  /*
+   * Physical address of the VMXON region set aside for this processor to
+   * use. This is a special region of memory that "the logical processor uses
+   * to support VMX operation" (see section 24.11.5 in the Intel reference
+   * manual, Oct. 2017).
+   *
+   * sva_initvmx() allocates the VMXON frame for a processor from SVA's
+   * secure-memory frame cache, and puts it into use by issuing the VMXON
+   * instruction.
+   *
+   * All we need to do is allocate it, initialize one of its fields, and pass
+   * its physical address as an argument to the VMXON instruction, which enters
+   * VMX operation on the active logical processor. From that point, this
+   * region belongs entirely to the processor and we're not supposed to touch
+   * it (unless and until we switch VMX support back off using the VMXOFF
+   * instruction).
+   *
+   * The VMXON region has (by definition) the same size (at most 4 kB) and
+   * alignment (4 kB-aligned) requirements as a VMCS. (Conventionally, a
+   * hypervisor just allocates a full 4 kB frame for simplicity.) However,
+   * unlike the VMCS, there is only one VMXON region per logical processor,
+   * not per virtual machine. It also does not have any of the memory type
+   * (cacheability properties) restrictions that a VMCS has.
+   *
+   * At present, SVA provides no facility for subsequently issuing VMXOFF, so
+   * the CPU will remain in VMX mode (and this VMXON frame will remain in
+   * use) until system shutdown. Technically, therefore, there's no need for
+   * SVA to save this pointer beyond the scope of sva_initvmx(). We
+   * nonetheless store it here in per-CPU data to make things easier "just in
+   * case" we ever need/want to implement a VMXOFF intrinsic.
+   */
+  uintptr_t vmxon_frame_paddr;
 };
 
 struct sva_tls_area {

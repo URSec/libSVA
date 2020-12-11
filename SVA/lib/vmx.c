@@ -37,25 +37,6 @@
  * support SMP. For instance, we might want to store some of them on a
  * per-CPU basis in some structure already used for that purpose.)
 **********/
-/* Physical address of the VMXON region. This is a special region of memory
- * that the active logical processor uses to "support VMX operation" (see
- * section 24.11.5 in the Intel reference manual, Oct. 2017).
- *
- * All we need to do is allocate it, initialize one of its fields, and pass
- * its physical address as an argument to the VMXON instruction, which enters
- * VMX operation on the active logical processor. From that point, this
- * region belongs entirely to the processor and we're not supposed to touch
- * it (unless and until we switch VMX support back off using the VMXOFF
- * instruction).
- *
- * The VMXON region has (by definition) the same size and alignment
- * requirements as a VMCS. However, unlike the VMCS, there is only one VMXON
- * region per logical processor, not per virtual machine. It also does not
- * have any of the memory type (cacheability properties) restrictions that a
- * VMCS has.
- */
-static uintptr_t __svadata VMXON_paddr = 0;
-
 /*
  * Array of vm_desc_t structures for each VM allocated on the system.
  *
@@ -96,6 +77,14 @@ vmx_host_state_t __svadata host_state = {
    * is initialized to a null pointer before any code can run. It's important
    * this be done before any SVA intrinsics can be called, because their
    * checks use this pointer to determine if a VM is active.
+   *
+   * FIXME: static initializers don't actually work in SVA (at least under
+   * Xen) since we don't have a mechanism for them to be called. The only
+   * initialization that is performed for static structures is that they are
+   * zero-filled by Xen in map_sva_static_data() when it allocates physical
+   * frames for SVA's static secure memory prior to calling
+   * sva_init_primary_xen(). The reason we haven't run into problems from this
+   * static initializer not being called is that it's setting the field to 0.
    */
   .active_vm = 0
 
@@ -420,6 +409,16 @@ sva_initvmx(void) {
    * array is shared, this memset() should only be done by the first such
    * processor. We synchronize this operation on a shared lock variable to
    * ensure that.
+   *
+   * NOTE: it is actually unnecessary to zero-fill this array here when we
+   * are running under Xen, since Xen zero-initializes *all* of SVA's static
+   * data when it allocates physical backing for it in map_sva_static_data()
+   * (prior to calling sva_init_primary_xen()). We nonetheless leave this
+   * code in place here so that we are not taken by surprise if this is not
+   * true in future ports of other OSes to SVA. (I'm not sure to what extent
+   * SVA static data is initialized under the FreeBSD 9 port.) There is no
+   * need to *disable* this code under Xen since, although superfluous, it
+   * runs only once during boot and doesn't appreciably slow things down.
    */
   static uint8_t __svadata vm_descs_initialized = 0;
   uint8_t UNINIT = 0, INPROG = 1, DONE = 2;
@@ -562,7 +561,7 @@ sva_initvmx(void) {
    * security posture has therefore not changed from what it was before this
    * intrinsic was called.
    */
-  VMXON_paddr = alloc_frame();
+  getCPUState()->vmxon_frame_paddr = alloc_frame();
 
   /*
    * Initialize the VMXON region.
@@ -573,11 +572,11 @@ sva_initvmx(void) {
    * the VMXON region in any other way." For good measure, though, we'll
    * zero-fill the rest of it.
    */
-  unsigned char * VMXON_vaddr = getVirtual(VMXON_paddr);
+  unsigned char *vmxon_vaddr = getVirtual(getCPUState()->vmxon_frame_paddr);
 
   DBGPRNT(("Zero-filling VMXON frame (paddr=0x%lx,vaddr=0x%p)...\n",
-        VMXON_paddr, VMXON_vaddr));
-  memset(VMXON_vaddr, 0, VMCS_ALLOC_SIZE);
+        getCPUState()->vmxon_frame_paddr, vmxon_vaddr));
+  memset(vmxon_vaddr, 0, VMCS_ALLOC_SIZE);
 
   DBGPRNT(("Reading IA32_VMX_BASIC MSR...\n"));
   uint64_t vmx_basic_data = rdmsr(MSR_VMX_BASIC);
@@ -590,10 +589,10 @@ sva_initvmx(void) {
    * of that MSR is guaranteed to always be 0, so we can just copy those
    * lower 4 bytes to the beginning of the VMXON region.
    */
-  uint32_t VMCS_rev_id = (uint32_t) vmx_basic_data;
-  DBGPRNT(("VMCS revision identifier: %x\n", VMCS_rev_id));
-  uint32_t * VMXON_id_field = (uint32_t *) VMXON_vaddr;
-  *VMXON_id_field = VMCS_rev_id;
+  uint32_t vmcs_rev_id = (uint32_t) vmx_basic_data;
+  DBGPRNT(("VMCS revision identifier: %x\n", vmcs_rev_id));
+  uint32_t *vmxon_id_field = (uint32_t *) vmxon_vaddr;
+  *vmxon_id_field = vmcs_rev_id;
   DBGPRNT(("VMCS revision identifier written to VMXON region.\n"));
 
   /*
@@ -607,7 +606,7 @@ sva_initvmx(void) {
       "pushfq\n"
       "popq %0\n"
       : "=r" (rflags_vmxon)
-      : "m" (VMXON_paddr)
+      : "m" (getCPUState()->vmxon_frame_paddr)
       : "cc"
       );
   /* Confirm that the operation succeeded. */
@@ -637,7 +636,7 @@ sva_initvmx(void) {
      * outlined in the comment on the preceding call to alloc_frame() above.
      */
     DBGPRNT(("Returning VMXON frame to SVA.\n"));
-    free_frame(VMXON_paddr);
+    free_frame(getCPUState()->vmxon_frame_paddr);
 
     /* Restore interrupts and return to the kernel page tables. */
     sva_exit_critical(rflags);
