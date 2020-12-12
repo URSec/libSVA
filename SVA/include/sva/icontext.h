@@ -436,9 +436,9 @@ getCPUState(void) {
    * this processor.
    */
   struct CPUState * cpustate;
-  __asm__ __volatile__ ("movq %%gs:%c1, %0\n"
-                        : "=r" (cpustate)
-                        : "i"(TLS_CPUSTATE));
+  asm ("movq %%gs:%c1, %0\n"
+       : "=r" (cpustate)
+       : "i"(TLS_CPUSTATE));
   return cpustate;
 }
 
