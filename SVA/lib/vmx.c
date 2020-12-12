@@ -57,40 +57,6 @@
  */
 struct vm_desc_t __svadata vm_descs[MAX_VMS];
 
-/*
- * A structure describing host state for each CPU.
- * 
- * TODO: this should be an array so we're multiprocessor-ready.
- *
- * Includes:
- *  - A pointer to the VM descriptor (vm_desc_t) for the VM currently loaded
- *    on the processor, or null if no VM is loaded.
- *  - Places for the host GPRs to be saved/restored across VM entries/exits.
- *
- * An alternative would be to do this in sva_initvmx(), but this is cleaner
- * and safer (doesn't rely on the assumption that specific code is being run
- * at a specific time).
- *
- */
-vmx_host_state_t __svadata host_state = {
-  /* We use an explicit initializer here to ensure that the active_vm field
-   * is initialized to a null pointer before any code can run. It's important
-   * this be done before any SVA intrinsics can be called, because their
-   * checks use this pointer to determine if a VM is active.
-   *
-   * FIXME: static initializers don't actually work in SVA (at least under
-   * Xen) since we don't have a mechanism for them to be called. The only
-   * initialization that is performed for static structures is that they are
-   * zero-filled by Xen in map_sva_static_data() when it allocates physical
-   * frames for SVA's static secure memory prior to calling
-   * sva_init_primary_xen(). The reason we haven't run into problems from this
-   * static initializer not being called is that it's setting the field to 0.
-   */
-  .active_vm = 0
-
-  /* The other fields don't need to be explicitly initialized. */
-};
-
 static int run_vm(unsigned char use_vmresume);
 
 /*
@@ -992,7 +958,7 @@ sva_freevm(int vmid) {
 
   /* Don't free a VM which is still active on the processor. */
   if (usevmx) {
-    if (host_state.active_vm == vm) {
+    if (getCPUState()->active_vm == vm) {
       panic("Fatal error: tried to free a VM which is active on the "
           "processor!\n");
     }
@@ -1122,7 +1088,7 @@ sva_loadvm(int vmid) {
    * A non-null active_vm pointer indicates there is an active VM.
    */
   if (usevmx) {
-    if (host_state.active_vm) {
+    if (getCPUState()->active_vm) {
       DBGPRNT(("Error: there is already a VM active on the processor. "
                "Cannot load a different VM until it is unloaded.\n"));
 
@@ -1142,21 +1108,21 @@ sva_loadvm(int vmid) {
   }
 
   /* Set the indicated VM as the active one. */
-  host_state.active_vm = &vm_descs[vmid];
+  getCPUState()->active_vm = &vm_descs[vmid];
 
   /*
    * Use the VMPTRLD instruction to make the indicated VM's VMCS active on
    * the processor.
    */
   DBGPRNT(("Using VMPTRLD to make active the VMCS at paddr 0x%lx...\n",
-        host_state.active_vm->vmcs_paddr));
+        getCPUState()->active_vm->vmcs_paddr));
   uint64_t rflags_vmptrld;
   asm __volatile__ (
       "vmptrld %1\n"
       "pushfq\n"
       "popq %0\n"
       : "=r" (rflags_vmptrld)
-      : "m" (host_state.active_vm->vmcs_paddr)
+      : "m" (getCPUState()->active_vm->vmcs_paddr)
       : "cc"
       );
   /* Confirm that the operation succeeded. */
@@ -1166,7 +1132,7 @@ sva_loadvm(int vmid) {
     DBGPRNT(("Error: failed to load VMCS onto the processor.\n"));
 
     /* Unset the active_vm pointer. */
-    host_state.active_vm = 0;
+    getCPUState()->active_vm = 0;
 
     /*
      * Release the VM descriptor lock.
@@ -1175,7 +1141,7 @@ sva_loadvm(int vmid) {
      * the success path since (in that case) the VMCS has been loaded and
      * will remain so when this intrinsic returns.
      */
-    vm_desc_unlock(host_state.active_vm);
+    vm_desc_unlock(getCPUState()->active_vm);
 
     /* Return failure. */
     usersva_to_kernel_pcid();
@@ -1191,7 +1157,7 @@ sva_loadvm(int vmid) {
    * sva_allocvm()) because Intel's hardware interface doesn't let you write
    * to a VMCS that isn't currently active on the processor.
    */
-  if (!host_state.active_vm->vmcs_fields_initialized) {
+  if (!getCPUState()->active_vm->vmcs_fields_initialized) {
     DBGPRNT(("sva_loadvm(): First time this VMCS has been loaded. "
           "Initializing VMCS controls...\n"));
 
@@ -1313,14 +1279,14 @@ sva_loadvm(int vmid) {
      * sva_allocvm(), but at this stage in the port Xen is just passing a
      * null pointer for initial_state.
      */
-    xinit(&host_state.active_vm->state.fp.inner);
+    xinit(&getCPUState()->active_vm->state.fp.inner);
 #endif
 
     /*
      * Mark that we've initialized these fields so we don't try to do this
      * again the next time this VMCS is loaded.
      */
-    host_state.active_vm->vmcs_fields_initialized = 1;
+    getCPUState()->active_vm->vmcs_fields_initialized = 1;
   }
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -1364,7 +1330,7 @@ sva_unloadvm(void) {
    * A null active_vm pointer indicates there is no active VM.
    */
   if (usevmx) {
-    if (!host_state.active_vm) {
+    if (!getCPUState()->active_vm) {
       DBGPRNT(("Error: there is no VM active on the processor to unload.\n"));
 
       usersva_to_kernel_pcid();
@@ -1377,7 +1343,7 @@ sva_unloadvm(void) {
    * Save the current active_vm pointer since we will need it to release the
    * lock on this VM even after clearing active_vm.
    */
-  struct vm_desc_t *vm = host_state.active_vm;
+  struct vm_desc_t *vm = getCPUState()->active_vm;
 
   /*
    * Use the VMCLEAR instruction to unload the current VM from the processor.
@@ -1405,7 +1371,7 @@ sva_unloadvm(void) {
     vm->is_launched = 0;
 
     /* Set the active_vm pointer to indicate no VM is active. */
-    host_state.active_vm = 0;
+    getCPUState()->active_vm = 0;
   } else {
     DBGPRNT(("Error: failed to unload VMCS from the processor.\n"));
 
@@ -1502,7 +1468,7 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
    * A null active_vm pointer indicates there is no active VM.
    */
   if (usevmx) {
-    if (!host_state.active_vm) {
+    if (!getCPUState()->active_vm) {
       DBGPRNT(("Error: there is no VM active on the processor. "
                "Cannot read from VMCS.\n"));
 
@@ -1611,7 +1577,7 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
    * A null active_vm pointer indicates there is no active VM.
    */
   if (usevmx) {
-    if (!host_state.active_vm) {
+    if (!getCPUState()->active_vm) {
       DBGPRNT(("Error: there is no VM active on the processor. "
                "Cannot write to VMCS.\n"));
 
@@ -1690,7 +1656,7 @@ sva_launchvm(void) {
    * A null active_vm pointer indicates there is no active VM.
    */
   if (usevmx) {
-    if (!host_state.active_vm) {
+    if (!getCPUState()->active_vm) {
       DBGPRNT(("Error: there is no VM active on the processor. "
                "Cannot launch VM.\n"));
 
@@ -1712,7 +1678,7 @@ sva_launchvm(void) {
    * one.
    */
   if (usevmx) {
-    if (host_state.active_vm->is_launched) {
+    if (getCPUState()->active_vm->is_launched) {
       DBGPRNT(("Error: Must use sva_resumevm() to enter a VM which "
                "was previously run since being loaded on the processor.\n"));
 
@@ -1727,7 +1693,7 @@ sva_launchvm(void) {
    * future entries to it must be performed using the sva_resumevm()
    * intrinsic.
    */
-  host_state.active_vm->is_launched = 1;
+  getCPUState()->active_vm->is_launched = 1;
 
   /* Enter guest-mode execution (which will ultimately exit back into host
    * mode and return us here).
@@ -1804,7 +1770,7 @@ sva_resumevm(void) {
    * A null active_vm pointer indicates there is no active VM.
    */
   if (usevmx) {
-    if (!host_state.active_vm) {
+    if (!getCPUState()->active_vm) {
       DBGPRNT(("Error: there is no VM active on the processor. "
                "Cannot resume VM.\n"));
 
@@ -1826,7 +1792,7 @@ sva_resumevm(void) {
    * instead of this one.
    */
   if (usevmx) {
-    if (!host_state.active_vm->is_launched) {
+    if (!getCPUState()->active_vm->is_launched) {
       DBGPRNT(("Error: Must use sva_launchvm() to enter a VM which hasn't "
                "previously been run since being loaded on the processor.\n"));
 
@@ -1910,6 +1876,51 @@ sva_resumevm(void) {
  */
 static int
 run_vm(unsigned char use_vmresume) {
+  /*
+   * Allocate a host_state structure on the stack to give us a place to stash
+   * various host state elements that need to be restored after VM exit.
+   *
+   * We aggregate these fields within a structure rather than as individual
+   * local variables so that we can more conveniently remember where we left
+   * them when we return to host mode in the VM entry/exit assembly block and
+   * have (initially) no GPRs to work with. This way, we can stash a single
+   * pointer to host_state on the stack before VM entry rather than having to
+   * keep track of the RSP-relative positions of numerous registers
+   * individually pushed onto the stack.
+   *
+   * struct vmx_host_state_t also includes, for similar convenience reasons,
+   * a pointer to the active VM's VM descriptor (i.e. a copy of
+   * getCPUState()->active_vm), which we save there at this time.
+   *
+   *   NOTE: This is a rather large allocation to make on the stack, as it
+   *   contains an entire 4 kB union xsave_area_max! Since (at least under
+   *   Xen) SVA only has 8 kB of stack space to work with (which it shares
+   *   with any Xen code preceding it on the call stack), this is something
+   *   to be careful about.
+   *
+   *   Our analysis is that this should be safe here as the only entry point
+   *   for this function is from sva_launch/resumevm(), which don't put much
+   *   on the stack themselves; and they in turn are called by Xen in
+   *   vmx_do_vmentry_sva(), which itself doesn't put much on the stack and
+   *   is called fresh off a reset_stack_and_jump() (i.e. an empty stack).
+   *
+   *   If run_vm() calls itself recursively (e.g. to re-enter the guest after
+   *   intercepting a VM exit which SVA handled without involving the
+   *   hypervisor), care should be taken to make sure the recursive call is
+   *   suitable for tail-call optimization (and that the compiler actually
+   *   applies that optimization).
+   */
+  struct vmx_host_state_t host_state;
+  host_state.active_vm = getCPUState()->active_vm;
+
+  /*
+   * Initialize the XSAVE area within host_state. This is necessary to
+   * prevent #GP when we re-load from it after VM exit (as, apparently, using
+   * XSAVES to previously save state to this area is not sufficient to
+   * guarantee all its fields are appropriately initialized).
+   */
+  xinit(&host_state.fp.inner);
+
   /* FIXME: temporarily disabled during incremental port of Xen */
 #ifndef XEN
   /*
@@ -2287,7 +2298,7 @@ run_vm(unsigned char use_vmresume) {
   DBGPRNT(("Loading guest XCR0 = 0x%lx...\n",
         host_state.active_vm->state.xcr0));
 #endif
-  xsetbv((uint32_t)host_state.active_vm->state.xcr0);
+  xsetbv((uint32_t) host_state.active_vm->state.xcr0);
 
   /*
    * Load guest XSS MSR.
@@ -2935,11 +2946,11 @@ run_vm(unsigned char use_vmresume) {
  * Preconditions:
  *  - There must be a VMCS loaded on the processor.
  *
- *  - The host_state.active_vm pointer should point to the VM descriptor
+ *  - This CPU's active_vm pointer should point to the VM descriptor
  *    corresponding to the VMCS loaded on the processor.
  *
  *  - This processor should hold the lock in the VM descriptor pointed to by
- *    host-state.active_vm.
+ *    this CPU's active_vm pointer.
  *
  *  This function is meant to be used internally by SVA code that has already
  *  ensured these conditions hold. Particularly, this is true in run_vm()
@@ -2958,27 +2969,27 @@ update_vmcs_ctrls() {
 
   /* VM execution controls */
   writevmcs_checked(VMCS_PINBASED_VM_EXEC_CTRLS,
-      host_state.active_vm->initial_ctrls.pinbased_exec_ctrls);
+      getCPUState()->active_vm->initial_ctrls.pinbased_exec_ctrls);
   writevmcs_checked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-      host_state.active_vm->initial_ctrls.procbased_exec_ctrls1);
+      getCPUState()->active_vm->initial_ctrls.procbased_exec_ctrls1);
   writevmcs_checked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-      host_state.active_vm->initial_ctrls.procbased_exec_ctrls2);
+      getCPUState()->active_vm->initial_ctrls.procbased_exec_ctrls2);
   writevmcs_checked(VMCS_VM_ENTRY_CTRLS,
-      host_state.active_vm->initial_ctrls.entry_ctrls);
+      getCPUState()->active_vm->initial_ctrls.entry_ctrls);
   writevmcs_checked(VMCS_VM_EXIT_CTRLS,
-      host_state.active_vm->initial_ctrls.exit_ctrls);
+      getCPUState()->active_vm->initial_ctrls.exit_ctrls);
 
   /* Event injection and exception controls */
   writevmcs_checked(VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD,
-      host_state.active_vm->initial_ctrls.entry_interrupt_info);
+      getCPUState()->active_vm->initial_ctrls.entry_interrupt_info);
   writevmcs_checked(VMCS_EXCEPTION_BITMAP,
-      host_state.active_vm->initial_ctrls.exception_exiting_bitmap);
+      getCPUState()->active_vm->initial_ctrls.exception_exiting_bitmap);
 
   /* Control register guest/host masks */
   writevmcs_checked(VMCS_CR0_GUESTHOST_MASK,
-      host_state.active_vm->initial_ctrls.cr0_guesthost_mask);
+      getCPUState()->active_vm->initial_ctrls.cr0_guesthost_mask);
   writevmcs_checked(VMCS_CR4_GUESTHOST_MASK,
-      host_state.active_vm->initial_ctrls.cr4_guesthost_mask);
+      getCPUState()->active_vm->initial_ctrls.cr4_guesthost_mask);
 }
 
 /*
@@ -3002,7 +3013,7 @@ update_vmcs_ctrls() {
  *  add to the state structure, the more important this will be.
  *
  *  This function *always* operates on the active VMCS and its corresponding
- *  VM descriptor (pointed to by host_state.active_vm). The preconditions
+ *  VM descriptor (pointed to by the CPU's active_vm pointer). The preconditions
  *  below assure that this is safe to do.
  *
  * Arguments:
@@ -3013,7 +3024,7 @@ update_vmcs_ctrls() {
  * Preconditions:
  *  - There must be a VMCS loaded on the processor.
  *
- *  - The host_state.active_vm pointer should point to the VM descriptor
+ *  - The CPU's active_vm pointer should point to the VM descriptor
  *    corresponding to the VMCS loaded on the processor.
  *
  *  - This processor should hold the lock in the VM descriptor pointed to by
@@ -3052,149 +3063,149 @@ save_restore_guest_state(unsigned char saverestore) {
 
   /* RIP and RSP */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_RIP,
-      &host_state.active_vm->state.rip);
+      &getCPUState()->active_vm->state.rip);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_RSP,
-      &host_state.active_vm->state.rsp);
+      &getCPUState()->active_vm->state.rsp);
   /* Flags */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_RFLAGS,
-      &host_state.active_vm->state.rflags);
+      &getCPUState()->active_vm->state.rflags);
 
   /* Control registers (except paging-related ones) */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_CR0,
-      &host_state.active_vm->state.cr0);
+      &getCPUState()->active_vm->state.cr0);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_CR4,
-      &host_state.active_vm->state.cr4);
+      &getCPUState()->active_vm->state.cr4);
   /* Control register read shadows */
   read_write_vmcs_field(!saverestore, VMCS_CR0_READ_SHADOW,
-      &host_state.active_vm->state.cr0_read_shadow);
+      &getCPUState()->active_vm->state.cr0_read_shadow);
   read_write_vmcs_field(!saverestore, VMCS_CR4_READ_SHADOW,
-      &host_state.active_vm->state.cr4_read_shadow);
+      &getCPUState()->active_vm->state.cr4_read_shadow);
 
   /* Debug registers/MSRs saved/restored by processor */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_DR7,
-      &host_state.active_vm->state.dr7);
+      &getCPUState()->active_vm->state.dr7);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_DEBUGCTL,
-      &host_state.active_vm->state.msr_debugctl);
+      &getCPUState()->active_vm->state.msr_debugctl);
 
   /* Paging-related registers saved/restored by processor */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_CR3,
-      &host_state.active_vm->state.cr3);
+      &getCPUState()->active_vm->state.cr3);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE0,
-      &host_state.active_vm->state.pdpte0);
+      &getCPUState()->active_vm->state.pdpte0);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE1,
-      &host_state.active_vm->state.pdpte1);
+      &getCPUState()->active_vm->state.pdpte1);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE2,
-      &host_state.active_vm->state.pdpte2);
+      &getCPUState()->active_vm->state.pdpte2);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE3,
-      &host_state.active_vm->state.pdpte3);
+      &getCPUState()->active_vm->state.pdpte3);
 
   /* SYSENTER-related MSRs */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_SYSENTER_CS,
-      &host_state.active_vm->state.msr_sysenter_cs);
+      &getCPUState()->active_vm->state.msr_sysenter_cs);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_SYSENTER_ESP,
-      &host_state.active_vm->state.msr_sysenter_esp);
+      &getCPUState()->active_vm->state.msr_sysenter_esp);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_SYSENTER_EIP,
-      &host_state.active_vm->state.msr_sysenter_eip);
+      &getCPUState()->active_vm->state.msr_sysenter_eip);
 
   /* Segment registers (including hidden portions) */
   /* CS */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_BASE,
-      &host_state.active_vm->state.cs_base);
+      &getCPUState()->active_vm->state.cs_base);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_LIMIT,
-      &host_state.active_vm->state.cs_limit);
+      &getCPUState()->active_vm->state.cs_limit);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_ACCESS_RIGHTS,
-      &host_state.active_vm->state.cs_access_rights);
+      &getCPUState()->active_vm->state.cs_access_rights);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_SEL,
-      &host_state.active_vm->state.cs_sel);
+      &getCPUState()->active_vm->state.cs_sel);
   /* SS */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_BASE,
-      &host_state.active_vm->state.ss_base);
+      &getCPUState()->active_vm->state.ss_base);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_LIMIT,
-      &host_state.active_vm->state.ss_limit);
+      &getCPUState()->active_vm->state.ss_limit);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_ACCESS_RIGHTS,
-      &host_state.active_vm->state.ss_access_rights);
+      &getCPUState()->active_vm->state.ss_access_rights);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_SEL,
-      &host_state.active_vm->state.ss_sel);
+      &getCPUState()->active_vm->state.ss_sel);
   /* DS */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_BASE,
-      &host_state.active_vm->state.ds_base);
+      &getCPUState()->active_vm->state.ds_base);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_LIMIT,
-      &host_state.active_vm->state.ds_limit);
+      &getCPUState()->active_vm->state.ds_limit);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_ACCESS_RIGHTS,
-      &host_state.active_vm->state.ds_access_rights);
+      &getCPUState()->active_vm->state.ds_access_rights);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_SEL,
-      &host_state.active_vm->state.ds_sel);
+      &getCPUState()->active_vm->state.ds_sel);
   /* ES */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_BASE,
-      &host_state.active_vm->state.es_base);
+      &getCPUState()->active_vm->state.es_base);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_LIMIT,
-      &host_state.active_vm->state.es_limit);
+      &getCPUState()->active_vm->state.es_limit);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_ACCESS_RIGHTS,
-      &host_state.active_vm->state.es_access_rights);
+      &getCPUState()->active_vm->state.es_access_rights);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_SEL,
-      &host_state.active_vm->state.es_sel);
+      &getCPUState()->active_vm->state.es_sel);
   /* FS */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_BASE,
-      &host_state.active_vm->state.fs_base);
+      &getCPUState()->active_vm->state.fs_base);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_LIMIT,
-      &host_state.active_vm->state.fs_limit);
+      &getCPUState()->active_vm->state.fs_limit);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_ACCESS_RIGHTS,
-      &host_state.active_vm->state.fs_access_rights);
+      &getCPUState()->active_vm->state.fs_access_rights);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_SEL,
-      &host_state.active_vm->state.fs_sel);
+      &getCPUState()->active_vm->state.fs_sel);
   /* GS */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_BASE,
-      &host_state.active_vm->state.gs_base);
+      &getCPUState()->active_vm->state.gs_base);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_LIMIT,
-      &host_state.active_vm->state.gs_limit);
+      &getCPUState()->active_vm->state.gs_limit);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_ACCESS_RIGHTS,
-      &host_state.active_vm->state.gs_access_rights);
+      &getCPUState()->active_vm->state.gs_access_rights);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_SEL,
-      &host_state.active_vm->state.gs_sel);
+      &getCPUState()->active_vm->state.gs_sel);
   /* TR */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_BASE,
-      &host_state.active_vm->state.tr_base);
+      &getCPUState()->active_vm->state.tr_base);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_LIMIT,
-      &host_state.active_vm->state.tr_limit);
+      &getCPUState()->active_vm->state.tr_limit);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_ACCESS_RIGHTS,
-      &host_state.active_vm->state.tr_access_rights);
+      &getCPUState()->active_vm->state.tr_access_rights);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_SEL,
-      &host_state.active_vm->state.tr_sel);
+      &getCPUState()->active_vm->state.tr_sel);
 
   /* Descriptor table registers */
   /* GDTR */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_GDTR_BASE,
-      &host_state.active_vm->state.gdtr_base);
+      &getCPUState()->active_vm->state.gdtr_base);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_GDTR_LIMIT,
-      &host_state.active_vm->state.gdtr_limit);
+      &getCPUState()->active_vm->state.gdtr_limit);
   /* IDTR */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IDTR_BASE,
-      &host_state.active_vm->state.idtr_base);
+      &getCPUState()->active_vm->state.idtr_base);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IDTR_LIMIT,
-      &host_state.active_vm->state.idtr_limit);
+      &getCPUState()->active_vm->state.idtr_limit);
   /* LDTR */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_BASE,
-      &host_state.active_vm->state.ldtr_base);
+      &getCPUState()->active_vm->state.ldtr_base);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_LIMIT,
-      &host_state.active_vm->state.ldtr_limit);
+      &getCPUState()->active_vm->state.ldtr_limit);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_ACCESS_RIGHTS,
-      &host_state.active_vm->state.ldtr_access_rights);
+      &getCPUState()->active_vm->state.ldtr_access_rights);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_SEL,
-      &host_state.active_vm->state.ldtr_sel);
+      &getCPUState()->active_vm->state.ldtr_sel);
 
 #ifdef MPX
   /* MPX configuration register for supervisor mode */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_BNDCFGS,
-      &host_state.active_vm->state.msr_bndcfgs);
+      &getCPUState()->active_vm->state.msr_bndcfgs);
 #endif
 
   /* Various other guest system state */
   read_write_vmcs_field(!saverestore, VMCS_GUEST_ACTIVITY_STATE,
-      &host_state.active_vm->state.activity_state);
+      &getCPUState()->active_vm->state.activity_state);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_INTERRUPTIBILITY_STATE,
-      &host_state.active_vm->state.interruptibility_state);
+      &getCPUState()->active_vm->state.interruptibility_state);
   read_write_vmcs_field(!saverestore, VMCS_GUEST_PENDING_DBG_EXCEPTIONS,
-      &host_state.active_vm->state.pending_debug_exceptions);
+      &getCPUState()->active_vm->state.pending_debug_exceptions);
 }
 
 /*
@@ -3925,7 +3936,7 @@ sva_getfp(int vmid, unsigned char *fp_state) {
    * If the specified VM is currently active on this CPU, we already hold its
    * lock and it is safe to proceed. Otherwise, we need to take the lock.
    */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_lock(&vm_descs[vmid]);
 
   const size_t fp_state_size = sizeof(struct xsave_legacy);
@@ -3939,7 +3950,7 @@ sva_getfp(int vmid, unsigned char *fp_state) {
   memcpy(fp_state, &vm_descs[vmid].state.fp.inner.legacy, fp_state_size);
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -4010,7 +4021,7 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
    * If the specified VM is currently active on this CPU, we already hold its
    * lock and it is safe to proceed. Otherwise, we need to take the lock.
    */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_lock(&vm_descs[vmid]);
 
   /*
@@ -4122,7 +4133,7 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
   }
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -4182,7 +4193,7 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
    * If the specified VM is currently active on this CPU, we already hold its
    * lock and it is safe to proceed. Otherwise, we need to take the lock.
    */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_lock(&vm_descs[vmid]);
 
   /*
@@ -4298,7 +4309,7 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
   }
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -4356,7 +4367,7 @@ sva_getvmfpu(int vmid, union xsave_area_max *out_data) {
    * If the specified VM is currently active on this CPU, we already hold its
    * lock and it is safe to proceed. Otherwise, we need to take the lock.
    */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_lock(&vm_descs[vmid]);
 
   /*
@@ -4376,7 +4387,7 @@ sva_getvmfpu(int vmid, union xsave_area_max *out_data) {
   memcpy(out_data, &vm_descs[vmid].state.fp, sizeof(vm_descs[vmid].state.fp));
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -4434,7 +4445,7 @@ sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
    * If the specified VM is currently active on this CPU, we already hold its
    * lock and it is safe to proceed. Otherwise, we need to take the lock.
    */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_lock(&vm_descs[vmid]);
 
   /*
@@ -4454,7 +4465,7 @@ sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
   memcpy(&vm_descs[vmid].state.fp, in_data, sizeof(vm_descs[vmid].state.fp));
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -4470,7 +4481,7 @@ sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
  * Requires that an active VM currently exists.
  */
 static void posted_interrupts_disable(void) {
-  struct vm_desc_t* const active_vm = host_state.active_vm;
+  struct vm_desc_t *const active_vm = getCPUState()->active_vm;
 
   if (active_vm->vlapic.posted_interrupts_enabled) {
     union {
@@ -4509,7 +4520,7 @@ int sva_vlapic_disable(void) {
 
   SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
 
-  struct vm_desc_t* const active_vm = host_state.active_vm;
+  struct vm_desc_t *const active_vm = getCPUState()->active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
 
   /*
@@ -4579,7 +4590,7 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
 
   SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
 
-  struct vm_desc_t* const active_vm = host_state.active_vm;
+  struct vm_desc_t *const active_vm = getCPUState()->active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
 
   /*
@@ -4676,7 +4687,7 @@ int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame) {
 
   SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
 
-  struct vm_desc_t* const active_vm = host_state.active_vm;
+  struct vm_desc_t *const active_vm = getCPUState()->active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
 
   /*
@@ -4763,7 +4774,7 @@ int sva_posted_interrupts_disable(void) {
 
   SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
 
-  struct vm_desc_t* const active_vm = host_state.active_vm;
+  struct vm_desc_t *const active_vm = getCPUState()->active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
 
   /*
@@ -4788,7 +4799,7 @@ int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor) {
 
   SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
 
-  struct vm_desc_t* const active_vm = host_state.active_vm;
+  struct vm_desc_t *const active_vm = getCPUState()->active_vm;
   SVA_CHECK(active_vm != NULL, ESRCH);
 
   /*

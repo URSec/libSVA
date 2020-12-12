@@ -537,26 +537,23 @@ typedef struct vm_desc_t {
  * Structure: vmx_host_state_t
  *
  * Description:
- *  A per-CPU structure storing various aspects of the host system's state.
+ *  A structure storing various aspects of the host system's state that must
+ *  be saved before VM entry and restored after VM exit.
  *
- *  These include:
- *    - A pointer to the VM descriptor (vm_desc_t) for the VM currently
- *      loaded on the processor, or null if no VM is loaded.
- *    - Places for the host GPRs to be saved/restored across VM
- *      entries/exits.
+ *  This structure is intended for use as a stack allocation local to
+ *  run_vm(), and exists to provide convenient access to all of these fields
+ *  within the VM entry/exit assembly block (rather than having to keep track
+ *  of each of these fields' positions on the stack individually).
  */
 typedef struct vmx_host_state_t {
   /*
-   * Pointer to the descriptor for the VM currently loaded on this processor.
-   * If no VM is loaded, this should be set to null.
-   *
-   * NOTE: any code that allocates a vmx_host_state_t is responsible for
-   * ensuring that this field is initialized to null. SVA's intrinsics use
-   * this field to determine whether a VM is currently loaded; if a bad value
-   * is stored here, they will assume there is an active VM and look for its
-   * descriptor at that address.
+   * Copy of the pointer to the active VM's VM descriptor structure (which is
+   * normally kept in per-CPU storage, i.e. getCPUState()->active_vm) for
+   * more convenient access within the VM entry/exit assembly block of
+   * run_vm(), where we have no GPRs available immediately following VM exit
+   * and must restore everything from the stack.
    */
-  vm_desc_t * active_vm;
+  vm_desc_t *active_vm;
 
   /*
    * Host GPRs that need to be saved/restored across VM entries/exits

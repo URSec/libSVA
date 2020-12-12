@@ -23,6 +23,12 @@
 #include <sva/state.h>
 #include <sva/x86.h>
 
+/*
+ * Standalone declaration so we don't have to pull in all of vmx.h just to
+ * include a member of this type in struct CPUState
+ */
+struct vm_desc_t;
+
 /**
  * Switch to the kernel's cache domain.
  */
@@ -390,6 +396,14 @@ struct CPUState {
    * it's set in sva_initvmx().)
    */
    uint32_t VMCS_REV_ID;
+
+   /*
+    * Pointer to the vm_desc_t structure for the VM that is currently active
+    * (and whose VMCS has been loaded with VMPTRLD) on this processor.
+    *
+    * Null indicates no VM is currently active.
+    */
+   struct vm_desc_t *active_vm;
 };
 
 struct sva_tls_area {
