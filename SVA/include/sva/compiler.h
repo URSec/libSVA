@@ -26,4 +26,11 @@
 
 #define __packed __attribute__((__packed__))
 
+/*
+ * Annotations for user and kernel pointers.
+ */
+#define __noderef __attribute__((noderef))
+#define __user __attribute__((noderef, address_space(1)))
+#define __kern __attribute__((noderef, address_space(2)))
+
 #endif /* _SVA_COMPILER_H */
