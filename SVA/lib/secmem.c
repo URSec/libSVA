@@ -187,6 +187,14 @@ get_frame_from_os(void) {
    * compromised.
    */
 
+  /*
+   * TODO: This is unnecessary (the kernel is perfectly capable of removing
+   * things from its own direct map) and should be removed.
+   *
+   * In the event this isn't removed, the following issues need to be fixed:
+   * Calls to `getVirtual` need to be replaced with `getVirtualKernelDMAP` and
+   * page table entries need to be accessed atomically.
+   */
 #ifdef FreeBSD
   /* Verify that the frame is unmapped in the kernel's direct map. */
   uintptr_t kerndmap_vaddr = (uintptr_t)getVirtual(paddr);
@@ -765,8 +773,7 @@ void ghostFree(struct SVAThread* threadp, void* p, size_t size) {
            * Zero out the contents of the ghost memory.
            */
           if (threadp == currentThread) {
-            unsigned char *dmapAddr = getVirtualSVADMAP(paddr);
-            memset(dmapAddr, 0, PG_L1_SIZE);
+            memset(__va(paddr), 0, PG_L1_SIZE);
           }
           free_frame(paddr);
         }
@@ -856,7 +863,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
        * Perform a copy-on-write.
        */
 
-      void *vaddr_old = getVirtualSVADMAP(paddr);
+      void *vaddr_old = __va(paddr);
 
       /*
        * Get a frame from the frame cache for the new process's copy of the
@@ -870,7 +877,7 @@ sva_ghost_fault (uintptr_t vaddr, unsigned long code) {
        * physical frame has been successfully allocated.
        */
       uintptr_t paddr_new = alloc_frame();
-      void *vaddr_new = getVirtualSVADMAP(paddr_new);
+      void *vaddr_new = __va(paddr_new);
       frame_desc_t *pgDesc_new = get_frame_desc(paddr_new);
       SVA_ASSERT(pgDesc_new != NULL,
         "SVA: FATAL: New ghost memory allocation is a non-existant frame\n");

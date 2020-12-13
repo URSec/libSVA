@@ -24,6 +24,7 @@
 #include <sva/vmx_intrinsics.h>
 #include <sva/mmu.h>
 #include <sva/config.h>
+#include <sva/util.h>
 
 extern vmx_host_state_t __svadata host_state;
 
@@ -136,7 +137,7 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
    * Ensure that the PTE pointer points to an EPT page table. If it does not,
    * report an error.
    */
-  frame_desc_t *ptDesc = get_frame_desc(getPhysicalAddr(eptePtr));
+  frame_desc_t *ptDesc = get_frame_desc(__pa(eptePtr));
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: EPT page table frame at %p doesn't exist\n", eptePtr);
 
@@ -284,7 +285,7 @@ load_eptable_internal(
    * top-level extended-page-table page (i.e., one properly declared with
    * sva_declare_l4_eptpage()).
    */
-  uintptr_t epml4t_paddr = getPhysicalAddr(epml4t);
+  paddr_t epml4t_paddr = __pa(epml4t);
   frame_desc_t *ptpDesc = get_frame_desc(epml4t_paddr);
   SVA_ASSERT(ptpDesc != NULL,
     "SVA: FATAL: EPT root page table frame at %p doesn't exist\n", epml4t);

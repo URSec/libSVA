@@ -986,7 +986,7 @@ init_dispatcher ()
   register_hypercall(0x7f, (void(*)())allocSecureMemory);
 }
 
-static bool create_startup_region(uintptr_t start_page) {
+static bool create_startup_region(paddr_t start_page) {
   extern const char ap_start[];
   extern const char ap_start_gdt[];
   extern const char ap_start_gdt_desc[];
@@ -994,7 +994,7 @@ static bool create_startup_region(uintptr_t start_page) {
   extern const char ap_start_end[];
   extern void __attribute__((noreturn)) ap_start_64(void);
 
-  unsigned char* start_page_dm = getVirtual(start_page);
+  unsigned char* start_page_dm = __va(start_page);
   size_t start_area_len = ap_start_end - ap_start;
   memcpy(start_page_dm, ap_start, start_area_len);
 
@@ -1035,7 +1035,7 @@ static bool create_startup_region(uintptr_t start_page) {
   return true;
 }
 
-bool sva_launch_ap(uint32_t apic_id, uintptr_t start_page,
+bool sva_launch_ap(uint32_t apic_id, paddr_t start_page,
                    init_fn init, void* stack)
 {
   if (start_page >= 0x100000UL /* 1MB */) {
@@ -1050,7 +1050,7 @@ bool sva_launch_ap(uint32_t apic_id, uintptr_t start_page,
     return false;
   }
 
-  uintptr_t start_page_phys = getPhysicalAddr((void*)start_page);
+  paddr_t start_page_phys = __pa(start_page);
   if (start_page_phys != start_page) {
     printf("SVA: WARNING: AP start page (at 0x%lx) not identity mapped\n",
            start_page);

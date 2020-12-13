@@ -128,7 +128,7 @@ page_entry_t page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
   SVA_PROF_ENTER();
 
 #ifdef SVA_DMAP
-  page_entry = (page_entry_t*)getVirtual(getPhysicalAddr(page_entry));
+  page_entry = (page_entry_t*)__va(__pa(page_entry));
 #endif
 
   /* Disable page protection so we can write to the referencing table entry */
@@ -165,7 +165,7 @@ static inline bool pte_can_change(page_entry_t* page_entry) {
   frame_desc_t *origPG = get_frame_desc(origPA);
 
   /* Get the page table page descriptor. */
-  frame_desc_t *ptePG = get_frame_desc(getPhysicalAddr(page_entry));
+  frame_desc_t *ptePG = get_frame_desc(__pa(page_entry));
 
   /*
    * If MMU checks are disabled, allow the page table entry to be modified.
@@ -316,7 +316,7 @@ updateOrigPageData(page_entry_t mapping, frame_type_t type, size_t count) {
  * @param new_pte The new mapping to insert into `*pte`
  */
 static inline void do_mmu_update(page_entry_t* pte, page_entry_t new_pte) {
-  frame_desc_t* ptePG = get_frame_desc(getPhysicalAddr(pte));
+  frame_desc_t* ptePG = get_frame_desc(__pa(pte));
 
   frame_type_t pt_type = frame_get_type(ptePG);
   bool newIsLeaf = isLeafEntry(new_pte, pt_type);
@@ -640,8 +640,8 @@ int walk_page_table(cr3_t cr3, uintptr_t vaddr, pml4e_t** pml4e,
  * @param v A virtual address in the kernel's direct map
  * @return  The physical address to which `v` maps
  */
-static inline uintptr_t getPhysicalAddrKDMAP(void* v) {
-  return (uintptr_t)v & ~KERNDMAPSTART;
+static inline paddr_t getPhysicalAddrKDMAP(uintptr_t v) {
+  return v & ~KERNDMAPSTART;
 }
 
 /**
@@ -651,8 +651,8 @@ static inline uintptr_t getPhysicalAddrKDMAP(void* v) {
  * @param v A virtual address in SVA's direct map
  * @return  The physical address to which `v` maps
  */
-static inline uintptr_t getPhysicalAddrSVADMAP(void* v) {
-  return (uintptr_t)v & ~SVADMAPSTART;
+static inline paddr_t getPhysicalAddrSVADMAP(uintptr_t v) {
+  return v & ~SVADMAPSTART;
 }
 
 bool getPhysicalAddrFromPML4E(void* v, pml4e_t* pml4e, uintptr_t* paddr) {
@@ -662,10 +662,7 @@ bool getPhysicalAddrFromPML4E(void* v, pml4e_t* pml4e, uintptr_t* paddr) {
   return walk_page_table((cr3_t)0, vaddr, &pml4e, NULL, NULL, NULL, paddr) > 0;
 }
 
-uintptr_t getPhysicalAddr(void* v) {
-  /* Virtual address to convert */
-  uintptr_t vaddr = (uintptr_t)v;
-
+paddr_t getPhysicalAddr(uintptr_t vaddr) {
   /* Physical address */
   uintptr_t paddr;
 
@@ -680,7 +677,7 @@ uintptr_t getPhysicalAddr(void* v) {
        * bit-masking operation to convert the virtual address to a physical
        * address.
        */
-       return getPhysicalAddrKDMAP(v);
+       return getPhysicalAddrKDMAP(vaddr);
   }
 
   /*
@@ -688,7 +685,7 @@ uintptr_t getPhysicalAddr(void* v) {
    * bit-masking operation to find the physical address.
    */
   if (sva_dmap && vaddr >= SVADMAPSTART && vaddr <= SVADMAPEND) {
-       return getPhysicalAddrSVADMAP(v);
+       return getPhysicalAddrSVADMAP(vaddr);
   }
 
   /*
@@ -757,7 +754,7 @@ static unsigned int allocPTPage(frame_type_t level) {
     /*
      * Set the type of the page to be a ghost page table page.
      */
-    frame_morph(get_frame_desc(getPhysicalAddr(p)), level);
+    frame_morph(get_frame_desc(__pa(p)), level);
 
     /*
      * Return the index in the table.
@@ -798,7 +795,7 @@ static void updateUses(uintptr_t* ptp) {
    * Find the physical address to which this virtual address is mapped.  We'll
    * use it to determine if this is an SVA VM page.
    */
-  uintptr_t paddr = PG_ENTRY_FRAME(getPhysicalAddr(ptp));
+  uintptr_t paddr = PG_ENTRY_FRAME(__pa(ptp));
 
   /*
    * Look for the page table page with the specified physical address.  If we
@@ -829,7 +826,7 @@ static unsigned int releaseUse(uintptr_t* ptp) {
    * Find the physical address to which this virtual address is mapped.  We'll
    * use it to determine if this is an SVA VM page.
    */
-  uintptr_t paddr = getPhysicalAddr (ptp) & 0xfffffffffffff000u;
+  uintptr_t paddr = PG_ENTRY_FRAME(__pa(ptp));
 
   /*
    * Look for the page table page with the specified physical address.  If we
@@ -1249,7 +1246,7 @@ void sva_mm_load_pgtable(cr3_t pg_ptr) {
      * Get a pointer to the section of the new top-level page table that maps
      * the secure memory region.
      */
-    pml4e_t* root_pgtable = (pml4e_t*)getVirtual(new_pml4);
+    pml4e_t* root_pgtable = __va(new_pml4);
     pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(GHOSTMEMSTART)];
 
     /*
@@ -1342,7 +1339,7 @@ static void validate_existing_leaf(page_entry_t entry, frame_type_t level) {
  * @param level The level of the new page table
  */
 static void validate_existing_entries(uintptr_t frame, frame_type_t level) {
-  page_entry_t* entries = (page_entry_t*)getVirtual(frame);
+  page_entry_t* entries = __va(frame);
 
   for (size_t i = 0; i < PG_ENTRIES; ++i) {
     if (isPresent(entries[i])) {
@@ -1430,8 +1427,8 @@ void sva_declare_l4_page(uintptr_t frame) {
   /*
    * Install SVA's L4 entries into the new page table.
    */
-  pml4e_t* current_l4_table = (pml4e_t*)getVirtual(get_root_pagetable());
-  pml4e_t* new_l4_table = (pml4e_t*)getVirtual(frame);
+  pml4e_t* current_l4_table = __va(get_root_pagetable());
+  pml4e_t* new_l4_table = __va(frame);
 
   unprotect_paging();
   for (size_t i = PG_L4_ENTRY(SECMEMSTART); i < PG_L4_ENTRY(SECMEMEND); ++i) {
@@ -1502,7 +1499,7 @@ void sva_remove_page(uintptr_t paddr) {
    * (Note: PG_ENTRIES = # of entries in a PTP. We assume this is the same at
    * all levels of the paging hierarchy.)
    */
-  page_entry_t* ptp_vaddr = (page_entry_t*)getVirtual(paddr);
+  page_entry_t* ptp_vaddr = __va(paddr);
   for (unsigned long i = 0; i < PG_ENTRIES; i++) {
     if (isPresent_maybeEPT(ptp_vaddr[i], isEPT)) {
       /* Remove the mapping */
@@ -1569,7 +1566,7 @@ void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
    * Ensure that the PTE pointer points to the specified level of page table.
    * If it does not, then report an error.
    */
-  frame_desc_t* ptDesc = get_frame_desc(getPhysicalAddr(pte));
+  frame_desc_t* ptDesc = get_frame_desc(__pa(pte));
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: %s page table frame at %p doesn't exist\n",
     frame_type_name(level), pte);
@@ -1596,7 +1593,7 @@ void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
 void sva_remove_mapping(page_entry_t* pteptr) {
   SVA_PROF_ENTER();
 
-  frame_desc_t* pt = get_frame_desc(getPhysicalAddr(pteptr));
+  frame_desc_t* pt = get_frame_desc(__pa(pteptr));
 
   /* Update the page table mapping to zero */
   sva_update_mapping(pteptr, ZERO_MAPPING, frame_get_type(pt));

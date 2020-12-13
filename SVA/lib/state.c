@@ -549,8 +549,7 @@ flushSecureMemory(struct SVAThread* oldThread, struct SVAThread* newThread) {
     /*
      * Get a pointer into the page tables for the secure memory region.
      */
-    pml4e_t* root_pgtable =
-      (pml4e_t*)getVirtual((uintptr_t)get_root_pagetable());
+    pml4e_t* root_pgtable = __va((uintptr_t)get_root_pagetable());
     pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(GHOSTMEMSTART)];
 
     /*
@@ -863,8 +862,7 @@ static bool loadThread(struct SVAThread* newThread) {
     /*
      * Get a pointer into the page tables for the secure memory region.
      */
-    pml4e_t* root_pgtable =
-      (pml4e_t*)getVirtual((uintptr_t)get_root_pagetable());
+    pml4e_t* root_pgtable = __va((uintptr_t)get_root_pagetable());
     pml4e_t* secmemp = &root_pgtable[PG_L4_ENTRY(GHOSTMEMSTART)];
 
     /*

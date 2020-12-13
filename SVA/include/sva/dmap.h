@@ -17,6 +17,8 @@
 #ifndef SVA_DMAP_H
 #define SVA_DMAP_H
 
+#include <sva/config.h>
+#include <sva/types.h>
 #include <sva/secmem.h>
 
 /**
@@ -64,8 +66,8 @@ static inline bool isDirectMap(uintptr_t address) {
  * @param paddr A physical address
  * @return      A virtual address in SVA's direct map which maps to `paddr`
  */
-static inline unsigned char* getVirtualSVADMAP(uintptr_t physical) {
-  return (unsigned char*)(physical | SVADMAPSTART);
+static inline uintptr_t getVirtualSVADMAP(paddr_t physical) {
+  return physical | SVADMAPSTART;
 }
 
 /**
@@ -75,8 +77,8 @@ static inline unsigned char* getVirtualSVADMAP(uintptr_t physical) {
  * @return      A virtual address in the kernel's direct map which maps to
  *              `paddr`
  */
-static inline unsigned char* getVirtualKernelDMAP(uintptr_t physical) {
-  return (unsigned char*)(physical | KERNDMAPSTART);
+static inline uintptr_t getVirtualKernelDMAP(paddr_t physical) {
+  return physical | KERNDMAPSTART;
 }
 
 /**
@@ -88,12 +90,14 @@ static inline unsigned char* getVirtualKernelDMAP(uintptr_t physical) {
  * @param paddr A physical address
  * @return      A virtual address in the direct map which maps to `paddr`
  */
-static inline unsigned char* getVirtual(uintptr_t physical) {
+static inline uintptr_t getVirtual(paddr_t physical) {
 #ifdef SVA_DMAP
   return getVirtualSVADMAP(physical);
 #else
   return getVirtualKernelDMAP(physical);
 #endif
 }
+
+#define __va(x) ((void*)getVirtual(x))
 
 #endif /* SVA_DMAP_H */

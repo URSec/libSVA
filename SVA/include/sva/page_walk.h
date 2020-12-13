@@ -18,6 +18,7 @@
 #ifndef SVA_PAGE_WALK_H
 #define SVA_PAGE_WALK_H
 
+#include <sva/mmu_types.h>
 #include <sva/cr.h>
 #include <sva/dmap.h>
 #include <sva/page.h>
@@ -47,8 +48,8 @@ static inline uintptr_t get_root_pagetable(void) {
  * @return      The physical address of the L4 page table entry that maps
  *              `vaddr`
  */
-static inline uintptr_t get_pml4ePaddr(cr3_t cr3, uintptr_t vaddr) {
-  return (uintptr_t)&((pml4e_t*)PG_ENTRY_FRAME(cr3))[PG_L4_ENTRY(vaddr)];
+static inline paddr_t get_pml4ePaddr(cr3_t cr3, uintptr_t vaddr) {
+  return (paddr_t)&((pml4e_t*)PG_ENTRY_FRAME(cr3))[PG_L4_ENTRY(vaddr)];
 }
 
 /**
@@ -60,8 +61,8 @@ static inline uintptr_t get_pml4ePaddr(cr3_t cr3, uintptr_t vaddr) {
  * @return      The physical address of the L3 page table entry that maps
  *              `vaddr`
  */
-static inline uintptr_t get_pdptePaddr(pml4e_t pml4e, uintptr_t vaddr) {
-  return (uintptr_t)&((pdpte_t*)PG_ENTRY_FRAME(pml4e))[PG_L3_ENTRY(vaddr)];
+static inline paddr_t get_pdptePaddr(pml4e_t pml4e, uintptr_t vaddr) {
+  return (paddr_t)&((pdpte_t*)PG_ENTRY_FRAME(pml4e))[PG_L3_ENTRY(vaddr)];
 }
 
 /**
@@ -73,8 +74,8 @@ static inline uintptr_t get_pdptePaddr(pml4e_t pml4e, uintptr_t vaddr) {
  * @return      The physical address of the L2 page table entry that maps
  *              `vaddr`
  */
-static inline uintptr_t get_pdePaddr(pdpte_t pdpte, uintptr_t vaddr) {
-  return (uintptr_t)&((pde_t*)PG_ENTRY_FRAME(pdpte))[PG_L2_ENTRY(vaddr)];
+static inline paddr_t get_pdePaddr(pdpte_t pdpte, uintptr_t vaddr) {
+  return (paddr_t)&((pde_t*)PG_ENTRY_FRAME(pdpte))[PG_L2_ENTRY(vaddr)];
 }
 
 /**
@@ -86,8 +87,8 @@ static inline uintptr_t get_pdePaddr(pdpte_t pdpte, uintptr_t vaddr) {
  * @return      The physical address of the L1 page table entry that maps
  *              `vaddr`
  */
-static inline uintptr_t get_ptePaddr(pde_t pde, uintptr_t vaddr) {
-  return (uintptr_t)&((pte_t*)PG_ENTRY_FRAME(pde))[PG_L1_ENTRY(vaddr)];
+static inline paddr_t get_ptePaddr(pde_t pde, uintptr_t vaddr) {
+  return (paddr_t)&((pte_t*)PG_ENTRY_FRAME(pde))[PG_L1_ENTRY(vaddr)];
 }
 
 /**
@@ -98,7 +99,7 @@ static inline uintptr_t get_ptePaddr(pde_t pde, uintptr_t vaddr) {
  * @return      A pointer to the L4 page table entry that maps `vaddr`
  */
 static inline pml4e_t* get_pml4eVaddr(cr3_t cr3, uintptr_t vaddr) {
-  return (pml4e_t*)getVirtual(get_pml4ePaddr(cr3, vaddr));
+  return __va(get_pml4ePaddr(cr3, vaddr));
 }
 
 /**
@@ -109,7 +110,7 @@ static inline pml4e_t* get_pml4eVaddr(cr3_t cr3, uintptr_t vaddr) {
  * @return      A pointer to the L3 page table entry that maps `vaddr`
  */
 static inline pdpte_t* get_pdpteVaddr(pml4e_t pml4e, uintptr_t vaddr) {
-  return (pdpte_t*)getVirtual(get_pdptePaddr(pml4e, vaddr));
+  return __va(get_pdptePaddr(pml4e, vaddr));
 }
 
 /**
@@ -120,7 +121,7 @@ static inline pdpte_t* get_pdpteVaddr(pml4e_t pml4e, uintptr_t vaddr) {
  * @return      A pointer to the L2 page table entry that maps `vaddr`
  */
 static inline pde_t* get_pdeVaddr(pdpte_t pdpte, uintptr_t vaddr) {
-  return (pde_t*)getVirtual(get_pdePaddr(pdpte, vaddr));
+  return __va(get_pdePaddr(pdpte, vaddr));
 }
 
 /**
@@ -131,7 +132,7 @@ static inline pde_t* get_pdeVaddr(pdpte_t pdpte, uintptr_t vaddr) {
  * @return      A pointer to the L1 page table entry that maps `vaddr`
  */
 static inline pte_t* get_pteVaddr(pde_t pde, uintptr_t vaddr) {
-  return (pte_t*)getVirtual(get_ptePaddr(pde, vaddr));
+  return __va(get_ptePaddr(pde, vaddr));
 }
 
 /**
@@ -201,7 +202,9 @@ extern int walk_page_table(cr3_t cr3, uintptr_t vaddr, pml4e_t** pml4e,
  * @return      The physical address to which `vaddr` maps, or PADDR_INVALID if
  *              `vaddr` is unmapped
  */
-extern uintptr_t getPhysicalAddr(void* vaddr);
+extern paddr_t getPhysicalAddr(uintptr_t vaddr);
+
+#define __pa(x) (getPhysicalAddr((uintptr_t)(x)))
 
 /**
  * Get the physical address of the specified virtual address using the specified
@@ -218,7 +221,7 @@ extern uintptr_t getPhysicalAddr(void* vaddr);
  *                    because `vaddr` isn't mapped)
  */
 extern bool
-getPhysicalAddrFromPML4E(void* vaddr, pml4e_t* pml4e, uintptr_t* paddr);
+getPhysicalAddrFromPML4E(void* vaddr, pml4e_t* pml4e, paddr_t* paddr);
 
 /**
  * Get the terminal page table entry mapping the specified virtual address.

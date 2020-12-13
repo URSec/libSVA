@@ -19,7 +19,9 @@
 #include <sva/types.h>
 
 #include <sva/cr.h>
+#include <sva/dmap.h>
 #include <sva/secmem.h>
+#include <sva/page_walk.h>
 
 #define MSR_REG_EFER    0xC0000080      /* MSR for EFER register */
 

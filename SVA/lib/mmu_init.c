@@ -972,7 +972,7 @@ static page_entry_t lower_permissions(page_entry_t entry,
     /// The number of bytes mapped by entries in this page table.
     size_t span = getMappedSize(ty);
 
-    page_entry_t* entries = (page_entry_t*)getVirtual(PG_ENTRY_FRAME(entry));
+    page_entry_t* entries = __va(PG_ENTRY_FRAME(entry));
     for (size_t i = 0; i < PG_ENTRIES; ++i) {
       if (isPresent(entries[i])) {
         entries[i] = lower_permissions(entries[i], level - 1,
@@ -1139,7 +1139,7 @@ import_existing_mappings(page_entry_t entry,
 
     frame_take_force(desc, ty);
 
-    page_entry_t* entries = (page_entry_t*)getVirtual(PG_ENTRY_FRAME(entry));
+    page_entry_t* entries = __va(PG_ENTRY_FRAME(entry));
     for (size_t i = 0; i < PG_ENTRIES; ++i) {
       if (isPresent(entries[i])) {
         import_existing_mappings(entries[i], level - 1, perms,

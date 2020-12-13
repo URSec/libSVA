@@ -47,7 +47,7 @@ extern void sva_init_secondary_xen(void* tss);
 
 typedef void __attribute__((__noreturn__)) (*init_fn)(void);
 
-extern bool sva_launch_ap(uint32_t apic_id, uintptr_t start_page,
+extern bool sva_launch_ap(uint32_t apic_id, paddr_t start_page,
                           init_fn init, void* stack);
 
 /**

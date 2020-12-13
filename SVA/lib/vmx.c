@@ -539,7 +539,7 @@ sva_initvmx(void) {
    * the VMXON region in any other way." For good measure, though, we'll
    * zero-fill the rest of it.
    */
-  unsigned char *vmxon_vaddr = getVirtual(getCPUState()->vmxon_frame_paddr);
+  unsigned char* vmxon_vaddr = __va(getCPUState()->vmxon_frame_paddr);
 
   DBGPRNT(("Zero-filling VMXON frame (paddr=0x%lx,vaddr=0x%p)...\n",
         getCPUState()->vmxon_frame_paddr, vmxon_vaddr));
@@ -842,7 +842,7 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
   vm->vmcs_paddr = alloc_frame();
 
   /* Zero-fill the VMCS frame, for good measure. */
-  unsigned char *vmcs_vaddr = getVirtual(vm->vmcs_paddr);
+  unsigned char* vmcs_vaddr = __va(vm->vmcs_paddr);
   memset(vmcs_vaddr, 0, VMCS_ALLOC_SIZE);
 
   /*
