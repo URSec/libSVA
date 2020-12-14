@@ -764,7 +764,42 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    * Initialize the guest system state (registers, program counter, etc.).
    */
   vm->state = *initial_state;
+#else
+  /*
+   * Initialize the guest's XSAVE area so that we won't #GP when trying to
+   * load it.
+   *
+   * FIXME: Normally we would initialize it with contents passed by Xen to
+   * sva_allocvm(), but at this stage in the port Xen is just passing a
+   * null pointer for initial_state.
+   */
+  xinit(&vm->state.fp.inner);
 #endif
+
+  /*
+   * Mark that the initial values of VMCS controls have not yet been
+   * installed so that we know we need to do so the first time the VMCS is
+   * loaded.
+   */
+  vm->vmcs_fields_initialized = 0;
+
+  /*
+   * Mark that this VM has not yet been launched, i.e. its first VM entry
+   * needs to use VMLAUNCH rather than VMRESUME.
+   *
+   * In practice, it isn't strictly necessary to clear this bit here, because
+   * it should have been cleared by sva_unloadvm() when the last VM to occupy
+   * this descriptor slot was unloaded before being freed with sva_freevm()
+   * (sva_freevm() checks that the VMCS has been unloaded first).
+   * Additionally, we know that this bit should be correctly set to 0 the
+   * *first* time a descriptor slot is used after boot, since sva_initvmx()
+   * clears the VM descriptor array to all zeros when it is called on the
+   * first processor to wake up. Nonetheless, we explicitly clear the bit
+   * here because it is better form to not make complicated assumptions about
+   * the behavior of other code that may have used this
+   * logically-uninitialized memory at previous points in time.
+   */
+  vm->is_launched = 0;
 
   /*
    * Initialize the Extended Page Table Pointer (EPTP).
@@ -1270,16 +1305,6 @@ sva_loadvm(int vmid) {
     /* Silence unused-function warnings */
     (void)update_vmcs_ctrls;
     (void)save_restore_guest_state;
-
-    /*
-     * Initialize the guest's XSAVE area so that we won't #GP when trying to
-     * load it.
-     *
-     * FIXME: Normally we would initialize it with contents passed by Xen to
-     * sva_allocvm(), but at this stage in the port Xen is just passing a
-     * null pointer for initial_state.
-     */
-    xinit(&getCPUState()->active_vm->state.fp.inner);
 #endif
 
     /*
