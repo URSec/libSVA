@@ -821,6 +821,7 @@ sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
    * Initialize the vlAPIC mode setting to OFF.
    */
   vm->vlapic.mode = VLAPIC_OFF;
+  vm->vlapic.posted_interrupts_enabled = false;
 
   /*
    * Allocate a physical frame of SVA secure memory from the frame cache to
