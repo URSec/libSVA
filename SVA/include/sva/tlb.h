@@ -23,6 +23,8 @@
 #include <sva/icontext.h>
 #include <sva/vmx.h>
 
+#define TLB_FLUSH_VECTOR 254
+
 /**
  * Global TLB flush (except for this for pages marked PG_G)
  * Flush all TLB entries (except for this for global pages).
@@ -251,5 +253,17 @@ static inline void invtlb_everything(void) {
   }
   invltlb_all();
 }
+
+/**
+ * The current number of CPUs that have ACKed a rendezvous.
+ *
+ * 0 when no rendezvous is in progress.
+ */
+extern unsigned int __svadata invtlb_cpus_acked;
+
+/**
+ * Flush TLBs of all online CPUs.
+ */
+void invtlb_global(void);
 
 #endif /* SVA_TLB_H */

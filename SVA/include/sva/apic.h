@@ -25,6 +25,7 @@
 
 #define MSR_APIC_BASE ...
 #define MSR_X2APIC_REG_BASE     0x800
+#define MSR_X2APIC_ID           (MSR_X2APIC_REG_BASE + 0x02)
 #define MSR_X2APIC_ISR          (MSR_X2APIC_REG_BASE + 0x10)
 #define MSR_X2APIC_EOI          (MSR_X2APIC_REG_BASE + 0x0b)
 #define MSR_X2APIC_ICR          (MSR_X2APIC_REG_BASE + 0x30)

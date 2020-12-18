@@ -18,15 +18,19 @@
 
 #include "icat.h"
 
+#include <sva/apic.h>
 #include <sva/types.h>
 #include <sva/callbacks.h>
 #include <sva/config.h>
+#include <sva/init.h>
 #include <sva/mmu.h>
 #include <sva/mmu_intrinsics.h>
 #include <sva/x86.h>
 #include <sva/self_profile.h>
 #include <sva/state.h>
 #include <sva/util.h>
+
+unsigned int __svadata invtlb_cpus_acked = 0;
 
 /*
  *****************************************************************************
@@ -364,6 +368,68 @@ void sva_mm_flush_tlb_global(void) {
     uint64_t cr4 = read_cr4();
     write_cr4(cr4 ^ CR4_PGE);
     write_cr4(cr4);
+}
+
+void invtlb_global(void) {
+  unsigned int expected_count = 0;
+
+  invtlb_everything();
+
+  /*
+   * Because of some TSC calibration logic in Xen, we can hang if we wait for
+   * rendezvous with interrupts disabled.
+   *
+   * TODO: Don't disable interrupts for most MMU intrinsics.
+   */
+  unsigned long rflags = sva_save_in_critical();
+  sva_exit_critical(-1); /* Enable interrupts */
+
+  while (!__atomic_compare_exchange_n(
+            &invtlb_cpus_acked, &expected_count, 1, false,
+            __ATOMIC_RELAXED, __ATOMIC_RELAXED))
+  {
+    /*
+     * Another CPU is currently waiting on a rendezvous.
+     */
+
+    expected_count = 0;
+
+    /*
+     * Wait for other CPUs to rendezvous.
+     */
+    while (__atomic_load_n(&invtlb_cpus_acked, __ATOMIC_RELAXED) > 0) {
+      pause();
+    }
+  }
+
+#if 0
+  printk("SVA: CPU %u initiating TLB flush rendezvous\n",
+         (unsigned int)rdmsr(MSR_X2APIC_ID));
+#endif
+
+  apic_send_ipi(MAKE_IPI_BROADCAST(TLB_FLUSH_VECTOR));
+
+  /*
+   * Wait for other CPUs to rendezvous.
+   */
+  while (__atomic_load_n(&invtlb_cpus_acked, __ATOMIC_RELAXED)
+          < cpu_online_count)
+  {
+    pause();
+  }
+
+  __atomic_store_n(&invtlb_cpus_acked, 0, __ATOMIC_RELAXED);
+
+  /*
+   * Synchronizes with the store-release in the IPI handler.
+   *
+   * See `lib/interrupt.c:tlb_flush`.
+   */
+  __atomic_thread_fence(__ATOMIC_ACQUIRE);
+
+  if (!(rflags & 0x200)) {
+    sva_enter_critical();
+  }
 }
 
 void initDeclaredPage(uintptr_t frame) {

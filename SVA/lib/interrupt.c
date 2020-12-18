@@ -13,6 +13,7 @@
  *===----------------------------------------------------------------------===
  */
 
+#include <sva/apic.h>
 #include <sva/assert.h>
 #include <sva/callbacks.h>
 #include <sva/config.h>
@@ -24,6 +25,7 @@
 #include <sva/page_walk.h>
 #include <sva/self_profile.h>
 #include <sva/state.h>
+#include <sva/tlb.h>
 #include <sva/keys.h>
 #include <sva/util.h>
 #include <sva/x86.h>
@@ -44,12 +46,14 @@
 
 extern bool trap_pfault_ghost(unsigned int vector, void* fault_addr);
 
-static bool pre_syscall();
+static bool tlb_flush(void);
+static bool pre_syscall(void);
 
 void (*interrupt_table[257])();
 
 bool (*sva_interrupt_table[257])() = {
   [14] = trap_pfault_ghost,
+  [TLB_FLUSH_VECTOR] = tlb_flush,
   [256] = pre_syscall,
 };
 
@@ -64,6 +68,40 @@ default_interrupt (unsigned int number, uintptr_t address) {
   __asm__ __volatile__ ("hlt");
 #endif
   return;
+}
+
+bool tlb_flush(void) {
+#ifdef XEN
+  /*
+   * We are borrowing Xen's LAPIC error vector for this since Xen doesn't have
+   * any unused vectors. This shouldn't cause too many problems as Xen is
+   * designed to not cause APIC errors in the first place, but this does mean
+   * that we need to check if this interrupt is from an APIC error (instead of
+   * the usual cause: TLB flush IPI) and if so allow Xen to handle it.
+   */
+  if (!apic_isr_test(TLB_FLUSH_VECTOR)) {
+    /*
+     * The ISR bit is set when this interrupt was caused by an IPI or external
+     * interrupt, but not when it was caused by an APIC error.
+     */
+    return false;
+  }
+#endif
+
+#if 0
+  printf("SVA: CPU %u flushing TLB\n", (unsigned int)rdmsr(MSR_X2APIC_ID));
+#endif
+
+  invtlb_everything();
+
+  /*
+   * Synchronizes with the acquire fence in `invtlb_global`.
+   */
+  __atomic_fetch_add(&invtlb_cpus_acked, 1, __ATOMIC_RELEASE);
+
+  apic_eoi();
+
+  return true;
 }
 
 bool pre_syscall(void) {
