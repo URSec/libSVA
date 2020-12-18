@@ -20,6 +20,7 @@
 
 #include <sva/types.h>
 #include <sva/cr.h>
+#include <sva/icontext.h>
 #include <sva/vmx.h>
 
 /**
@@ -212,6 +213,43 @@ static inline void invvpid_allcontexts(void) {
       "This shouldn't be possible since we checked that this operation "
       "is supported when initializing SVA-VMX. Something has gone terribly "
       "wrong.\n");
+}
+
+/**
+ * Invalidate all TLB entries.
+ *
+ * Unlike `invltlb_all`, this also invalidates TLB entries for all
+ * guest-physical address translations and guest-linear and combined
+ * translations for all VPIDs (see Intel SDM vol. 3 § 28.3.3).
+ */
+static inline void invtlb_everything(void) {
+  if (getCPUState()->vmx_initialized) {
+    /*
+     * FIXME: there is a slight theoretical security hole here, in that the
+     * vmx_initialized flag is per-CPU, and we rely on the system software to
+     * call sva_initvmx() on each of those CPUs individually. In theory, the
+     * system software could trick us by initializing VMX on some CPUs but
+     * not others, and then taking advantage of the fact that
+     * initDeclaredPage() operations on the CPUs where VMX is not initialized
+     * will neglect to flush the EPT TLBs. We would need to think about this
+     * a bit more to determine whether a feasible attack could actually arise
+     * from this, but this comment stands for now out of an abundance of
+     * caution.
+     *
+     * In practice, this shouldn't be a problem as the system software will
+     * typically initialize VMX on all CPUs during boot. As SVA provides no
+     * mechanism to *disable* VMX on a CPU once it's enabled, an attacker
+     * could not exploit this thereafter. With security measures such as
+     * secure boot in place we can generally assume that such boot-time
+     * initialization will be performed as intended since most attack
+     * surfaces for compromise of the system software are not exposed until
+     * after (or later in) boot.
+     */
+
+    invvpid_allcontexts();
+    invept_allcontexts();
+  }
+  invltlb_all();
 }
 
 #endif /* SVA_TLB_H */
