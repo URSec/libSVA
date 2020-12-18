@@ -462,7 +462,7 @@ void initDeclaredPage(uintptr_t frame) {
    *    frame the OS gave us for use as secure/ghost memory isn't accessible
    *    at all to the OS.
    */
-  invtlb_everything();
+  invtlb_global();
 }
 
 /* Functions for finding the virtual address of page table components */
