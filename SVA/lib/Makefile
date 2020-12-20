@@ -27,7 +27,7 @@ ASFLAGS += $(TARGET_FLAGS)
 
 OFILES = init.o secmem.o handlers.o fpu.o mmu.o mmu_init.o interrupt.o state.o \
          frame_meta.o debug.o stateasm.o invoke.o invokeasm.o checks.o keys.o \
-         thread_stack.o profile.o vmx.o vmx_ept.o ap_start.o
+         thread_stack.o profile.o uaccess.o vmx.o vmx_ept.o ap_start.o
 
 all: libsva.a
 

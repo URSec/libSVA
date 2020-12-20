@@ -5,7 +5,7 @@
  * This file was developed by the LLVM research group and is distributed under
  * the University of Illinois Open Source License. See LICENSE.TXT for details.
  *
- * Copyright 2019 The University of Rochester.
+ * Copyright 2019-2020 The University of Rochester.
  * Copyright 2006-2009 University of Illinois.
  * Portions Copyright 1997 Andi Kleen <ak@muc.de>.
  * Portions Copyright 1997 Linus Torvalds.
@@ -22,6 +22,7 @@
 #include <sva/assert.h>
 #include <sva/self_profile.h>
 #include <sva/icontext.h>
+#include <sva/uaccess.h>
 #include <sva/util.h>
 #include <sva/callbacks.h>
 #include <sva/offsets.h>
@@ -145,17 +146,7 @@ bool sva_iunwind(void) {
   return true;
 }
 
-size_t sva_invokememcpy(char* dst, const char* src, size_t count) {
-  /*
-   * Make sure we aren't copying from secure memory.
-   */
-  sva_check_buffer((uintptr_t)src, count);
-
-  /*
-   * Make sure we aren't copying to secure memory.
-   */
-  sva_check_buffer((uintptr_t)dst, count);
-
+size_t memcpy_safe(void __noderef* dst, const void __noderef* src, size_t len) {
   /// Our invoke frame.
   struct invoke_frame frame;
 
@@ -180,13 +171,27 @@ size_t sva_invokememcpy(char* dst, const char* src, size_t count) {
      */
     "1:\n\t"
     : "+D"(dst), "+S"(src), "=c"(remaining)
-    : "c"(count)
+    : "c"(len)
     : "rbx", "memory");
   clac();
 
   invoke_frame_teardown(&frame);
 
-  return count - remaining;
+  return remaining;
+}
+
+size_t sva_invokememcpy(char* dst, const char* src, size_t count) {
+  /*
+   * Make sure we aren't copying from secure memory.
+   */
+  sva_check_buffer((uintptr_t)src, count);
+
+  /*
+   * Make sure we aren't copying to secure memory.
+   */
+  sva_check_buffer((uintptr_t)dst, count);
+
+  return count - memcpy_safe((void __noderef*)dst, (void __noderef*)src, count);
 }
 
 size_t sva_invokememset(char* dst, char val, size_t count) {
