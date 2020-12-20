@@ -157,7 +157,8 @@ page_entry_t page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
  */
 static inline bool pte_can_change(page_entry_t* page_entry) {
   /* Collect associated information for the existing mapping */
-  unsigned long origPA = PG_ENTRY_FRAME(*page_entry);
+  paddr_t origPA =
+    PG_ENTRY_FRAME(__atomic_load_n(page_entry, __ATOMIC_RELAXED));
   frame_desc_t *origPG = get_frame_desc(origPA);
 
   /* Get the page table page descriptor. */
