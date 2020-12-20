@@ -127,10 +127,6 @@ frame_type_t frame_type_from_pte(page_entry_t pte, frame_type_t pt_type) {
 page_entry_t page_entry_store(page_entry_t* page_entry, page_entry_t newVal) {
   SVA_PROF_ENTER();
 
-#ifdef SVA_DMAP
-  page_entry = (page_entry_t*)__va(__pa(page_entry));
-#endif
-
   /* Disable page protection so we can write to the referencing table entry */
   unprotect_paging();
 
@@ -1566,7 +1562,8 @@ void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
    * Ensure that the PTE pointer points to the specified level of page table.
    * If it does not, then report an error.
    */
-  frame_desc_t* ptDesc = get_frame_desc(__pa(pte));
+  paddr_t pte_paddr = __pa(pte);
+  frame_desc_t* ptDesc = get_frame_desc(pte_paddr);
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: %s page table frame at %p doesn't exist\n",
     frame_type_name(level), pte);
@@ -1577,7 +1574,7 @@ void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
    */
   frame_take(ptDesc, level);
 
-  update_mapping(pte, new_pte);
+  update_mapping(__va(pte_paddr), new_pte);
 
   /*
    * Drop the temporary reference.

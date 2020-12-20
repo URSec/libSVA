@@ -137,7 +137,8 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
    * Ensure that the PTE pointer points to an EPT page table. If it does not,
    * report an error.
    */
-  frame_desc_t *ptDesc = get_frame_desc(__pa(eptePtr));
+  paddr_t epte_paddr = __pa(eptePtr);
+  frame_desc_t *ptDesc = get_frame_desc(epte_paddr);
   SVA_ASSERT(ptDesc != NULL,
     "SVA: FATAL: EPT page table frame at %p doesn't exist\n", eptePtr);
 
@@ -168,7 +169,7 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
    * Update the page table with the new mapping. The __update_mapping()
    * function is responsible for doing any further checks.
    */
-  update_mapping(eptePtr, val);
+  update_mapping(__va(epte_paddr), val);
 
   frame_drop(ptDesc, ty);
 
