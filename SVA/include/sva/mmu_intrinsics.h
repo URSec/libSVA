@@ -114,7 +114,7 @@ extern void sva_remove_page(uintptr_t frame);
  * @param l1e     The L1 entry to update
  * @param new_l1e The new value to set in `*l1e`
  */
-extern void sva_update_l1_mapping(pte_t* l1e, pte_t new_l1e);
+extern void sva_update_l1_mapping(pte_t __kern* l1e, pte_t new_l1e);
 
 /**
  * Update an L2 page table entry.
@@ -124,7 +124,7 @@ extern void sva_update_l1_mapping(pte_t* l1e, pte_t new_l1e);
  * @param l2e     The L2 entry to update
  * @param new_l2e The new value to set in `*l2e`
  */
-extern void sva_update_l2_mapping(pde_t* l2e, pde_t new_l2e);
+extern void sva_update_l2_mapping(pde_t __kern* l2e, pde_t new_l2e);
 
 /**
  * Update an L3 page table entry.
@@ -134,7 +134,7 @@ extern void sva_update_l2_mapping(pde_t* l2e, pde_t new_l2e);
  * @param l3e     The L3 entry to update
  * @param new_l3e The new value to set in `*l3e`
  */
-extern void sva_update_l3_mapping(pdpte_t* l3e, pdpte_t new_l3e);
+extern void sva_update_l3_mapping(pdpte_t __kern* l3e, pdpte_t new_l3e);
 
 /**
  * Update an L4 page table entry.
@@ -144,7 +144,7 @@ extern void sva_update_l3_mapping(pdpte_t* l3e, pdpte_t new_l3e);
  * @param l4e     The L4 entry to update
  * @param new_l4e The new value to set in `*l4e`
  */
-extern void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e);
+extern void sva_update_l4_mapping(pml4e_t __kern* l4e, pml4e_t new_l4e);
 
 #ifdef FreeBSD
 /**
@@ -154,7 +154,8 @@ extern void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e);
  * @param index   The index of the direct map L4 entry
  * @param val     The page table entry to be populated in
  */
-extern void sva_update_l4_dmap(void* pml4pg, int index, page_entry_t val);
+extern void
+sva_update_l4_dmap(void __kern* pml4pg, int index, page_entry_t val);
 #endif
 
 /**
@@ -165,7 +166,7 @@ extern void sva_update_l4_dmap(void* pml4pg, int index, page_entry_t val);
  *
  * @param pte The page table entry which should be removed
  */
-extern void sva_remove_mapping(page_entry_t* pte);
+extern void sva_remove_mapping(page_entry_t __kern* pte);
 
 /**
  * Set the current root page table pointer.
@@ -189,7 +190,7 @@ cr3_t sva_mm_save_pgtable(void);
  *
  * @param vaddr The virtual address for which to change protections
  */
-extern void sva_unprotect_code_page(void* vaddr);
+extern void sva_unprotect_code_page(void __kern* vaddr);
 
 /**
  * Re-add write-protection to a code page.
@@ -199,7 +200,7 @@ extern void sva_unprotect_code_page(void* vaddr);
  *
  * @param vaddr The virtual address for which to change protections
  */
-extern void sva_protect_code_page(void* vaddr);
+extern void sva_protect_code_page(void __kern* vaddr);
 
 /**
  * Turn a read-only page into a code page.
@@ -209,14 +210,14 @@ extern void sva_protect_code_page(void* vaddr);
  *
  * @param vaddr The virtual address for which to change protections
  */
-extern void sva_debug_make_code_page(void* vaddr);
+extern void sva_debug_make_code_page(void __kern* vaddr);
 
 /**
  * Flush all TLB's holding translations for the specified virtual address.
  *
  * @param address A virtual address for which all TLB entries will be flushed
  */
-void sva_mm_flush_tlb_at(const void* address);
+void sva_mm_flush_tlb_at(const void __kern* address);
 
 /**
  * Perform a TLB flush of all non-global entries.

@@ -345,7 +345,7 @@ void update_mapping(page_entry_t* pte, page_entry_t new_pte) {
   do_mmu_update(pte, new_pte);
 }
 
-void sva_mm_flush_tlb_at(const void* address) {
+void sva_mm_flush_tlb_at(const void __kern* address) {
   invlpg((uintptr_t)address);
 }
 
@@ -1036,7 +1036,7 @@ uintptr_t unmapSecurePage(struct SVAThread* threadp, uintptr_t vaddr) {
   /*
    * Invalidate any TLBs in the processor.
    */
-  sva_mm_flush_tlb_at((const void*)vaddr);
+  invlpg(vaddr);
 
   struct refcount_pair counts = frame_drop(pageDesc, PGT_GHOST);
 
@@ -1299,9 +1299,9 @@ void kernel_to_usersva_pcid(void) {
 }
 
 #ifdef FreeBSD
-void sva_update_l4_dmap(void* pml4pg, int index, page_entry_t val) {
+void sva_update_l4_dmap(void __kern* pml4pg, int index, page_entry_t val) {
   if(index < NDMPML4E)
-    sva_update_l4_mapping(&(((pml4e_t*)pml4pg)[DMPML4I + index]), val);
+    sva_update_l4_mapping(&(((pml4e_t __kern*)pml4pg)[DMPML4I + index]), val);
 }
 #endif /* FreeBSD */
 
@@ -1549,7 +1549,7 @@ void sva_remove_page(uintptr_t paddr) {
  * @param new_pte The new value to set in `*pte`
  * @param level   The level of page table which contains `pte`
  */
-void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
+void sva_update_mapping(page_entry_t __kern* pte, page_entry_t new_pte,
                         frame_type_t level)
 {
   kernel_to_usersva_pcid();
@@ -1588,7 +1588,7 @@ void sva_update_mapping(page_entry_t* pte, page_entry_t new_pte,
   usersva_to_kernel_pcid();
 }
 
-void sva_remove_mapping(page_entry_t* pteptr) {
+void sva_remove_mapping(page_entry_t __kern* pteptr) {
   SVA_PROF_ENTER();
 
   frame_desc_t* pt = get_frame_desc(__pa(pteptr));
@@ -1599,7 +1599,7 @@ void sva_remove_mapping(page_entry_t* pteptr) {
   SVA_PROF_EXIT(remove_mapping);
 }
 
-void sva_update_l1_mapping(pte_t* l1e, pte_t new_l1e) {
+void sva_update_l1_mapping(pte_t __kern* l1e, pte_t new_l1e) {
   SVA_PROF_ENTER();
 
   sva_update_mapping(l1e, new_l1e, PGT_L1);
@@ -1607,7 +1607,7 @@ void sva_update_l1_mapping(pte_t* l1e, pte_t new_l1e) {
   SVA_PROF_EXIT(update_l1_mapping);
 }
 
-void sva_update_l2_mapping(pde_t* l2e, pde_t new_l2e) {
+void sva_update_l2_mapping(pde_t __kern* l2e, pde_t new_l2e) {
   SVA_PROF_ENTER();
 
   sva_update_mapping(l2e, new_l2e, PGT_L2);
@@ -1615,7 +1615,7 @@ void sva_update_l2_mapping(pde_t* l2e, pde_t new_l2e) {
   SVA_PROF_EXIT(update_l2_mapping);
 }
 
-void sva_update_l3_mapping(pdpte_t* l3e, pdpte_t new_l3e) {
+void sva_update_l3_mapping(pdpte_t __kern* l3e, pdpte_t new_l3e) {
   SVA_PROF_ENTER();
 
   sva_update_mapping(l3e, new_l3e, PGT_L3);
@@ -1623,7 +1623,7 @@ void sva_update_l3_mapping(pdpte_t* l3e, pdpte_t new_l3e) {
   SVA_PROF_EXIT(update_l3_mapping);
 }
 
-void sva_update_l4_mapping(pml4e_t* l4e, pml4e_t new_l4e) {
+void sva_update_l4_mapping(pml4e_t __kern* l4e, pml4e_t new_l4e) {
   SVA_PROF_ENTER();
 
   sva_update_mapping(l4e, new_l4e, PGT_L4);
@@ -1667,7 +1667,7 @@ static void protect_code_page(uintptr_t vaddr, page_entry_t perms,
   invlpg(vaddr);
 }
 
-void sva_unprotect_code_page(void* vaddr) {
+void sva_unprotect_code_page(void __kern* vaddr) {
   SVA_ASSERT(mmuIsInitialized,
     "SVA: FATAL: sva_unprotect_code_page called before MMU init\n");
 
@@ -1684,7 +1684,7 @@ void sva_unprotect_code_page(void* vaddr) {
   SVA_PROF_EXIT(update_l1_mapping);
 }
 
-void sva_protect_code_page(void* vaddr) {
+void sva_protect_code_page(void __kern* vaddr) {
   SVA_ASSERT(mmuIsInitialized,
     "SVA: FATAL: sva_unprotect_code_page called before MMU init\n");
 
@@ -1701,7 +1701,7 @@ void sva_protect_code_page(void* vaddr) {
   SVA_PROF_EXIT(update_l1_mapping);
 }
 
-void sva_debug_make_code_page(void* vaddr) {
+void sva_debug_make_code_page(void __kern* vaddr) {
   SVA_ASSERT(mmuIsInitialized,
     "SVA: FATAL: sva_unprotect_code_page called before MMU init\n");
 
