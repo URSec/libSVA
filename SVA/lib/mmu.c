@@ -1356,7 +1356,7 @@ static void validate_existing_entries(uintptr_t frame, frame_type_t level) {
   }
 }
 
-void sva_declare_page(uintptr_t frame, frame_type_t level) {
+void sva_declare_page(paddr_t frame, frame_type_t level) {
   kernel_to_usersva_pcid();
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
@@ -1392,7 +1392,7 @@ void sva_declare_page(uintptr_t frame, frame_type_t level) {
   usersva_to_kernel_pcid();
 }
 
-void sva_declare_l1_page(uintptr_t frame) {
+void sva_declare_l1_page(paddr_t frame) {
   SVA_PROF_ENTER();
 
   sva_declare_page(frame, PGT_L1);
@@ -1400,7 +1400,7 @@ void sva_declare_l1_page(uintptr_t frame) {
   SVA_PROF_EXIT(declare_l1_page);
 }
 
-void sva_declare_l2_page(uintptr_t frame) {
+void sva_declare_l2_page(paddr_t frame) {
   SVA_PROF_ENTER();
 
   sva_declare_page(frame, PGT_L2);
@@ -1408,7 +1408,7 @@ void sva_declare_l2_page(uintptr_t frame) {
   SVA_PROF_EXIT(declare_l2_page);
 }
 
-void sva_declare_l3_page(uintptr_t frame) {
+void sva_declare_l3_page(paddr_t frame) {
   SVA_PROF_ENTER();
 
   sva_declare_page(frame, PGT_L3);
@@ -1416,7 +1416,7 @@ void sva_declare_l3_page(uintptr_t frame) {
   SVA_PROF_EXIT(declare_l3_page);
 }
 
-void sva_declare_l4_page(uintptr_t frame) {
+void sva_declare_l4_page(paddr_t frame) {
   SVA_PROF_ENTER();
 
   sva_declare_page(frame, PGT_L4);
@@ -1440,7 +1440,7 @@ void sva_declare_l4_page(uintptr_t frame) {
   SVA_PROF_EXIT(declare_l4_page);
 }
 
-void sva_remove_page(uintptr_t paddr) {
+void sva_remove_page(paddr_t paddr) {
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();

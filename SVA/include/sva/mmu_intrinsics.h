@@ -52,7 +52,7 @@ extern void sva_load_cr0(unsigned long new_cr0);
  * @param frame The physical address of the frame that will become an L1 page
  *              table
  */
-extern void sva_declare_l1_page(uintptr_t frame);
+extern void sva_declare_l1_page(paddr_t frame);
 
 /**
  * Mark the specified frame as an L2 page table.
@@ -63,7 +63,7 @@ extern void sva_declare_l1_page(uintptr_t frame);
  * @param frame The physical address of the frame that will become an L2 page
  *              table
  */
-extern void sva_declare_l2_page(uintptr_t frame);
+extern void sva_declare_l2_page(paddr_t frame);
 
 /**
  * Mark the specified frame as an L3 page table.
@@ -74,7 +74,7 @@ extern void sva_declare_l2_page(uintptr_t frame);
  * @param frame The physical address of the frame that will become an L3 page
  *              table
  */
-extern void sva_declare_l3_page(uintptr_t frame);
+extern void sva_declare_l3_page(paddr_t frame);
 
 /**
  * Mark the specified frame as an L4 page table.
@@ -85,10 +85,10 @@ extern void sva_declare_l3_page(uintptr_t frame);
  * @param frame The physical address of the frame that will become an L4 page
  *              table
  */
-extern void sva_declare_l4_page(uintptr_t frame);
+extern void sva_declare_l4_page(paddr_t frame);
 
 #ifdef FreeBSD
-extern void sva_declare_dmap_page(uintptr_t frame);
+extern void sva_declare_dmap_page(paddr_t frame);
 #endif
 
 /**
@@ -98,7 +98,7 @@ extern void sva_declare_dmap_page(uintptr_t frame);
  *
  * @param frame The frame that will no longer be a page table.
  */
-extern void sva_remove_page(uintptr_t frame);
+extern void sva_remove_page(paddr_t frame);
 
 /*
  *****************************************************************************
