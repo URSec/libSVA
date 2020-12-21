@@ -27,6 +27,7 @@
 #include <sva/state.h>
 #include <sva/tlb.h>
 #include <sva/keys.h>
+#include <sva/uaccess.h>
 #include <sva/util.h>
 #include <sva/x86.h>
 
@@ -531,7 +532,7 @@ __sva_fail:
 
 #endif
 
-int sva_icontext_setsyscallargs(uint64_t regs[6]) {
+int sva_icontext_setsyscallargs(const uint64_t __kern* regs) {
   int __sva_intrinsic_result = 0;
 
   SVA_PROF_ENTER();
@@ -547,12 +548,16 @@ int sva_icontext_setsyscallargs(uint64_t regs[6]) {
    */
   SVA_CHECK(ic->trapno == 256, EACCES);
 
-  ic->rdi = regs[0];
-  ic->rsi = regs[1];
-  ic->rdx = regs[2];
-  ic->r10 = regs[3];
-  ic->r8 = regs[4];
-  ic->r9 = regs[5];
+  uint64_t regs_buf[6];
+  SVA_CHECK(
+    sva_copy_from_kernel(regs_buf, regs, sizeof(regs_buf)) == 0, EFAULT);
+
+  ic->rdi = regs_buf[0];
+  ic->rsi = regs_buf[1];
+  ic->rdx = regs_buf[2];
+  ic->r10 = regs_buf[3];
+  ic->r8 = regs_buf[4];
+  ic->r9 = regs_buf[5];
 
 __sva_fail:
   usersva_to_kernel_pcid();

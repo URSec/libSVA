@@ -67,13 +67,13 @@ int sva_icontext_setretval(unsigned long ret);
 /**
  * Set the values of the syscall argument registers.
  *
- * @param regs  The values of the argument registers
+ * @param regs  The values of the 6 argument registers in ABI order
  * @return      0 on success, or an error code
  *
  * Errors:
  *  EACCES  The current interrupt context is not for a syscall
  */
-int sva_icontext_setsyscallargs(uint64_t regs[6]);
+int sva_icontext_setsyscallargs(const uint64_t __kern* regs);
 
 /**
  * Modify a user-space interrupt context so that it restarts a system call.
