@@ -30,6 +30,7 @@
 #include <sva/mmu_intrinsics.h>
 #include <sva/mpx.h>
 #include <sva/self_profile.h>
+#include <sva/uaccess.h>
 #include <sva/x86.h>
 #include "thread_stack.h"
 
@@ -909,7 +910,7 @@ static bool loadThread(struct SVAThread* newThread) {
   }
 }
 
-uintptr_t sva_swap_integer(uintptr_t newint, uintptr_t* statep) {
+uintptr_t sva_swap_integer(uintptr_t newint, uintptr_t __kern* statep) {
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
@@ -961,7 +962,9 @@ uintptr_t sva_swap_integer(uintptr_t newint, uintptr_t* statep) {
   /*
    * Inform the caller of the location of the last state saved.
    */
-  *statep = (uintptr_t) oldThread;
+  if (statep != NULL) {
+    sva_copy_to_kernel(statep, &oldThread, sizeof(oldThread));
+  }
 
   /*
    * Now, load the new thread onto the CPU. Note that this will not return to
@@ -979,7 +982,7 @@ uintptr_t sva_swap_integer(uintptr_t newint, uintptr_t* statep) {
   return 0; 
 }
 
-bool sva_swap_user_integer(uintptr_t newint, uintptr_t* statep) {
+bool sva_swap_user_integer(uintptr_t newint, uintptr_t __kern* statep) {
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
@@ -1020,7 +1023,7 @@ bool sva_swap_user_integer(uintptr_t newint, uintptr_t* statep) {
    * Inform the caller of the location of the last state saved.
    */
   if (statep != NULL) {
-    *statep = (uintptr_t)oldThread;
+    sva_copy_to_kernel(statep, &oldThread, sizeof(oldThread));
   }
 
   /*
@@ -1042,7 +1045,9 @@ bool sva_swap_user_integer(uintptr_t newint, uintptr_t* statep) {
   }
 }
 
-static bool ialloca_common(void* stack, void* data, size_t size, size_t align) {
+static bool ialloca_common(void __user* stack, void __kern* data,
+                           size_t size, size_t align)
+{
   /**
    * The most recent interrupt context.
    */
@@ -1081,20 +1086,13 @@ static bool ialloca_common(void* stack, void* data, size_t size, size_t align) {
    * Perform the alloca.
    */
   rsp -= size;
-
-  sva_check_buffer(rsp, size);
-
-  /*
-   * Fault in any necessary pages; the stack may be located in traditional
-   * memory.
-   */
-  sva_check_memory_write((void*)rsp, size);
+  stack = (void __user*)rsp;
 
   /*
    * Copy data in from the initializer.
    */
   if (data) {
-    if ((size_t)(unsigned int)sva_invokememcpy((void*)rsp, data, size) < size) {
+    if (sva_copy_kernel_to_user(stack, data, size)) {
       return false;
     }
   }
@@ -1102,12 +1100,12 @@ static bool ialloca_common(void* stack, void* data, size_t size, size_t align) {
   /*
    * Save the result back into the Interrupt Context.
    */
-  icontextp->rsp = (unsigned long*)rsp;
+  icontextp->rsp = (unsigned long*)stack;
 
   return true;
 }
 
-bool sva_ialloca(void* data, size_t size, size_t align) {
+bool sva_ialloca(void __kern* data, size_t size, size_t align) {
   SVA_PROF_ENTER();
 
   kernel_to_usersva_pcid();
@@ -1122,7 +1120,7 @@ bool sva_ialloca(void* data, size_t size, size_t align) {
    */
   sva_icontext_t* icontextp = getCPUState()->newCurrentIC;
 
-  bool res = ialloca_common(icontextp->rsp, data, size, align);
+  bool res = ialloca_common((void __user*)icontextp->rsp, data, size, align);
 
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();

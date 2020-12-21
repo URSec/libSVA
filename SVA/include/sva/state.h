@@ -67,7 +67,7 @@ extern sva_sp_t sva_save_kstackp (void);
  * @param[out] state  The integer state which was saved
  * @return            Whether state swapping succeeded
  */
-extern uintptr_t sva_swap_integer(uintptr_t new, uintptr_t* state);
+extern uintptr_t sva_swap_integer(uintptr_t new, uintptr_t __kern* state);
 
 /**
  * Save the current user integer state and swaps in a new one without modifying
@@ -80,7 +80,7 @@ extern uintptr_t sva_swap_integer(uintptr_t new, uintptr_t* state);
  * @param[out] state  The integer state which was saved
  * @return            Whether the state swap succeeded
  */
-extern bool sva_swap_user_integer(uintptr_t new, uintptr_t* state);
+extern bool sva_swap_user_integer(uintptr_t new, uintptr_t __kern* state);
 
 /**
  * Create a new kernel stack and initialize it to call the specified function.
@@ -195,7 +195,7 @@ extern bool sva_ipush_function(uintptr_t fn, uint16_t cs);
  * @param align The power of two alignment to use for the memory object
  * @return      Whether the allocation succeeded.
  */
-extern bool sva_ialloca(void* data, size_t size, size_t align);
+extern bool sva_ialloca(void __kern* data, size_t size, size_t align);
 
 /**
  *
