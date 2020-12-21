@@ -40,12 +40,13 @@ extern bool sva_iunwind(void);
  * @param retvalue  Where to store the return value of the called function
  * @param f         The function to call
  * @return          0 if `f` returned successfully;
- *                  1 if control flow was unwound
+ *                  1 if control flow was unwound;
+ *                  -1 if the return value pointer couldn't be written
  */
 extern int sva_invoke(uintptr_t arg1,
                       uintptr_t arg2,
                       uintptr_t arg3,
-                      uintptr_t* retvalue,
+                      uintptr_t __kern* retvalue,
                       uintptr_t (*f)(uintptr_t, uintptr_t, uintptr_t));
 
 /**
@@ -56,7 +57,9 @@ extern int sva_invoke(uintptr_t arg1,
  * @param count The number of bytes to copy
  * @return      The number of bytes actually copied
  */
-extern size_t sva_invokememcpy(char* dst, const char* src, size_t count);
+extern size_t sva_invokememcpy(char __kern* dst,
+                               const char __kern* src,
+                               size_t count);
 
 /**
  * Safely set `count` bytes at `dst` to `val`.
@@ -66,6 +69,6 @@ extern size_t sva_invokememcpy(char* dst, const char* src, size_t count);
  * @param count The number of bytes to write
  * @return      The number of bytes actually written
  */
-size_t sva_invokememset(char* dst, char val, size_t count);
+size_t sva_invokememset(char __kern* dst, char val, size_t count);
 
 #endif /* SVA_INVOKE_H */

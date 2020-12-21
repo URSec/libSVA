@@ -180,25 +180,31 @@ size_t memcpy_safe(void __noderef* dst, const void __noderef* src, size_t len) {
   return remaining;
 }
 
-size_t sva_invokememcpy(char* dst, const char* src, size_t count) {
+size_t sva_invokememcpy(char __kern* dst, const char __kern* src, size_t count) {
   /*
    * Make sure we aren't copying from secure memory.
    */
-  sva_check_buffer((uintptr_t)src, count);
+  if (!is_valid_kernel_ptr(src, count)) {
+    return 0;
+  }
 
   /*
    * Make sure we aren't copying to secure memory.
    */
-  sva_check_buffer((uintptr_t)dst, count);
+  if (!is_valid_kernel_ptr(dst, count)) {
+    return 0;
+  }
 
   return count - memcpy_safe((void __noderef*)dst, (void __noderef*)src, count);
 }
 
-size_t sva_invokememset(char* dst, char val, size_t count) {
+size_t sva_invokememset(char __kern* dst, char val, size_t count) {
   /*
    * Make sure we aren't copying to secure memory.
    */
-  sva_check_buffer((uintptr_t)dst, count);
+  if (!is_valid_kernel_ptr(dst, count)) {
+    return 0;
+  }
 
   /// Our invoke frame.
   struct invoke_frame frame;

@@ -58,9 +58,8 @@ ENTRY(sva_invoke)
    * TODO: Add a CFI check here.
    */
   CALLQ(*%r8)
-
-  /* Store the return value into the memory location */
-  movq %rax, (%rbx)
+  movq %rax, %rsi
+  movq %rbx, %rdi
 
   cache_part_switch sva
 
@@ -80,13 +79,23 @@ ENTRY(sva_invoke)
   movq %gs:TLS_CPUSTATE, %rax
   popq CPU_GIP(%rax)
 
+  /* Store the return value into the memory location */
+  movq %rsi, (%rsp)
+  movq %rsp, %rsi
+  movl $8, %edx
+  CALLQ(sva_copy_to_kernel)
+  movq %rax, %rsi
+
+  /* Remove the last bit of the invoke frame */
+  popq %rcx
+
   cache_part_switch os
 
   /* Set the return value */
-  movq $0, %rax
-
-  /* Remove the last bit of the invoke frame */
-  addq $8, %rsp
+  xorl %eax, %eax
+  testq %rsi, %rsi
+  setnz %al
+  negq %rax
 
   /* Return */
   RETQ
