@@ -21,6 +21,7 @@
 #include <sva/mpx.h>
 #include <sva/config.h>
 #include <sva/init.h> // for register_syscall_handler()
+#include <sva/uaccess.h>
 
 #include "icat.h"
 
@@ -648,9 +649,9 @@ sva_initvmx(void) {
  *  will result in an error). This intrinsic should *never* return zero.
  */
 int
-sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
-    struct sva_vmx_guest_state * initial_state,
-    pml4e_t *initial_eptable) {
+sva_allocvm(struct sva_vmx_vm_ctrls __kern* initial_ctrls,
+    struct sva_vmx_guest_state __kern* initial_state,
+    pml4e_t __kern* initial_eptable) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -1471,7 +1472,7 @@ sva_unloadvm(void) {
  *        this error code instead of hard-panicking.)
  */
 int
-sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
+sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -1516,6 +1517,8 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
    * not trying to trick us into overwriting secure memory!
    */
 
+  uint64_t out;
+
   /*
    * Perform the read if it won't leak sensitive information to the system
    * software (or if it can be sanitized).
@@ -1525,10 +1528,16 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t *data) {
    * FIXME: checks temporarily bypassed to support incremental porting of
    * Xen.
    */
-  int retval = readvmcs_unchecked(field, data);
+  int retval = readvmcs_unchecked(field, &out);
 #else
-  int retval = readvmcs_checked(field, data);
+  int retval = readvmcs_checked(field, &out);
 #endif
+
+  if (retval == 0) {
+    if (sva_copy_to_kernel(data, &out, sizeof(out))) {
+      retval = -1;
+    }
+  }
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -4473,7 +4482,7 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
  *      dereferences it.
  */
 void
-sva_getvmfpu(int vmid, union xsave_area_max *out_data) {
+sva_getvmfpu(int vmid, union xsave_area_max __kern* out_data) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -4508,13 +4517,9 @@ sva_getvmfpu(int vmid, union xsave_area_max *out_data) {
   if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_lock(&vm_descs[vmid]);
 
-  /*
-   * Verify that the out_data pointer provided by the caller doesn't point to
-   * a protected memory region.
-   */
-  sva_check_buffer((uintptr_t)out_data, sizeof(*out_data));
   /* Sanity check (should be statically optimized away) */
-  SVA_ASSERT(sizeof(*out_data) == sizeof(vm_descs[vmid].state.fp),
+  SVA_ASSERT(__builtin_types_compatible_p(typeof(out_data),
+                                          typeof(&vm_descs[vmid].state.fp)),
       "Type mismatch between sva_getvmfpu() parameter and VM descriptor "
       "FPU state object");
 
@@ -4522,7 +4527,9 @@ sva_getvmfpu(int vmid, union xsave_area_max *out_data) {
    * Copy the specified VM's FPU data from its descriptor to the buffer
    * pointed to by out_data.
    */
-  memcpy(out_data, &vm_descs[vmid].state.fp, sizeof(vm_descs[vmid].state.fp));
+  union xsave_area_max* fp = &vm_descs[vmid].state.fp;
+  SVA_ASSERT(sva_copy_to_kernel(out_data, fp, sizeof(*fp)) == 0,
+      "Fault copying data to kernel");
 
   /* Release the VM descriptor lock if we took it earlier. */
   if (getCPUState()->active_vm != &vm_descs[vmid])
@@ -4551,7 +4558,7 @@ sva_getvmfpu(int vmid, union xsave_area_max *out_data) {
  *      dereferences it.
  */
 void
-sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
+sva_setvmfpu(int vmid, union xsave_area_max __kern* in_data) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -4586,13 +4593,9 @@ sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
   if (getCPUState()->active_vm != &vm_descs[vmid])
     vm_desc_lock(&vm_descs[vmid]);
 
-  /*
-   * Verify that the in_data pointer provided by the caller doesn't point to
-   * a protected memory region.
-   */
-  sva_check_buffer((uintptr_t)in_data, sizeof(*in_data));
   /* Sanity check (should be statically optimized away) */
-  SVA_ASSERT(sizeof(*in_data) == sizeof(vm_descs[vmid].state.fp),
+  SVA_ASSERT(__builtin_types_compatible_p(typeof(in_data),
+                                          typeof(&vm_descs[vmid].state.fp)),
       "Type mismatch between sva_setvmfpu() parameter and VM descriptor "
       "FPU state object");
 
@@ -4600,7 +4603,9 @@ sva_setvmfpu(int vmid, union xsave_area_max *in_data) {
    * Copy the new FPU data from the buffer pointed to by in_data to the
    * specified VM's descriptor.
    */
-  memcpy(&vm_descs[vmid].state.fp, in_data, sizeof(vm_descs[vmid].state.fp));
+  union xsave_area_max* fp = &vm_descs[vmid].state.fp;
+  SVA_ASSERT(sva_copy_from_kernel(fp, in_data, sizeof(*fp)) == 0,
+      "Fault copying data from kernel");
 
   /* Release the VM descriptor lock if we took it earlier. */
   if (getCPUState()->active_vm != &vm_descs[vmid])

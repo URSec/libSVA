@@ -530,20 +530,20 @@ typedef struct sva_vmx_guest_state {
  *****************************************************************************
  */
 unsigned char sva_initvmx(void);
-int sva_allocvm(struct sva_vmx_vm_ctrls * initial_ctrls,
-    struct sva_vmx_guest_state * initial_state,
-    pml4e_t *initial_eptable);
+int sva_allocvm(struct sva_vmx_vm_ctrls __kern* initial_ctrls,
+    struct sva_vmx_guest_state __kern* initial_state,
+    pml4e_t __kern* initial_eptable);
 void sva_freevm(int vmid);
 int sva_loadvm(int vmid);
 int sva_unloadvm(void);
-int sva_readvmcs(enum sva_vmcs_field field, uint64_t *data);
+int sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data);
 int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 int sva_launchvm(void);
 int sva_resumevm(void);
 uint64_t sva_getvmreg(int vmid, enum sva_vm_reg reg);
 void sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data);
-void sva_getvmfpu(int vmid, union xsave_area_max *out_data);
-void sva_setvmfpu(int vmid, union xsave_area_max *in_data);
+void sva_getvmfpu(int vmid, union xsave_area_max __kern* out_data);
+void sva_setvmfpu(int vmid, union xsave_area_max __kern* in_data);
 
 /*
  * VMX-specific MMU intrinsics for managing Extended Page Tables.
@@ -558,8 +558,8 @@ void sva_declare_l1_eptpage(uintptr_t frameAddr);
 void sva_declare_l2_eptpage(uintptr_t frameAddr);
 void sva_declare_l3_eptpage(uintptr_t frameAddr);
 void sva_declare_l4_eptpage(uintptr_t frameAddr);
-void sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val);
-void sva_load_eptable(int vmid, pml4e_t *epml4t);
+void sva_update_ept_mapping(page_entry_t __kern* eptePtr, page_entry_t val);
+void sva_load_eptable(int vmid, pml4e_t __kern* epml4t);
 uintptr_t sva_save_eptable(int vmid);
 
 /*******************************************************************************

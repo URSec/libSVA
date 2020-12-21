@@ -124,7 +124,7 @@ sva_declare_l4_eptpage(uintptr_t frameAddr) {
  *            extended page table.
  */
 void
-sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
+sva_update_ept_mapping(page_entry_t __kern* eptePtr, page_entry_t val) {
   /*
    * Switch to the user/SVA page tables so that we can access SVA memory
    * regions.
@@ -191,7 +191,7 @@ sva_update_ept_mapping(page_entry_t *eptePtr, page_entry_t val) {
  *    (EPML4) that the VM should use.
  */
 void
-sva_load_eptable(int vmid, pml4e_t *epml4t) {
+sva_load_eptable(int vmid, pml4e_t __kern* epml4t) {
   /*
    * Switch to the user/SVA page tables so that we can access SVA memory
    * regions.
@@ -280,7 +280,7 @@ sva_load_eptable(int vmid, pml4e_t *epml4t) {
  */
 void
 load_eptable_internal(
-    int vmid, pml4e_t *epml4t, unsigned char is_initial_setting) {
+    int vmid, pml4e_t __kern* epml4t, unsigned char is_initial_setting) {
   /*
    * Verify that the given extended page table pointer points to a valid
    * top-level extended-page-table page (i.e., one properly declared with

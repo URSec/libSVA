@@ -685,7 +685,7 @@ static inline int readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data);
 static inline int writevmcs_checked(enum sva_vmcs_field field, uint64_t data);
 static inline int writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data);
 void load_eptable_internal(
-    int vmid, pml4e_t *epml4t, unsigned char is_initial_setting);
+    int vmid, pml4e_t __kern* epml4t, unsigned char is_initial_setting);
 
 /**
  * Get the pin-based execution controls.
