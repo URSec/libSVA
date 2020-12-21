@@ -568,7 +568,7 @@ sva_init_primary () {
  *  (the first one that starts execution on system boot).
  */
 void
-sva_init_primary_xen(void *tss) {
+sva_init_primary_xen(void __kern* tss) {
   SVA_PROF_ENTER();
 
 #if 0
@@ -633,7 +633,7 @@ void __attribute__((noreturn)) sva_init_secondary(void) {
 }
 
 #ifdef XEN
-void sva_init_secondary_xen(void* tss) {
+void sva_init_secondary_xen(void __kern* tss) {
   SVA_PROF_ENTER();
 
   init_TLS((tss_t*)tss);

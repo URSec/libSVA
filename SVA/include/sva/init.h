@@ -34,14 +34,14 @@ extern void __attribute__((__noreturn__)) sva_init_secondary(void);
  *
  * @param tss The TSS which Xen created.
  */
-extern void sva_init_primary_xen(void* tss);
+extern void sva_init_primary_xen(void __kern* tss);
 
 /**
  * Initialize the SVA Execution Engine on a secondary processor (AP).
  *
  * @param tss The TSS which Xen created.
  */
-extern void sva_init_secondary_xen(void* tss);
+extern void sva_init_secondary_xen(void __kern* tss);
 
 #endif
 
