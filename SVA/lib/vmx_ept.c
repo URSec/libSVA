@@ -299,6 +299,18 @@ load_eptable_internal(
   frame_take(ptpDesc, PGT_EPTL4);
 
   /*
+   * Decrement the reference count for the old PTP.
+   *
+   * Skip this if this is the first time we are loading the EPTP for this VM
+   * (i.e., there is no old PTP).
+   */
+  if (!is_initial_setting) {
+    frame_desc_t *old_ptpDesc = get_frame_desc(vm_descs[vmid].eptp);
+
+    frame_drop(old_ptpDesc, PGT_EPTL4);
+  }
+
+  /*
    * Construct the value to load into the VMCS's Extended Page Table Pointer
    * (EPTP) field.
    *
@@ -329,18 +341,6 @@ load_eptable_internal(
 
   /* Store the EPTP value in the VM descriptor. */
   vm_descs[vmid].eptp = eptp_val;
-
-  /*
-   * Decrement the reference count for the old PTP.
-   *
-   * Skip this if this is the first time we are loading the EPTP for this VM
-   * (i.e., there is no old PTP).
-   */
-  if (!is_initial_setting) {
-    frame_desc_t *old_ptpDesc = get_frame_desc(vm_descs[vmid].eptp);
-
-    frame_drop(old_ptpDesc, PGT_EPTL4);
-  }
 }
 
 /*
