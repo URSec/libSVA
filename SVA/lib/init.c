@@ -111,9 +111,6 @@ static void init_dispatcher ();
 /* Default LLVA interrupt, exception, and system call handlers */
 extern void default_interrupt (unsigned int number, void * icontext);
 
-/* Map logical processor ID to an array in the SVA data structures */
-struct procMap svaProcMap[numProcessors];
-
 unsigned int __svadata cpu_online_count;
 
 /*
@@ -268,39 +265,6 @@ static void fptrap(unsigned int __attribute__((unused)) vector) {
    */
   panic("SVA: Unexpected #NM; %%cr0 = %lx\n", read_cr0());
 #endif
-}
-
-/*
- * Function: init_procID()
- *
- * Description:
- *  Determine the APIC processor ID and map that to an available SVA logical
- *  processor ID.
- */
-static void
-init_procID (void) {
-  /*
-   * Use the CPUID instruction to get a local APIC2 ID for the processor.
-   */
-  unsigned int apicID;
-  __asm__ __volatile__ ("movl $0xB, %%eax\ncpuid" : "=d" (apicID));
-
-  /*
-   * Find an available processor ID and use that.
-   */
-  for (unsigned index = 0; index < numProcessors; ++index) {
-#if 1
-    if (__sync_bool_compare_and_swap (&(svaProcMap[index].allocated), 0, 1)) {
-#else
-    if (!(svaProcMap[index].allocated)) {
-#endif
-      svaProcMap[index].allocated = 1;
-      svaProcMap[index].apicID = apicID;
-      return;
-    }
-  }
-
-  return;
 }
 
 /*
@@ -536,9 +500,6 @@ sva_init_primary () {
   init_debug ();
 #endif
 
-  /* Initialize the processor ID */
-  init_procID();
-
   init_threads();
 
   /* Initialize the IDT of the primary processor */
@@ -574,11 +535,6 @@ sva_init_primary_xen(void __kern* tss) {
 #if 0
   init_segs();
   init_debug();
-#endif
-
-#if 0
-  /* Initialize the processor ID */
-  init_procID();
 #endif
 
   cpu_online_count = 1;

@@ -448,6 +448,14 @@ void* sva_getCPUState(tss_t* tssp) {
 #endif
 
   /*
+   * Save the sequential index we assigned to this processor so that, going
+   * forward, we can quickly identify which processor we're running on
+   * without resorting to an expensive serializing CPUID instruction to query
+   * the APIC ID.
+   */
+  cpup->processor_id = index;
+
+  /*
    * Flag that VMX has not yet been initialized for this processor, and
    * initialize any other VMX-related fields whose values need to be
    * initially defined.

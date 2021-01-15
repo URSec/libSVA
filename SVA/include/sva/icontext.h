@@ -326,6 +326,14 @@ struct CPUState {
   unsigned char fp_used;
 
   /*
+   * A unique identifier for this processor, sequentially (and atomically)
+   * assigned when SVA is initialized on each processor. Stored here so that
+   * it can be looked up cheaply without resorting to a slow (serializing)
+   * CPUID instruction to query the processor's APIC ID.
+   */
+  size_t processor_id;
+
+  /*
    * Flags whether the sva_initvmx() intrinsic has been called to enable VMX
    * support (via the VMXON instruction) for this processor. No other Shade
    * intrinsic may be called until this has been done.
@@ -432,14 +440,45 @@ struct sva_tls_area {
 static inline struct CPUState *
 getCPUState(void) {
   /*
-   * Use an offset from the GS register to look up the processor CPU state for
-   * this processor.
+   * Use an offset from the GSBASE register to look up the processor CPU
+   * state for this processor.
    */
   struct CPUState * cpustate;
   asm ("movq %%gs:%c1, %0\n"
        : "=r" (cpustate)
        : "i"(TLS_CPUSTATE));
   return cpustate;
+}
+
+/*
+ * Function: getProcessorID()
+ *
+ * Description:
+ *  Determine the processor ID of the current processor.
+ *
+ * Return value:
+ *  A unique index value identifying each processor by the order in which SVA
+ *  was initialized on it. The first processor (i.e. the one on which
+ *  sva_init_primary() was called) has ID 0; the second (i.e. the first on
+ *  which sva_init_secondary() was called) has ID 1; and so forth.
+ *
+ *  For speed, this identifier is looked up from a per-CPU field (i.e. off
+ *  GSBASE), which is set during SVA initialization to the same index value
+ *  used to determine the location of the processor's per-CPU data within the
+ *  virtual address region SVA uses for that purpose.
+ *
+ *  (Technically, we could compute it by pointer arithmetic by subtracting
+ *  __sva_percpu_region_base from the GSBASE pointer returned by
+ *  getCPUState(). We chose rather to store it as a per-CPU field to avoid
+ *  making this code unintuitively fragile to changes in how SVA allocates
+ *  per-CPU regions. If the difference between a GSBASE register lookup vs. a
+ *  memory lookup off GSBASE is enough to make your code materially slower,
+ *  you should probably reconsider your code...or change this function to do
+ *  the pointer arithmetic instead. :-))
+ */
+static inline size_t
+getProcessorID(void) {
+  return getCPUState()->processor_id;
 }
 
 extern uintptr_t sva_icontext_getpc (void);
