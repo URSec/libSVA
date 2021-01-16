@@ -18,17 +18,7 @@
 #ifndef _SVA_SECMEM_H
 #define _SVA_SECMEM_H
 
-/*
- * We want these constants to have the `UL` suffix when used in C, but we also
- * want them to be usable from assembly. These macros allow us to attach the
- * suffix only when preprocessing C code.
- */
-#ifdef __ASSEMBLER__
-#define _ASM_CONST(value, suffix) value
-#else
-#define __ASM_CONST(value, suffix) value ## suffix
-#define _ASM_CONST(value, suffix) __ASM_CONST(value, suffix)
-#endif
+#include <sva/asm_const.h>
 
 #if !(defined(XEN) || defined(__XEN__))
 
