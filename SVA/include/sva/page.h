@@ -58,19 +58,7 @@
 #ifndef SVA_PAGE_H
 #define SVA_PAGE_H
 
-#include <sva/types.h>
-
-/**
- * Invalid physical address.
- *
- * Note that current hardware only supports up to 46 bit physical addresses.
- */
-static const uintptr_t PADDR_INVALID = ~0UL;
-
-/**
- * Zero mapping is the mapping that eliminates the previous entry.
- */
-static const uintptr_t ZERO_MAPPING = 0;
+#include <sva/asm_const.h>
 
 /*
  * ===========================================================================
@@ -85,21 +73,21 @@ static const uintptr_t ZERO_MAPPING = 0;
  * subject to copyright. Even if they are, the copyright would be owned by
  * Intel, not the FreeBSD developers.
  */
-#define PG_P        (1UL << 0)  ///< PTE present flag.
-#define PG_W        (1UL << 1)  ///< PTE writable flag.
-#define PG_U        (1UL << 2)  ///< PTE user-accessible flag.
-#define PG_NC_PWT   (1UL << 3)  ///< PTE write-through flag.
-#define PG_NC_PCD   (1UL << 4)  ///< PTE cache-disable flag.
-#define PG_A        (1UL << 5)  ///< PTE accessed flag.
-#define PG_D        (1UL << 6)  ///< PTE dirty flag.
-#define PG_PS       (1UL << 7)  ///< PTE page size flag (for huge pages).
-#define PG_PTE_PAT  (1UL << 7)  ///< PTE PAT flag (for L1 PTEs).
-#define PG_G        (1UL << 8)  ///< PTE global flag.
-#define PG_AVAIL1   (1UL << 9)  ///< Available for kernel's use.
-#define PG_AVAIL2   (1UL << 10) ///< Available for kernel's use.
-#define PG_AVAIL3   (1UL << 11) ///< Available for kernel's use.
-#define PG_PDE_PAT  (1UL << 12) ///< PTE PAT flag (for huge pages).
-#define PG_NX       (1UL << 63) ///< PTE no-execute flag.
+#define PG_P        (_ASM_CONST(1, UL) << 0)  // PTE present flag
+#define PG_W        (_ASM_CONST(1, UL) << 1)  // PTE writable flag
+#define PG_U        (_ASM_CONST(1, UL) << 2)  // PTE user-accessible flag
+#define PG_NC_PWT   (_ASM_CONST(1, UL) << 3)  // PTE write-through flag
+#define PG_NC_PCD   (_ASM_CONST(1, UL) << 4)  // PTE cache-disable flag
+#define PG_A        (_ASM_CONST(1, UL) << 5)  // PTE accessed flag
+#define PG_D        (_ASM_CONST(1, UL) << 6)  // PTE dirty flag
+#define PG_PS       (_ASM_CONST(1, UL) << 7)  // PTE huge page flag
+#define PG_PTE_PAT  (_ASM_CONST(1, UL) << 7)  // PTE PAT flag (for L1 PTEs)
+#define PG_G        (_ASM_CONST(1, UL) << 8)  // PTE global flag
+#define PG_AVAIL1   (_ASM_CONST(1, UL) << 9)  // Available for kernel's use
+#define PG_AVAIL2   (_ASM_CONST(1, UL) << 10) // Available for kernel's use
+#define PG_AVAIL3   (_ASM_CONST(1, UL) << 11) // Available for kernel's use
+#define PG_PDE_PAT  (_ASM_CONST(1, UL) << 12) // PTE PAT flag (for huge pages)
+#define PG_NX       (_ASM_CONST(1, UL) << 63) // PTE no-execute flag
 
 #ifdef FreeBSD
 /*
@@ -170,12 +158,41 @@ static const uintptr_t ZERO_MAPPING = 0;
  * ===========================================================================
  */
 
+#ifdef SVA_DMAP
+/**
+ * Flags for an SVA direct map L3 page table entrie.
+ */
+#define PG_DMAP_L3 (PG_P | PG_W | PG_A | PG_PS | PG_G | PG_NX)
+
+/**
+ * Flags for an SVA direct map L4 page table entry.
+ */
+#define PG_DMAP_L4 (PG_P | PG_W | PG_A | PG_G | PG_NX)
+#endif
+
+/* EPT page table entry flags */
+#define PG_EPT_R    (_ASM_CONST(1, UL) << 0)  // EPT readable flag
+#define PG_EPT_W    (_ASM_CONST(1, UL) << 1)  // EPT writable flag
+#define PG_EPT_X    (_ASM_CONST(1, UL) << 2)  // EPT executable flag
+                                              // (supervisor-executable if
+                                              // mode-based execute control is
+                                              // enabled)
+#define PG_EPT_IPAT (_ASM_CONST(1, UL) << 6)  // EPT ignore PAT flag
+#define PG_EPT_PS   (_ASM_CONST(1, UL) << 7)  // EPT huge page flag
+#define PG_EPT_A    (_ASM_CONST(1, UL) << 8)  // EPT accessed flag
+#define PG_EPT_D    (_ASM_CONST(1, UL) << 9)  // EPT dirty flag
+#define PG_EPT_XU   (_ASM_CONST(1, UL) << 10) // EPT user-executable flag
+                                              // (mode-base execute control
+                                              // only)
+#define PG_EPT_SVE  (_ASM_CONST(1, UL) << 63) // EPT suppress EPT-violation #VE
+                                              // flag
+
 /**
  * The maximum physical address that is supported by the page table format.
  *
  * Note that the actual limit might be lower depending on the CPU model.
  */
-#define PADDR_MAX (1UL << 52)
+#define PADDR_MAX (_ASM_CONST(1, UL) << 52)
 
 /**
  * The size of a frame, in bytes.
@@ -210,22 +227,24 @@ static const uintptr_t ZERO_MAPPING = 0;
 /**
  * The number of bytes mapped by an entry in an L1 page table.
  */
-#define PG_L1_SIZE (1UL << PG_L1_SHIFT)
+#define PG_L1_SIZE (_ASM_CONST(1, UL) << PG_L1_SHIFT)
 
 /**
  * The number of bytes mapped by an entry in an L2 page table.
  */
-#define PG_L2_SIZE (1UL << PG_L2_SHIFT)
+#define PG_L2_SIZE (_ASM_CONST(1, UL) << PG_L2_SHIFT)
 
 /**
  * The number of bytes mapped by an entry in an L3 page table.
  */
-#define PG_L3_SIZE (1UL << PG_L3_SHIFT)
+#define PG_L3_SIZE (_ASM_CONST(1, UL) << PG_L3_SHIFT)
 
 /**
  * The number of bytes mapped by an entry in an L4 page table.
  */
-#define PG_L4_SIZE (1UL << PG_L4_SHIFT)
+#define PG_L4_SIZE (_ASM_CONST(1, UL) << PG_L4_SHIFT)
+
+#ifndef __ASSEMBLER__
 
 /**
  * Get the index of the L1 pagetable entry mapping a virtual address.
@@ -392,29 +411,20 @@ static const uintptr_t ZERO_MAPPING = 0;
  */
 #define PG_L4_UP(v) (PG_L4_DOWN((uintptr_t)(v) + (PG_L4_SIZE - 4)))
 
-#ifdef SVA_DMAP
-/**
- * Flags for an SVA direct map L3 page table entrie.
- */
-#define PG_DMAP_L3 (PG_P | PG_W | PG_A | PG_PS | PG_G | PG_NX)
+#include <sva/types.h>
 
 /**
- * Flags for an SVA direct map L4 page table entry.
+ * Invalid physical address.
+ *
+ * Note that current hardware only supports up to 46 bit physical addresses.
  */
-#define PG_DMAP_L4 (PG_P | PG_W | PG_A | PG_G | PG_NX)
-#endif
+static const uintptr_t PADDR_INVALID = ~0UL;
 
-/* EPT page table entry flags */
-#define PG_EPT_R    (1UL << 0)  ///< EPT readable flag.
-#define PG_EPT_W    (1UL << 1)  ///< EPT writable flag.
-#define PG_EPT_X    (1UL << 2)  ///< EPT executable flag (supervisor-executable
-                                ///< if mode-based execute control is enabled).
-#define PG_EPT_IPAT (1UL << 6)  ///< EPT ignore PAT flag.
-#define PG_EPT_PS   (1UL << 7)  ///< EPT page size flag (for huge pages).
-#define PG_EPT_A    (1UL << 8)  ///< EPT accessed flag.
-#define PG_EPT_D    (1UL << 9)  ///< EPT dirty flag.
-#define PG_EPT_XU   (1UL << 10) ///< EPT user-executable flag (only used if
-                                ///< mode-base execute control is enabled).
-#define PG_EPT_SVE  (1UL << 63) ///< EPT suppress EPT-violation #VE flag.
+/**
+ * Zero mapping is the mapping that eliminates the previous entry.
+ */
+static const uintptr_t ZERO_MAPPING = 0;
+
+#endif /* !__ASSEMBLER__ */
 
 #endif /* SVA_PAGE_H */
