@@ -24,6 +24,7 @@
 #include <sva/asmconfig.h>
 #include <sva/asm-macros.h>
 #include <sva/cr.h>
+#include <sva/percpu.h>
 #include <sva/secmem.h>
 
 .macro _TRAP name:req trapnum:req paranoid:req needsPushErrorCode:req

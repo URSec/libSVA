@@ -23,6 +23,7 @@
 #include <sva/mmu.h>
 #include <sva/page.h>
 #include <sva/page_walk.h>
+#include <sva/percpu.h>
 #include <sva/self_profile.h>
 #include <sva/state.h>
 #include <sva/tlb.h>
