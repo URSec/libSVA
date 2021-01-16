@@ -484,14 +484,11 @@ typedef struct vm_desc_t {
    *
    * Values:
    *  0 (false): not in use
-   *  1 (true):  in use
-   * Note: code should treat any true (non-zero) value as indicating
-   * "in-use", but should refrain from writing any value other than 1 to this
-   * field when taking the lock. In the need arises in the future, we may
-   * extend this interface to distinguish different cases (e.g., which CPU
-   * holds the lock) by using different true values.
+   *  n>0 (true): in use by processor with ID n-1
+   * Note: we shift the processor ID up by one to allow 0 to be used as the
+   * "not in use" value, even though the actual processor IDs begin at 0.
    */
-  uint8_t in_use;
+  size_t in_use;
 
   /*
    * Physical-address pointer to the VM's Virtual Machine Control Structure
@@ -800,7 +797,18 @@ query_vmx_result(uint64_t rflags) {
  */
 static inline int
 vm_desc_lock(struct vm_desc_t *vm) {
-  return !__atomic_test_and_set(&vm->in_use, __ATOMIC_ACQUIRE);
+  /*
+   * If the lock value is currently 0 (free), the compare-and-swap will
+   * succeed and claim the lock for us by changing the lock value to
+   * getProcessorID() + 1.
+   *
+   * We shift the processor ID up by 1 to allow 0 to be used as the "lock is
+   * free" value even though processor IDs are 0-based.
+   */
+  size_t expected = 0;
+  return __atomic_compare_exchange_n(&vm->in_use,
+      &expected, getProcessorID() + 1,
+      false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE);
 }
 
 /*
