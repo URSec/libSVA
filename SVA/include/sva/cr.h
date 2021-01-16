@@ -23,6 +23,7 @@
 #define     CR0_MP      0x00000002      /* FPU Monitor */
 #define     CR0_EM      0x00000004      /* FPU emulation */
 #define     CR0_TS      0x00000008      /* Task switched */
+#define     CR0_ET      0x00000010      /* Extention type (always 1 since P1) */
 #define     CR0_NE      0x00000020      /* Native floating-point error */
 #define     CR0_WP      0x00010000      /* Write protect enable */
 #define     CR0_AM      0x00040000      /* Alignment check enable */
