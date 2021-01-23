@@ -812,6 +812,42 @@ vm_desc_lock(struct vm_desc_t *vm) {
 }
 
 /*
+ * Function: vm_desc_ensure_lock()
+ *
+ * Description:
+ *  Checks to see if the current processor already owns the "in_use" lock
+ *  for a struct vm_desc_t, and tries to acquire it if it doesn't.
+ *
+ * Arguments:
+ *  - vm: a pointer to the vm_desc_t structure to be locked.
+ *
+ * Return value:
+ *  - True (non-zero) if the lock was already held or has been successfully
+ *    acquired. More precisely:
+ *      * 1 if the lock was already held
+ *      * 2 if we took it just now
+ *  - False (zero) if it was found to be locked by a different processor
+ *    and thus not acquired.
+ */
+static inline int
+vm_desc_ensure_lock(struct vm_desc_t *vm) {
+  /*
+   * Check if we already hold the lock.
+   *
+   * Note: the processor ID in the lock field is shifted up by 1 since the IDs
+   * are 0-based and we need to reserve a value for "not in use".
+   */
+  if (vm->in_use == getProcessorID() + 1)
+    return 1;
+
+  /* We don't already hold the lock, so attempt to acquire it. */
+  if (vm_desc_lock(vm))
+    return 2;
+  else
+    return 0;
+}
+
+/*
  * Function: vm_desc_unlock()
  *
  * Description:

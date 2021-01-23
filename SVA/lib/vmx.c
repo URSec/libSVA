@@ -728,6 +728,12 @@ sva_allocvm(struct sva_vmx_vm_ctrls __kern* initial_ctrls,
        * If you find this happening in practice, you should probably just
        * increase MAX_VMS, as it's exceedingly unlikely to happen unless
        * you're already too close to the limit for comfort.
+       *
+       * (Minor aside: vm_desc_lock() will also fail if the lock is already
+       * held by *this* processor, but that would only be true at the same
+       * time as vmcs_paddr == 0 if we were in the middle of executing
+       * sva_allocvm() or sva_unloadvm() on this very processor...which we're
+       * not, since we're here. :-))
        */
       if (vm_desc_lock(&vm_descs[i])) {
         DBGPRNT(("First free VM ID found: %d\n", i));
@@ -979,10 +985,17 @@ sva_freevm(int vmid) {
 
   struct vm_desc_t* vm = &vm_descs[vmid];
 
-  /* Attempt to acquire the VM descriptor lock. */
-  if (!vm_desc_lock(vm)) {
-    panic("sva_freevm(): Could not acquire VM descriptor lock!\n");
-  }
+  /*
+   * Attempt to acquire the VM descriptor lock.
+   *
+   * We use vm_desc_lock() here instead of vm_desc_ensure_lock() since we
+   * must *not* free a VM that is inactive yet whose lock is still held by
+   * this processor - as that means its VMCS still resides in CPU cache and
+   * has not been flushed to memory. The system software must call
+   * sva_unloadvm() to perform that flush before it can free this vmid.
+   */
+  SVA_ASSERT(vm_desc_lock(vm),
+      "sva_freevm(): Could not acquire VM descriptor lock!\n");
 
   /*
    * If this VM's VMCS pointer is already null, this is a double free (or
@@ -1074,8 +1087,12 @@ sva_freevm(int vmid) {
  * Description:
  *  Makes the specified virtual machine active on the processor.
  *
- *  Fails if another VM is already active on the processor. If that is the
- *  case, you should call sva_unloadvm() first to make it inactive.
+ *  If another VM is already active on the processor, it will be made
+ *  inactive but its VMCS will be permitted to remain in the processor's
+ *  internal caches until it is either made active again (with sva_loadvm())
+ *  or explicitly flushed to memory (with sva_unloadvm()). This allows
+ *  multiple VMCSes to remain in cache simultaneously to avoid extreme
+ *  performance penalties during hypervisor context switching.
  *
  * Arguments:
  *  - vmid: the numeric handle of the virtual machine to be made active.
@@ -1119,25 +1136,25 @@ sva_loadvm(int vmid) {
       panic("Fatal error: tried to load an unallocated VM!\n");
     }
   }
+
   /*
-   * If there is currently a VM active on the processor, it must be unloaded
-   * before we can load a new one. Return an error.
+   * Attempt to acquire the VM descriptor lock if the current processor
+   * doesn't already own it.
    *
-   * A non-null active_vm pointer indicates there is an active VM.
+   * We use vm_desc_ensure_lock() here instead of vm_desc_lock() because we
+   * expressly need to *allow* the (re-)loading of a VM whose VMCS which is
+   * no longer active but still remains un-flushed in the current processor's
+   * CPU cache (i.e., we VMPTRLDed a different VMCS but did not yet VMCLEAR
+   * this one). In that case the VM's lock is still owned by this processor
+   * (as it is not safe for another processor to load it until we've flushed
+   * it back to memory) even though it is no longer the active VM.
+   *
+   * (This is *very* important for performance reasons so that a hypervisor
+   * can context-switch between several VMs without having to flush and
+   * re-load the VMCS each time. It actually makes a big difference; before
+   * SVA supported this we were seeing a >4x slowdown over native Xen!)
    */
-  if (usevmx) {
-    if (getCPUState()->active_vm) {
-      DBGPRNT(("Error: there is already a VM active on the processor. "
-               "Cannot load a different VM until it is unloaded.\n"));
-
-      usersva_to_kernel_pcid();
-      sva_exit_critical(rflags);
-      return -1;
-    }
-  }
-
-  /* If we cannot acquire the VM descriptor lock, return failure. */
-  if (!vm_desc_lock(&vm_descs[vmid])) {
+  if (!vm_desc_ensure_lock(&vm_descs[vmid])) {
     DBGPRNT(("sva_loadvm(): Could not acquire VM descriptor lock!\n"));
 
     usersva_to_kernel_pcid();
@@ -1206,24 +1223,14 @@ sva_loadvm(int vmid) {
      * The VPID distinguishes TLB entries belonging to the VM from those
      * belonging to the host and to other VMs.
      *
-     * It must NOT be set to 0; that is used for the host.
+     * It must NOT be set to 0; that is used for the host. (We ensure this by
+     * skipping slot #0 in the VM descriptor array when assigning a slot in
+     * sva_allocvm().)
      */
     /* TODO: SVA should really be using 16-bit integers for VM ID's, since
      * VPIDs are limited to 16 bits. This is a processor-imposed hard limit on
      * the number of VMs we can run concurrently if we want to take advantage
      * of the VPID feature.
-     *
-     * Note also that we will need to avoid assigning 0 as a VM ID, since VPID
-     * = 0 is used to designate the host (and VM entry will fail if we attempt
-     * to use it for a VM).
-     *
-     * Also note: when we (in the future) want to support multi-CPU guests,
-     * each virtual CPU will require its own VMCS and VPID. Think about how we
-     * want to handle this: should the hypervisor be responsible for creating
-     * an independent "VM" (as far as SVA is concerned) for each VCPU and
-     * coordinating between them? Or is there a compelling reason for SVA to
-     * track them together? If so, we will need to devise a new scheme for
-     * allocating VPIDs, independent of SVA's VM IDs.
      */
     writevmcs_unchecked(VMCS_VPID, vmid);
 
@@ -1248,11 +1255,8 @@ sva_loadvm(int vmid) {
      * FIXME: temporarily disabled during incremental port of Xen's VMX code
      * to Shade.
      *
-     * These likely collide with Xen's use of the MSR-load/store feature, and
-     * since we are, at present, calling sva_loadvm() directly before VM
-     * entry, these will override Xen's not-yet-ported (but functionally
-     * correct) settings of these VMCS fields which would've happened earlier
-     * prior to VM entry.
+     * These would collide with Xen's use of the MSR-load/store feature,
+     * which we have not yet ported to Shade.
      */
 #ifndef XEN
     /*
@@ -1329,16 +1333,19 @@ sva_loadvm(int vmid) {
  * Intrinsic: sva_unloadvm()
  *
  * Description:
- *  Unload the current virtual machine from the processor.
+ *  Unload the specified virtual machine from the processor. This ensures
+ *  that its VMCS is flushed from CPU caches to memory and renders it safe
+ *  to be moved to a different processor.
  *
- *  Fails if no VM is currently active on the processor.
+ * Arguments:
+ *  - vmid: the numeric handle of the virtual machine to be made active.
  *
  * Return value:
  *  An error code indicating the result of this operation. 0 indicates
  *  success, and a negative value indicates failure.
  */
 int
-sva_unloadvm(void) {
+sva_unloadvm(int vmid) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -1353,25 +1360,65 @@ sva_unloadvm(void) {
       "sva_unloadvm(): Shade not yet initialized on this processor!\n");
 
   /*
-   * If there is no VM currently active on the processor, return failure.
+   * Bounds check on vmid.
    *
-   * A null active_vm pointer indicates there is no active VM.
+   * vmid must be positive and less than MAX_VMS.
    */
   if (usevmx) {
-    if (!getCPUState()->active_vm) {
-      DBGPRNT(("Error: there is no VM active on the processor to unload.\n"));
-
-      usersva_to_kernel_pcid();
-      sva_exit_critical(rflags);
-      return -1;
+    if (vmid >= MAX_VMS || vmid <= 0) {
+      panic("Fatal error: specified out-of-bounds VM ID (%d)!\n", vmid);
+    }
+  }
+  /*
+   * If this VM descriptor indicated by this ID has a null VMCS pointer, it
+   * is not a valid descriptor. (i.e., it is an empty slot not assigned to
+   * any VM)
+   */
+  if (usevmx) {
+    if (!vm_descs[vmid].vmcs_paddr) {
+      panic("Fatal error: tried to unload an unallocated VM!\n");
     }
   }
 
+  struct vm_desc_t *vm = &vm_descs[vmid];
+
   /*
-   * Save the current active_vm pointer since we will need it to release the
-   * lock on this VM even after clearing active_vm.
+   * Ensure that the current processor already holds the descriptor lock for
+   * this VM, i.e., there is no possibility of its VMCS being loaded on
+   * another CPU right now.
+   *
+   * A VMCS can only be loaded on one processor at a time, and we use this
+   * lock to ensure that. This Intel manual isn't especially clear (so far as
+   * I've found) on what would happen if we tried to VMCLEAR a VMCS currently
+   * loaded on a *different* processor, but since VMCLEAR also "initializes
+   * parts of the VMCS" (vol. 3C, ch. 30.3) in addition to flushing state
+   * from the processor's cache, it seems probable that doing so could
+   * precipitate the processor writing data to the VMCS in memory that might
+   * conflict with what's in cache on the other CPU. Thus, it seems clear
+   * that this would be a Bad Thing and we should not permit it.
+   *
+   * Note also that we do not attempt to *take* the lock here if we don't
+   * have it, because there is no point in trying to VMCLEAR a VMCS which we
+   * know we don't own and thus isn't in the current processor's cache.
+   *
+   * Callers attempting to use VMCLEAR to *initialize* a new VMCS do not need
+   * to do so under Shade, because the sva_allocvm() intrinsic takes care of
+   * that in conjunction with allocating the VMCS.
+   *
+   * N.B.: the processor ID in the lock field is shifted up by one so that
+   * the 0 value can be used to indicate "not in use" (even though 0 is a
+   * valid processor ID).
    */
-  struct vm_desc_t *vm = getCPUState()->active_vm;
+  if (vm->in_use != getProcessorID() + 1) {
+    printf("sva_unloadvm(): Attempted to unload a VM not currently owned by "
+        "this processor. Use sva_allocvm() instead for initializing a new "
+        "VMCS.\n");
+
+    /* Return failure. */
+    usersva_to_kernel_pcid();
+    sva_exit_critical(rflags);
+    return -1;
+  }
 
   /*
    * Use the VMCLEAR instruction to unload the current VM from the processor.
@@ -1398,10 +1445,14 @@ sva_unloadvm(void) {
      */
     vm->is_launched = 0;
 
-    /* Set the active_vm pointer to indicate no VM is active. */
-    getCPUState()->active_vm = 0;
+    /*
+     * If this VM was the active one on this processor, clear the active_vm
+     * pointer to indicate no VM is currently active.
+     */
+    if (vm == getCPUState()->active_vm)
+      getCPUState()->active_vm = 0;
   } else {
-    DBGPRNT(("Error: failed to unload VMCS from the processor.\n"));
+    printf("sva_unloadvm(): Error: VMCLEAR returned error condition.\n");
 
     /*
      * Note: we must *not* release the VM descriptor lock on this error path,
@@ -4080,11 +4131,10 @@ sva_getfp(int vmid, unsigned char *fp_state) {
   }
 
   /*
-   * If the specified VM is currently active on this CPU, we already hold its
-   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   * Take the lock for this VM if we don't already have it.
    */
-  if (getCPUState()->active_vm != &vm_descs[vmid])
-    vm_desc_lock(&vm_descs[vmid]);
+  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  SVA_ASSERT(acquired_lock, "sva_getfp(): failed to acquire VM descriptor lock!\n");
 
   const size_t fp_state_size = sizeof(struct xsave_legacy);
 
@@ -4097,7 +4147,7 @@ sva_getfp(int vmid, unsigned char *fp_state) {
   memcpy(fp_state, &vm_descs[vmid].state.fp.inner.legacy, fp_state_size);
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (getCPUState()->active_vm != &vm_descs[vmid])
+  if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -4165,11 +4215,10 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
    */
 
   /*
-   * If the specified VM is currently active on this CPU, we already hold its
-   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   * Take the lock for this VM if we don't already have it.
    */
-  if (getCPUState()->active_vm != &vm_descs[vmid])
-    vm_desc_lock(&vm_descs[vmid]);
+  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  SVA_ASSERT(acquired_lock, "sva_getvmreg(): failed to acquire VM descriptor lock!\n");
 
   /*
    * Get the respective register from the specified VM's descriptor.
@@ -4280,7 +4329,7 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
   }
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (getCPUState()->active_vm != &vm_descs[vmid])
+  if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -4337,11 +4386,10 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
    */
 
   /*
-   * If the specified VM is currently active on this CPU, we already hold its
-   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   * Take the lock for this VM if we don't already have it.
    */
-  if (getCPUState()->active_vm != &vm_descs[vmid])
-    vm_desc_lock(&vm_descs[vmid]);
+  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  SVA_ASSERT(acquired_lock, "sva_setvmreg(): failed to acquire VM descriptor lock!\n");
 
   /*
    * Write to the respective register field in the specified VM's descriptor.
@@ -4456,7 +4504,7 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
   }
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (getCPUState()->active_vm != &vm_descs[vmid])
+  if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -4511,11 +4559,10 @@ sva_getvmfpu(int vmid, union xsave_area_max __kern* out_data) {
    */
 
   /*
-   * If the specified VM is currently active on this CPU, we already hold its
-   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   * Take the lock for this VM if we don't already have it.
    */
-  if (getCPUState()->active_vm != &vm_descs[vmid])
-    vm_desc_lock(&vm_descs[vmid]);
+  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  SVA_ASSERT(acquired_lock, "sva_getvmfpu(): failed to acquire VM descriptor lock!\n");
 
   /* Sanity check (should be statically optimized away) */
   SVA_ASSERT(__builtin_types_compatible_p(typeof(out_data),
@@ -4532,7 +4579,7 @@ sva_getvmfpu(int vmid, union xsave_area_max __kern* out_data) {
       "Fault copying data to kernel");
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (getCPUState()->active_vm != &vm_descs[vmid])
+  if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -4587,11 +4634,10 @@ sva_setvmfpu(int vmid, union xsave_area_max __kern* in_data) {
    */
 
   /*
-   * If the specified VM is currently active on this CPU, we already hold its
-   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   * Take the lock for this VM if we don't already have it.
    */
-  if (getCPUState()->active_vm != &vm_descs[vmid])
-    vm_desc_lock(&vm_descs[vmid]);
+  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  SVA_ASSERT(acquired_lock, "sva_setvmfpu(): failed to acquire VM descriptor lock!\n");
 
   /* Sanity check (should be statically optimized away) */
   SVA_ASSERT(__builtin_types_compatible_p(typeof(in_data),
@@ -4608,7 +4654,7 @@ sva_setvmfpu(int vmid, union xsave_area_max __kern* in_data) {
       "Fault copying data from kernel");
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (getCPUState()->active_vm != &vm_descs[vmid])
+  if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */

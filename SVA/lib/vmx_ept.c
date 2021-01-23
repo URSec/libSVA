@@ -215,11 +215,10 @@ sva_load_eptable(int vmid, pml4e_t __kern* epml4t) {
   }
 
   /*
-   * If the specified VM is currently active on this CPU, we already hold its
-   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   * Take the lock for this VM if we don't already have it.
    */
-  if (host_state.active_vm != &vm_descs[vmid])
-    vm_desc_lock(&vm_descs[vmid]);
+  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  SVA_ASSERT(acquired_lock, "sva_getfp(): failed to acquire VM descriptor lock!\n");
 
   /*
    * If the VM descriptor indicated by this ID has a null VMCS pointer, it
@@ -237,7 +236,7 @@ sva_load_eptable(int vmid, pml4e_t __kern* epml4t) {
   load_eptable_internal(vmid, epml4t, 0 /* is not initial setting */);
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -379,11 +378,10 @@ sva_save_eptable(int vmid) {
   }
 
   /*
-   * If the specified VM is currently active on this CPU, we already hold its
-   * lock and it is safe to proceed. Otherwise, we need to take the lock.
+   * Take the lock for this VM if we don't already have it.
    */
-  if (host_state.active_vm != &vm_descs[vmid])
-    vm_desc_lock(&vm_descs[vmid]);
+  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  SVA_ASSERT(acquired_lock, "sva_getfp(): failed to acquire VM descriptor lock!\n");
 
   /*
    * If the VM descriptor indicated by this ID has a null VMCS pointer, it
@@ -403,7 +401,7 @@ sva_save_eptable(int vmid) {
   uintptr_t epml4t_paddr = PG_ENTRY_FRAME(eptp);
 
   /* Release the VM descriptor lock if we took it earlier. */
-  if (host_state.active_vm != &vm_descs[vmid])
+  if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
     vm_desc_unlock(&vm_descs[vmid]);
 
   /* Restore interrupts and return to the kernel page tables. */

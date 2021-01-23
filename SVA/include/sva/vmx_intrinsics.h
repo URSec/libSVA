@@ -535,7 +535,7 @@ int sva_allocvm(struct sva_vmx_vm_ctrls __kern* initial_ctrls,
     pml4e_t __kern* initial_eptable);
 void sva_freevm(int vmid);
 int sva_loadvm(int vmid);
-int sva_unloadvm(void);
+int sva_unloadvm(int vmid);
 int sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data);
 int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 int sva_launchvm(void);
