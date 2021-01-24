@@ -102,10 +102,6 @@
 #include <limits.h>
 
 static void fptrap (unsigned int vector);
-#if 0
-static void init_debug (void);
-#endif
-extern void init_mmu (void);
 static void init_dispatcher ();
 
 /* Default LLVA interrupt, exception, and system call handlers */
@@ -332,63 +328,6 @@ init_idt (unsigned int procID) {
   return;
 }
 
-#if 0
-static void
-init_debug (void)
-{
-  __asm__ ("movl $0, %eax\n"
-           "movl %eax, %db0\n"
-           "movl %eax, %db1\n"
-           "movl %eax, %db2\n"
-           "movl %eax, %db3\n"
-           "movl %eax, %db6\n"
-           "movl %eax, %db7\n");
-  return;
-}
-
-/*
- * Functoin: init_mmu()
- *
- * Description:
- *  Initialize the i386 MMU.
- */
-static void
-init_mmu (void)
-{
-  const int pse   = (1 << 4);
-  const int pge   = (1 << 7);
-  const int tsd   = (1 << 2);
-  const int pvi   = (1 << 1);
-  const int de    = (1 << 3);
-  const int pce   = (1 << 8);
-  const int osfxr = ((1 << 9) | (1 << 10));
-  int value;
-
-  /*
-   * Enable:
-   *  PSE: Page Size Extension (i.e. large pages).
-   *  PGE: Page Global Extension (i.e. global pages).
-   *
-   * Disable:
-   *  TSD: Allow user mode applications to read the timestamp counter.
-   *  PVI: Virtual Interrupt Flag in Protected Mode.
-   *   DE: By disabling, allows for legacy debug register support for i386.
-   *
-   * We will assume that page size extensions and page global bit extensions
-   * exist within the processor.  If they don't, you're in big trouble!
-   */
-  __asm__ __volatile__ ("mov %%cr4, %0\n"
-                        "orl  %1, %0\n"
-                        "andl %2, %0\n"
-                        "mov %0, %%cr4\n"
-                        : "=&r" (value)
-                        : "r" (osfxr | pse | pge | pce),
-                          "r" (~(pvi | de | tsd)));
-
-  return;
-}
-#endif
-
 /*
  * Initialize various things that needs to be initialized for the FPU.
  */
@@ -495,11 +434,6 @@ void
 sva_init_primary () {
   SVA_PROF_ENTER();
 
-#if 0
-  init_segs ();
-  init_debug ();
-#endif
-
   init_threads();
 
   /* Initialize the IDT of the primary processor */
@@ -508,13 +442,8 @@ sva_init_primary () {
   init_idt (0);
   register_syscall_handler();
 
-  init_mmu ();
-  init_mpx ();
-  init_fpu ();
-#if 0
-  llva_reset_counters();
-  llva_reset_local_counters();
-#endif
+  init_fpu();
+  init_mpx();
 
   SVA_PROF_EXIT(init_primary);
 }
@@ -531,11 +460,6 @@ sva_init_primary () {
 void
 sva_init_primary_xen(void __kern* tss) {
   SVA_PROF_ENTER();
-
-#if 0
-  init_segs();
-  init_debug();
-#endif
 
   cpu_online_count = 1;
 
@@ -562,15 +486,8 @@ sva_init_primary_xen(void __kern* tss) {
   init_idt(0);
   register_syscall_handler();
 
-  init_mmu();
-
   init_fpu();
   init_mpx();
-
-#if 0
-  llva_reset_counters();
-  llva_reset_local_counters();
-#endif
 
   SVA_PROF_EXIT(init_primary);
 }
