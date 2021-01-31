@@ -25,6 +25,20 @@
 
 #define MSR_REG_EFER    0xC0000080      /* MSR for EFER register */
 
+#define align_down(val, align) \
+  ((__typeof__(val))((val) & ~((align) - 1)))
+
+#define align_down_pow2(val, align) \
+  (align_down((val), (__typeof__(val))1 << (align)))
+
+#define align_up(val, align) ({           \
+  __typeof__(align) __a = (align) - 1;    \
+  (__typeof__(val))((val) + __a & ~__a);  \
+})
+
+#define align_up_pow2(val, align) \
+  (align_up((val), (__typeof__(val))1 << (align)))
+
 #define is_aligned(val, align) \
   (((val) & ((align) - 1)) == (__typeof__(val))0)
 
