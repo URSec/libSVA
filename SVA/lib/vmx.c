@@ -4475,10 +4475,10 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
   vlapic_set_msr_intercepts(active_vm);
 
   /* Take frame references. */
-  SVA_CHECK(is_aligned(virtual_apic_frame, PG_L1_SHIFT), EINVAL);
+  SVA_CHECK(is_aligned_pow2(virtual_apic_frame, PG_L1_SHIFT), EINVAL);
   frame_desc_t* va_frame_desc = get_frame_desc(virtual_apic_frame);
   SVA_CHECK(va_frame_desc != NULL, EINVAL);
-  SVA_CHECK(is_aligned(apic_access_frame, PG_L1_SHIFT), EINVAL);
+  SVA_CHECK(is_aligned_pow2(apic_access_frame, PG_L1_SHIFT), EINVAL);
   frame_desc_t* aa_frame_desc = get_frame_desc(apic_access_frame);
   SVA_CHECK(aa_frame_desc != NULL, EINVAL);
 
@@ -4561,7 +4561,7 @@ int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame) {
   DBGPRNT(("SVA: vlAPIC is in %d mode. Switching to x2APIC\n",
            active_vm->vlapic.mode));
 
-  SVA_CHECK(is_aligned(virtual_apic_frame, PG_L1_SHIFT), EINVAL);
+  SVA_CHECK(is_aligned_pow2(virtual_apic_frame, PG_L1_SHIFT), EINVAL);
   frame_desc_t* va_frame_desc = get_frame_desc(virtual_apic_frame);
   SVA_CHECK(va_frame_desc != NULL, EINVAL);
 
@@ -4674,7 +4674,7 @@ int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor) {
     active_vm->vlapic.posted_interrupt_vector = vector;
   }
 
-  SVA_CHECK(is_aligned(descriptor, 6), EINVAL);
+  SVA_CHECK(is_aligned_pow2(descriptor, 6), EINVAL);
   frame_desc_t* descriptor_frame_desc = get_frame_desc(descriptor);
   SVA_CHECK(descriptor_frame_desc != NULL, EINVAL);
   if (!active_vm->vlapic.posted_interrupts_enabled ||

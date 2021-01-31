@@ -26,7 +26,10 @@
 #define MSR_REG_EFER    0xC0000080      /* MSR for EFER register */
 
 #define is_aligned(val, align) \
-  (((val) & (__typeof__(val))((1 << (align)) - 1)) == (__typeof__(val))0)
+  (((val) & ((align) - 1)) == (__typeof__(val))0)
+
+#define is_aligned_pow2(val, align) \
+  (is_aligned((val), (__typeof__(val))1 << (align)))
 
 #ifdef __cplusplus
 extern "C" {
