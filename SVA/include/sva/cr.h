@@ -31,6 +31,9 @@
 #define     CR0_CD      0x40000000      /* Cache disable */
 #define     CR0_PG      0x80000000      /* Paging enable */
 
+#define SVA_CR0 (CR0_PE | CR0_NE | CR0_ET | CR0_WP | CR0_AM | CR0_PG)
+#define SVA_BOOT_CR4 (CR4_PAE | CR4_PSE | CR4_FSGSBASE)
+
 /* CR4 Flags */
 #define     CR4_DE          0x00000008      /* enable debug extentions */
 #define     CR4_PSE         0x00000010      /* enable huge pages */
