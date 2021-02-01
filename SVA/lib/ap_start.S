@@ -52,13 +52,12 @@ ENTRY(ap_start)
 	/*
 	 * Enable long mode in EFER.
 	 */
-	WRMSR_LO $MSR_EFER, $(EFER_LME | EFER_SCE | EFER_NXE)
+	WRMSR_LO $MSR_EFER, $SVA_EFER
 
 	/*
 	 * Enable PAE and PGE in `%cr4`. PAE is necessary for long-mode paging.
 	 */
-	mov	%cr4, %eax
-	orl	$(CR4_PAE | CR4_PGE | CR4_PSE | CR4_DE), %eax
+	movl	$SVA_BOOT_CR4, %eax
 	mov	%eax, %cr4
 
 	/*
@@ -68,15 +67,13 @@ ENTRY(ap_start)
 	mov	%eax, %cr3
 
 	/*
-	 * Enable protected mode and long jump to a 32-bit code segment. Note
+	 * Enable protected mode and long jump to a 64-bit code segment. Note
 	 * that we must perform the long jump immediately upon enabling
 	 * protected mode (Intel Software Developer's Manual, Volume 3, 9.9.1).
-	 * We also enable caching, alignment checking, and native FPU error
-	 * reporting here.
+	 * We also enable caching, write protection, alignment checking, and
+	 * native FPU error reporting here.
 	 */
-	mov	%cr0, %eax
-	orl	$(CR0_PE | CR0_PG | CR0_NE | CR0_WP | CR0_AM), %eax
-	andl	$~(CR0_CD | CR0_NW), %eax
+	movl	$SVA_CR0, %eax
 	mov	%eax, %cr0
 
 	/*
