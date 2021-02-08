@@ -35,15 +35,29 @@
 #define SVA_BOOT_CR4 (CR4_PAE | CR4_PSE | CR4_FSGSBASE)
 
 /* CR4 Flags */
+#define     CR4_VME         0x00000001      /* enable VM86 mode */
+#define     CR4_PVI         0x00000002      /* enable virtual interrupt flag in protected mode */
+#define     CR4_TSD         0x00000004      /* disable `rdtsc` in rings >0 */
 #define     CR4_DE          0x00000008      /* enable debug extentions */
 #define     CR4_PSE         0x00000010      /* enable huge pages */
 #define     CR4_PAE         0x00000020      /* enable physical address extention*/
+#define     CR4_MCE         0x00000040      /* enable machine check exceptions */
 #define     CR4_PGE         0x00000080      /* enable global pages */
+#define     CR4_PCE         0x00000100      /* enable `rdpmc` in rings >0 */
 #define     CR4_OSFXSR      0x00000200      /* enable FXSave and SSE */
 #define     CR4_OSXMMEXCPT  0x00000400      /* enable unmasked SSE exceptions */
+#define     CR4_UMIP        0x00000800      /* enable #GP on some system instructions in rings >0 */
+#define     CR4_LA57        0x00001000      /* enable 5-level paging */
+#define     CR4_VMXE        0x00002000      /* enable VMX */
+#define     CR4_SMXE        0x00004000      /* enable SMX */
 #define     CR4_FSGSBASE    0x00010000      /* enable fs/gs base instructions */
 #define     CR4_PCIDE       0x00020000      /* enable PCID */
 #define     CR4_OSXSAVE     0x00040000      /* enable XSave */
+#define     CR4_SMEP        0x00100000      /* enable supervisor-mode execution prevention */
+#define     CR4_SMAP        0x00200000      /* enable supervisor-mode access prevention */
+#define     CR4_PKE         0x00400000      /* enable protection keys for user mode */
+#define     CR4_CET         0x00800000      /* enable control-flow enforcement */
+#define     CR4_PKS         0x01000000      /* enable protection keys for supervisor mode */
 
 #ifndef __ASSEMBLER__
 
