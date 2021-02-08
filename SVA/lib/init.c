@@ -98,6 +98,7 @@
 #include <sva/page.h>
 #include <sva/page_walk.h>
 #include <sva/percpu.h>
+#include <sva/secmem.h>
 #include <sva/self_profile.h>
 
 #include "thread_stack.h"
@@ -301,8 +302,6 @@ static void create_percpu_structures(void* percpu_region) {
   percpu_region_cur = (char*)((uintptr_t)percpu_region_cur & -16);
   tss_t* tss = (tss_t*)percpu_region_cur;
 
-  char* paranoid_stacks = percpu_region;
-
   /*
    * Initialize the structures.
    */
@@ -312,11 +311,6 @@ static void create_percpu_structures(void* percpu_region) {
   tls_area->cpu_state = cpu_state;
   wrgsbase((uintptr_t)tls_area);
   *gsbase_paranoid_pointer = (uintptr_t)tls_area;
-
-  tss->ist4 = (uintptr_t)&paranoid_stacks[4 * PARANOID_STACK_SIZE];
-  tss->ist5 = (uintptr_t)&paranoid_stacks[5 * PARANOID_STACK_SIZE];
-  tss->ist6 = (uintptr_t)&paranoid_stacks[6 * PARANOID_STACK_SIZE];
-  tss->ist7 = (uintptr_t)&paranoid_stacks[7 * PARANOID_STACK_SIZE];
 }
 
 #ifdef XEN
@@ -379,6 +373,13 @@ void* sva_getCPUState(tss_t* tssp) {
   /** Next CPU index */
   static size_t __svadata nextIndex = 0;
 
+  /**
+   * Allocation for the BSP paranoid stacks.
+   *
+   * The BSP cannot call the allocator at this point, so we use this instead.
+   */
+  static char __svadata __align(PG_L1_SIZE) bsp_paranoid_stacks[PG_L1_SIZE * 8];
+
   /*
    * NB: No danger of overflow, as it would require a machine with over 4
    * billion (32-bit) or 18 quintillion (64-bit) CPUs.
@@ -386,6 +387,16 @@ void* sva_getCPUState(tss_t* tssp) {
   size_t index = __atomic_fetch_add(&nextIndex, 1, __ATOMIC_RELAXED);
 
   void* percpu_region = alloc_percpu_region(index);
+  char* paranoid_stacks;
+  if (index == 0) {
+    /*
+     * We can't call `create_sva_stack` on the BSP because the allocator isn't
+     * set up yet. Instead, we use a static allocation for the BSP.
+     */
+    paranoid_stacks = &bsp_paranoid_stacks[PG_L1_SIZE * 8];
+  } else {
+    paranoid_stacks = create_sva_stack();
+  }
 
   /*
    * Initialize the per-cpu region.
@@ -426,6 +437,11 @@ void* sva_getCPUState(tss_t* tssp) {
    */
   cpup->fp_used = false;
   cpup->prevFPThread = NULL;
+
+  cpup->tssp->ist4 = (uintptr_t)(paranoid_stacks - 0 * PG_L1_SIZE);
+  cpup->tssp->ist5 = (uintptr_t)(paranoid_stacks - 2 * PG_L1_SIZE);
+  cpup->tssp->ist6 = (uintptr_t)(paranoid_stacks - 4 * PG_L1_SIZE);
+  cpup->tssp->ist7 = (uintptr_t)(paranoid_stacks - 6 * PG_L1_SIZE);
 
   /*
    * Set the kernel entry stack pointer.
