@@ -1970,7 +1970,7 @@ print_logged_vmcs_accesses(void) {
   if (vmcs_contents_log_enabled) {
     printf("SVA: detailed write log for VMCS field ");
     print_vmcs_field_name(vmcs_contents_log_field, true);
-    printf(" (%lu distinct values observed):\n", vmcs_contents_log_idx - 1);
+    printf(" (%lu distinct values observed):\n", vmcs_contents_log_idx);
 
     for (size_t i = 0; i < 100; i++) {
       if (i >= vmcs_contents_log_idx)
