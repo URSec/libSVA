@@ -704,16 +704,19 @@ sva_print_vmx_msrs(void) {
  * If given an enum value it doesn't recognize, prints its hexadecimal
  * numeric value in brackets, e.g. "<0xffff>".
  *
- * Doesn't print anything if the preprocessor variable SVAVMX_DEBUG is 0.
+ * Doesn't print anything if the parameter "enable" is 0. The intention is
+ * that the parameter SVAVMX_DEBUG should be passed to that parameter when
+ * this function is used in conjunction with the DBGPRNT() macro, while a
+ * constant true value can be passed when used with unconditional printf()'s.
  *
  * Parameters:
  *  - field: the enum field to be interpreted. Should correspond to an
  *    unsigned 16-bit ingeger value. This is true of all valid VMCS field
- *    encodings as defined by Intel (and as used in SVA).
+ *    encodings as currently defined by Intel (and as used in SVA).
  */
 void
-print_vmcs_field_name(enum sva_vmcs_field field) {
-  if (!SVAVMX_DEBUG)
+print_vmcs_field_name(enum sva_vmcs_field field, bool enable) {
+  if (!enable)
     return;
 
   switch (field) {
@@ -1848,4 +1851,160 @@ sva_get_vmid_from_vmcs(uintptr_t vmcs_paddr) {
   sva_exit_critical(rflags);
 
   return vmid;
+}
+
+/*
+ * Global counter tables for logging VMCS field reads and writes.
+ *
+ * Can represent VMCS fields whose field encoding is <0x7000 and count up to
+ * UINT32_MAX for each. At 4 bytes per element this means each array consumes
+ * just under 115 MB of memory, most of which is wasted due to the non-sparse
+ * representation. This should be OK since our machines have plenty of RAM.
+ *
+ * Must be declared as __svadata not for security reasons, but because Xen's
+ * own image size (including its .bss) is limited to 16 MB due to
+ * bootstrapping code limitations. SVA's static data gets mapped into the
+ * virtual address space later in the boot process and does not have this
+ * limitation.
+ */
+uint32_t __svadata vmcs_write_counters[0x7000];
+uint32_t __svadata vmcs_read_counters[0x7000];
+
+bool __svadata vmcs_contents_log_enabled;
+enum sva_vmcs_field __svadata vmcs_contents_log_field;
+size_t __svadata vmcs_contents_log_idx;
+struct vmcs_contents_log_entry {
+  uint64_t contents;
+  uint32_t count;
+};
+struct vmcs_contents_log_entry __svadata vmcs_contents_log[100];
+
+/*
+ * Function: log_vmcs_write()
+ *
+ * Increments a counter corresponding to the specified VMCS field so that we
+ * can track which VMCS fields we need to support for Xen.
+ *
+ * The counters are stored in a global array (defined above) and incremented
+ * using an atomic operation to permit this function to be used safely in an
+ * SMP environment.
+ *
+ * This code has been written with no serious attention paid to performance
+ * or security, and should only be used for debugging.
+ */
+void
+log_vmcs_write(enum sva_vmcs_field field, uint64_t data) {
+  /* Bounds check to avoid overflowing counter array */
+  if ((uint32_t)field >= 0x7000) {
+    printf("SVA log_vmcs_write(): VMCS field %u exceeds 0x7000\n", (uint32_t)field);
+    return;
+  }
+
+  //vmcs_write_counters[(size_t)field]++;
+  __atomic_fetch_add(&vmcs_write_counters[(size_t)field], 1, __ATOMIC_RELAXED);
+
+  /*
+   * Log the specific values written to this VMCS field if we have selected
+   * it for detailed logging.
+   */
+  if (vmcs_contents_log_enabled && field == vmcs_contents_log_field) {
+    bool found_match = false;
+    for (size_t i = 0; i < vmcs_contents_log_idx; i++) {
+      if (vmcs_contents_log[i].count && vmcs_contents_log[i].contents == data) {
+        __atomic_fetch_add(&vmcs_contents_log[i].count, 1, __ATOMIC_RELAXED);
+        found_match = true;
+        break;
+      }
+    }
+
+    if (!found_match) {
+      size_t next_idx = __atomic_fetch_add(&vmcs_contents_log_idx, 1, __ATOMIC_RELAXED);
+      vmcs_contents_log[next_idx].contents = data;
+      __atomic_fetch_add(&vmcs_contents_log[next_idx].count, 1, __ATOMIC_RELAXED);
+    }
+  }
+}
+
+/* as above */
+void
+log_vmcs_read(enum sva_vmcs_field field) {
+  /* Bounds check to avoid overflowing counter array */
+  if ((uint32_t)field >= 0x7000) {
+    printf("SVA log_vmcs_read(): VMCS field %u exceeds 0x7000\n", (uint32_t)field);
+    return;
+  }
+
+  __atomic_fetch_add(&vmcs_read_counters[(size_t)field], 1, __ATOMIC_RELAXED);
+}
+
+/*
+ * Function: print_logged_vmcs_accesses()
+ *
+ * Prints a human-readable summary of the data logged by
+ * log_vmcs_read/write().
+ */
+void
+print_logged_vmcs_accesses(void) {
+  printf("-------------------------------\n");
+  printf("SVA: VMCS write counter values:\n");
+
+  for (size_t i = 0; i < 0x7000; i++) {
+    if (vmcs_write_counters[i]) {
+      print_vmcs_field_name((enum sva_vmcs_field)i, true);
+      printf(": %u\n", vmcs_write_counters[i]);
+    }
+  }
+
+  printf("-------------------------------\n");
+  printf("SVA: VMCS read counter values:\n");
+
+  for (size_t i = 0; i < 0x7000; i++) {
+    if (vmcs_read_counters[i]) {
+      print_vmcs_field_name((enum sva_vmcs_field)i, true);
+      printf(": %u\n", vmcs_read_counters[i]);
+    }
+  }
+
+  printf("-------------------------------\n");
+
+  if (vmcs_contents_log_enabled) {
+    printf("SVA: detailed write log for VMCS field ");
+    print_vmcs_field_name(vmcs_contents_log_field, true);
+    printf(" (%lu distinct values observed):\n", vmcs_contents_log_idx - 1);
+
+    for (size_t i = 0; i < 100; i++) {
+      if (i >= vmcs_contents_log_idx)
+        break;
+
+      printf("0x%16lx: written %u times\n",
+          vmcs_contents_log[i].contents, vmcs_contents_log[i].count);
+    }
+  }
+
+  printf("-------------------------------\n");
+}
+
+void
+set_detailed_vmcs_logging(bool enable_log, enum sva_vmcs_field field) {
+  vmcs_contents_log_enabled = false;
+
+  vmcs_contents_log_field = field;
+  vmcs_contents_log_idx = 0;
+
+  vmcs_contents_log_enabled = enable_log;
+}
+
+void
+handle_vmcsdebug_hypercall(sva_icontext_t *ic) {
+  switch(ic->rdi) {
+    case 0:
+      print_logged_vmcs_accesses();
+      break;
+    case 1:
+      set_detailed_vmcs_logging((bool)ic->rsi, (enum sva_vmcs_field)ic->rdx);
+      break;
+    default:
+      panic("SVA: handle_vmcsdebug_hypercall(): invalid argument in RDI\n");
+      break;
+  }
 }

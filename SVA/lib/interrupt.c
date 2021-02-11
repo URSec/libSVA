@@ -119,6 +119,22 @@ bool pre_syscall(void) {
   ic->can_fork = syscall_number == 2 || syscall_number == 66 ||
                  syscall_number == 251 || syscall_number == 518;
 #endif
+
+#if 0
+  /*
+   * We use the special syscall number 0xf00dbeef to permit userspace (or Xen
+   * PV guest) clients to request that SVA perform special debugging
+   * operations.
+   */
+  sva_icontext_t *ic = getCPUState()->newCurrentIC;
+  if (ic->rax == 0xf00dbeef) {
+    void handle_vmcsdebug_hypercall(sva_icontext_t *ic);
+    handle_vmcsdebug_hypercall(ic);
+
+    /* SVA handled this trap, don't pass it on to the system software */
+    return true;
+  }
+#endif
   return false;
 }
 

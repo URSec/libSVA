@@ -1534,7 +1534,7 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
 
 #if 0
   DBGPRNT(("sva_readvmcs() intrinsic called with field="));
-  print_vmcs_field_name(field);
+  print_vmcs_field_name(field, SVAVMX_DEBUG);
   DBGPRNT((" (0x%lx), data=%p\n", field, data));
 #endif
 
@@ -1563,11 +1563,6 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
    * since we know this processor currently holds the descriptor lock.
    */
 
-  /*
-   * FIXME: check *data out-parameter pointer to ensure that the caller is
-   * not trying to trick us into overwriting secure memory!
-   */
-
   uint64_t out;
 
   /*
@@ -1580,6 +1575,16 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
    * Xen.
    */
   int retval = readvmcs_unchecked(field, &out);
+
+#if 0
+  /*
+   * DEBUG CODE: Log this VMCS read so that we can determine which VMCS
+   * fields Xen needs us to support.
+   */
+  extern void log_vmcs_read(enum sva_vmcs_field);
+  log_vmcs_read(field);
+#endif
+
 #else
   int retval = readvmcs_checked(field, &out);
 #endif
@@ -1651,7 +1656,7 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
 
 #if 0
   DBGPRNT(("sva_writevmcs() intrinsic called with field="));
-  print_vmcs_field_name(field);
+  print_vmcs_field_name(field, SVAVMX_DEBUG);
   DBGPRNT((" (0x%lx), data=0x%lx\n", field, data));
 #endif
 
@@ -1690,6 +1695,16 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
    * Xen.
    */
   int retval = writevmcs_unchecked(field, data);
+
+#if 0
+  /*
+   * DEBUG CODE: Log this VMCS write so that we can determine which VMCS
+   * fields Xen needs us to support.
+   */
+  extern void log_vmcs_write(enum sva_vmcs_field, uint64_t data);
+  log_vmcs_write(field, data);
+#endif
+
 #else
   int retval = writevmcs_checked(field, data);
 #endif
@@ -3469,7 +3484,7 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
 
     default:
       printf("SVA: Attempted read from VMCS field: 0x%x (", field);
-      print_vmcs_field_name(field);
+      print_vmcs_field_name(field, true);
       printf(")\n");
       panic("SVA: Disallowed read to VMCS field not on read whitelist.\n");
 
@@ -3974,7 +3989,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
 
     default:
       printf("SVA: Attempted write to VMCS field: 0x%x (", field);
-      print_vmcs_field_name(field);
+      print_vmcs_field_name(field, true);
       printf("); value = 0x%lx\n", data);
       panic("SVA: Disallowed write to VMCS field not on write whitelist.\n");
 

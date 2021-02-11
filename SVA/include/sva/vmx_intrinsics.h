@@ -655,7 +655,7 @@ uintptr_t sva_get_vmcs_paddr(int vmid); /* defined in debug.c */
 int sva_get_vmid_from_vmcs(uintptr_t vmcs_paddr); /* defined in debug.c */
 /* Functions for printing debug information to screen (defined in debug.c) */
 void sva_print_vmx_msrs(void);
-void print_vmcs_field_name(enum sva_vmcs_field);
+void print_vmcs_field_name(enum sva_vmcs_field field, bool enable);
 void print_vmcs_field(enum sva_vmcs_field field, uint64_t value);
 void sva_print_vmcs_allowed_settings(void);
 
