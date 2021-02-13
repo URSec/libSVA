@@ -3482,6 +3482,8 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     case VMCS_VM_EXIT_INSTR_INFO:
     case VMCS_VM_INSTR_ERROR:
     case VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:
+    case VMCS_PLE_GAP:
+    case VMCS_PLE_WINDOW:
     case VMCS_TSC_OFFSET:
     case VMCS_TSC_MULTIPLIER:
       return readvmcs_unchecked(field, data);
@@ -3989,6 +3991,8 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_GUEST_ACTIVITY_STATE:
     case VMCS_GUEST_INTERRUPTIBILITY_STATE:
     case VMCS_GUEST_PENDING_DBG_EXCEPTIONS:
+    case VMCS_PLE_GAP:
+    case VMCS_PLE_WINDOW:
     case VMCS_TSC_OFFSET:
     case VMCS_TSC_MULTIPLIER:
       return writevmcs_unchecked(field, data);
