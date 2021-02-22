@@ -3487,6 +3487,10 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     case VMCS_TSC_OFFSET:
     case VMCS_TSC_MULTIPLIER:
     case VMCS_GUEST_INTERRUPT_STATUS:
+    case VMCS_EOI_EXIT_BITMAP_0:
+    case VMCS_EOI_EXIT_BITMAP_1:
+    case VMCS_EOI_EXIT_BITMAP_2:
+    case VMCS_EOI_EXIT_BITMAP_3:
       return readvmcs_unchecked(field, data);
 
     default:
@@ -3997,6 +4001,10 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_TSC_OFFSET:
     case VMCS_TSC_MULTIPLIER:
     case VMCS_GUEST_INTERRUPT_STATUS:
+    case VMCS_EOI_EXIT_BITMAP_0:
+    case VMCS_EOI_EXIT_BITMAP_1:
+    case VMCS_EOI_EXIT_BITMAP_2:
+    case VMCS_EOI_EXIT_BITMAP_3:
       return writevmcs_unchecked(field, data);
 
     default:
