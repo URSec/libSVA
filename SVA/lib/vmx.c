@@ -3466,6 +3466,9 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
      */
     case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
     case VMCS_VM_ENTRY_EXCEPTION_ERROR_CODE:
+    case VMCS_EXCEPTION_BITMAP:
+    case VMCS_PAGE_FAULT_ERROR_CODE_MASK:
+    case VMCS_PAGE_FAULT_ERROR_CODE_MATCH:
     case VMCS_GUEST_RIP:
     case VMCS_GUEST_RSP:
     case VMCS_GUEST_RFLAGS:
@@ -3940,6 +3943,8 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
     case VMCS_VM_ENTRY_EXCEPTION_ERROR_CODE:
     case VMCS_EXCEPTION_BITMAP:
+    case VMCS_PAGE_FAULT_ERROR_CODE_MASK:
+    case VMCS_PAGE_FAULT_ERROR_CODE_MATCH:
     case VMCS_GUEST_RIP:
     case VMCS_GUEST_RSP:
     case VMCS_GUEST_RFLAGS:
