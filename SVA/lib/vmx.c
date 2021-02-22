@@ -3494,6 +3494,7 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     case VMCS_EOI_EXIT_BITMAP_2:
     case VMCS_EOI_EXIT_BITMAP_3:
     case VMCS_TPR_THRESHOLD:
+    case VMCS_XSS_EXITING_BITMAP:
       return readvmcs_unchecked(field, data);
 
     default:
@@ -4010,6 +4011,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_EOI_EXIT_BITMAP_2:
     case VMCS_EOI_EXIT_BITMAP_3:
     case VMCS_TPR_THRESHOLD:
+    case VMCS_XSS_EXITING_BITMAP:
       return writevmcs_unchecked(field, data);
 
     default:
