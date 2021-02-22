@@ -3486,6 +3486,7 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     case VMCS_PLE_WINDOW:
     case VMCS_TSC_OFFSET:
     case VMCS_TSC_MULTIPLIER:
+    case VMCS_GUEST_INTERRUPT_STATUS:
       return readvmcs_unchecked(field, data);
 
     default:
@@ -3995,6 +3996,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_PLE_WINDOW:
     case VMCS_TSC_OFFSET:
     case VMCS_TSC_MULTIPLIER:
+    case VMCS_GUEST_INTERRUPT_STATUS:
       return writevmcs_unchecked(field, data);
 
     default:
