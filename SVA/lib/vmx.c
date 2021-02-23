@@ -2121,6 +2121,8 @@ entry:
   writevmcs_unchecked(VMCS_HOST_CR4, host_cr4);
   uint64_t host_efer = read_efer();
   writevmcs_unchecked(VMCS_HOST_IA32_EFER, host_efer);
+  uint64_t host_pat = rdmsr(MSR_IA32_PAT);
+  writevmcs_unchecked(VMCS_HOST_IA32_PAT, host_pat);
 #if 0
   DBGPRNT(("run_vm: Saved host control registers.\n"));
 #endif
