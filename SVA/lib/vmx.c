@@ -4708,6 +4708,8 @@ static void posted_interrupts_disable(void) {
 }
 
 int sva_vlapic_disable(void) {
+  /* TODO: enter interrupt critical section */
+
   int __sva_intrinsic_result = 0;
 
   kernel_to_usersva_pcid();
@@ -4767,6 +4769,8 @@ __sva_fail:
 }
 
 int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
+  /* TODO: enter interrupt critical section */
+
   int __sva_intrinsic_result = 0;
 
   kernel_to_usersva_pcid();
@@ -4853,6 +4857,8 @@ __sva_fail:
 }
 
 int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame) {
+  /* TODO: enter interrupt critical section */
+
   int __sva_intrinsic_result = 0;
 
   kernel_to_usersva_pcid();
@@ -4929,6 +4935,8 @@ __sva_fail:
 }
 
 int sva_posted_interrupts_disable(void) {
+  /* TODO: enter interrupt critical section */
+
   int __sva_intrinsic_result = 0;
 
   kernel_to_usersva_pcid();
@@ -4954,6 +4962,8 @@ __sva_fail:
 }
 
 int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor) {
+  /* TODO: enter interrupt critical section */
+
   int __sva_intrinsic_result = 0;
 
   kernel_to_usersva_pcid();

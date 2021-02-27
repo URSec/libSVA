@@ -665,13 +665,20 @@ typedef struct vmx_host_state_t {
 extern struct vm_desc_t vm_descs[MAX_VMS]; /* defined in vmx.c */
 
 /**********
- * Helper functions
+ * Helper functions for use internally by SVA code
+ *
+ * Some of these are static inline, i.e. the forward declarations here are
+ * for organizational purposes only; they are intended for use only within a
+ * single translation unit (e.g. vmx.c or vmx_ept.c) and that is where their
+ * (unique) definitions live. If needed in multiple translation units they
+ * will need to be either un-inlined or fully moved into this header.
 **********/
 static inline uint32_t cpuid_1_ecx(void);
 static inline unsigned char cpu_supports_vmx(void);
 static inline unsigned char cpu_permit_vmx(void);
 static inline unsigned char check_cr0_fixed_bits(void);
 static inline unsigned char check_cr4_fixed_bits(void);
+
 static inline void update_vmcs_ctrls();
 static inline void save_restore_guest_state(unsigned char saverestore);
 static inline int read_write_vmcs_field(
@@ -681,6 +688,7 @@ static inline int readvmcs_checked(enum sva_vmcs_field field, uint64_t *data);
 static inline int readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data);
 static inline int writevmcs_checked(enum sva_vmcs_field field, uint64_t data);
 static inline int writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data);
+
 void load_eptable_internal(
     int vmid, pml4e_t __kern* epml4t, unsigned char is_initial_setting);
 

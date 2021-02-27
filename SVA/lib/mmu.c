@@ -437,7 +437,7 @@ void initDeclaredPage(uintptr_t frame) {
   (void)frame;
 
   /*
-   * Do a global TLB flush (including for EPT if SVA-VMX is active) to
+   * Do a global TLB flush (including for EPT/VPID if Shade is active) to
    * ensure that there are no stale mappings to this page that the OS
    * neglected to flush.
    *

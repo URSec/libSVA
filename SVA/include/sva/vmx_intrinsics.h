@@ -546,7 +546,8 @@ void sva_getvmfpu(int vmid, union xsave_area_max __kern* out_data);
 void sva_setvmfpu(int vmid, union xsave_area_max __kern* in_data);
 
 /*
- * VMX-specific MMU intrinsics for managing Extended Page Tables.
+ * VMX-specific MMU intrinsics for managing Extended Page Tables
+ * (impl. in vmx_ept.c)
  *
  * In addition to the intrinsics declared here, the following
  * non-EPT-specific MMU intrinsics (see mmu_intrinsics.h) support extended
@@ -561,6 +562,13 @@ void sva_declare_l4_eptpage(uintptr_t frameAddr);
 void sva_update_ept_mapping(page_entry_t __kern* eptePtr, page_entry_t val);
 void sva_load_eptable(int vmid, pml4e_t __kern* epml4t);
 uintptr_t sva_save_eptable(int vmid);
+
+/* EPT/VPID TLB flush intrinsics (impl. in vmx_ept.c) */
+void sva_flush_ept_all(void);
+void sva_flush_ept_single(paddr_t ept_root_ptp);
+void sva_flush_vpid_all(void);
+void sva_flush_vpid_single(int vmid, bool retain_global);
+void sva_flush_vpid_addr(int vmid, uintptr_t guest_linear_addr);
 
 /*******************************************************************************
  *                       APIC virtualization interface

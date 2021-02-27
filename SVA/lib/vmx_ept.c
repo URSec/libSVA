@@ -410,3 +410,334 @@ sva_save_eptable(int vmid) {
 
   return epml4t_paddr;
 }
+
+/*
+ * Helper function: do_invept()
+ *
+ * Encapsulates INVEPT inline assembly used by multiple higher-level
+ * functions.
+ *
+ * @param invept_type   Type of the INVEPT operation to be performed
+ *                      (see Intel manual for valid types).
+ * @param ept_root_ptp  The host-physical address of the root extended page
+ *                      table whose address translations are to be
+ *                      invalidated.
+ *
+ * @return    True if INVEPT returned status code VMsucceed, false otherwise.
+ */
+static inline bool
+do_invept(uint64_t invept_type, paddr_t ept_root_ptp) {
+  /*
+   * Set up a 128-bit "INVEPT descriptor" in memory which serves as one of
+   * the arguments to INVEPT.
+   *
+   * The lower 64 bits contain the EPT root pointer whose associated TLB
+   * entries are to be flushed.
+   *
+   * The upper 64 bits are reserved and must be set to 0 for safe forward
+   * compatibility.
+   *
+   * Note: Intel treats the INVEPT descriptor as a single 128-bit
+   * little-endian (unsigned) integer, so the lower 64 bits are at the
+   * *beginning* (bytewise, i.e. the first byte is bits 7-0 in that order,
+   * the second is 15-7 in that order, etc.). The net result is that we can
+   * represent the descriptor as a packed struct comprised of individual
+   * integer fields of the appropriate sizes, but we have to list those
+   * fields in "reverse order" in the struct definition vs. how they're
+   * listed in the Intel manual.
+   */
+  struct __packed {
+    uint64_t eptp;
+    uint64_t reserved;
+  } invept_descriptor = {ept_root_ptp, 0};
+
+  uint64_t rflags_invept;
+  asm __volatile__ (
+      "invept %[desc], %[type]\n"
+      "pushfq\n"
+      "popq %[rflags]\n"
+      : [rflags] "=r" (rflags_invept)
+      : [desc] "m" (invept_descriptor),
+        [type] "r" (invept_type)
+      : "memory", "cc"
+      );
+
+  return query_vmx_result(rflags_invept) == VM_SUCCEED;
+}
+
+/*
+ * Helper function: do_invvpid()
+ *
+ * Encapsulates INVVPID inline assembly used by multiple higher-level
+ * functions.
+ *
+ * @param invvpid_type        Type of the INVVPID operation to be performed
+ *                            (see Intel manual for valid types).
+ * @param vpid                The VPID to be flushed (for single-context and
+ *                            individual-address flushes).
+ * @param guest_linear_addr   The guest-linear address to be flushed (for
+ *                            individual-address flushes).
+ *
+ * @return    True if INVVPID returned status code VMsucceed, false otherwise.
+ */
+static inline bool
+do_invvpid(uint64_t invvpid_type, uint16_t vpid, uint64_t guest_linear_addr) {
+  /*
+   * Set up a 128-bit "INVVPID descriptor" in memory which serves as one of
+   * the arguments to INVVPID.
+   *
+   * - Bits 0-15 specify the VPID whose translations should be cleared from
+   *   the TLB.
+   *
+   * - Bits 16-63 are reserved and must be set to 0 for safe forward
+   *   compatibility.
+   *
+   * - Bits 64-127 specify a linear address whose translations should be
+   *   cleared from the TLB. Its setting does not matter for single-context
+   *   flushes such as we are going to do here, which flush mappings
+   *   irrespective of linear address so long as they match the specified
+   *   VPID.
+   *
+   * Note: Intel treats the INVVPID descriptor as a single 128-bit
+   * little-endian (unsigned) integer, so bits 0-15 are at the beginning
+   * (bytewise, i.e. the first byte is bits 7-0 in that order, the second is
+   * 15-7 in that order, etc.). The net result is that we can represent the
+   * descriptor as a packed struct comprised of individual integer fields of
+   * the appropriate sizes, but we have to list those fields in "reverse
+   * order" in the struct definition vs. how they're listed in the Intel
+   * manual.
+   */
+  struct __packed {
+    uint16_t vpid;
+    uint64_t reserved:48;
+    uint64_t guest_linear_addr;
+  } invvpid_descriptor = {vpid, 0, guest_linear_addr};
+
+  uint64_t rflags_invvpid;
+  asm __volatile__ (
+      "invvpid %[desc], %[type]\n"
+      "pushfq\n"
+      "popq %[rflags]\n"
+      : [rflags] "=r" (rflags_invvpid)
+      : [desc] "m" (invvpid_descriptor),
+        [type] "r" (invvpid_type)
+      : "memory", "cc"
+      );
+
+  return query_vmx_result(rflags_invvpid) == VM_SUCCEED;
+}
+
+/*
+ * Intrinsic: sva_flush_ept_all()
+ *
+ * Issues a global INVEPT, i.e. invalidates all EPT-associated translations
+ * in the current processor's TLB.
+ *
+ * This can include both what the Intel manual refers to as "guest-physical"
+ * and "combined" translations, which are respectively used for unpaged and
+ * paged memory accesses by the guest while EPT is enabled. ("Combined"
+ * translations are tagged with *both* the associated EPT root pointer and
+ * the associated VPID, and can be flushed by *either* an INVEPT or INVVPID
+ * that matches the appropriate tag.)
+ */
+void
+sva_flush_ept_all(void) {
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_flush_ept_all(): Shade has not yet been initialized on this "
+      "processor. Cannot issue INVEPT as that instruction is not valid "
+      "unless the system is running in VMX operation.\n");
+
+  bool result = do_invept(
+      2 /* INVEPT type: all-contexts (global) invalidation */,
+      0 /* EPT root pointer is irrelevant for all-contexts flush */);
+
+  SVA_ASSERT(result,
+      "sva_flush_ept_all: INVEPT failed. Perhaps the processor isn't "
+      "new enough to support INVEPT?");
+}
+
+/*
+ * Intrinsic: sva_flush_ept_single()
+ *
+ * Issues a single-context INVEPT to invalidate all translations in the
+ * current procesesor's TLB that are associated with the specified extended
+ * page table root pointer.
+ *
+ * This can include both what the Intel manual refers to as "guest-physical"
+ * and "combined" translations, which are respectively used for unpaged and
+ * paged memory accesses by the guest while EPT is enabled. ("Combined"
+ * translations are tagged with *both* the associated EPT root pointer and
+ * the associated VPID, and can be flushed by *either* an INVEPT or INVVPID
+ * that matches the appropriate tag.)
+ *
+ * @param ept_root_ptp  The host-physical address of the root extended page
+ *                      table whose address translations are to be
+ *                      invalidated.
+ */
+void
+sva_flush_ept_single(paddr_t ept_root_ptp) {
+ /*
+  * NOTE: The specified EPT root pointer should, operationally, correspond to
+  * a valid host-physical address that has been declared to SVA as a level-4
+  * extended page table frame.
+  *
+  * However, we do *not* need to enforce this with a runtime check, as it is
+  * not security sensitive. There is no harm in allowing the system software
+  * to issue a TLB flush for an invalid EPT root address; at worst, it could
+  * slow the system down by discarding pefectly good TLB entries. (Since we
+  * allow the system software to perform wholesale TLB flushes with other
+  * intrinsics, that's nothing it can't already do.)
+  */
+
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_flush_ept_single(): Shade has not yet been initialized on this "
+      "processor. Cannot issue INVEPT as that instruction is not valid "
+      "unless the system is running in VMX operation.\n");
+
+  bool result = do_invept(
+      1 /* INVEPT type: single-context invalidation */,
+      ept_root_ptp);
+
+  SVA_ASSERT(result,
+      "sva_flush_ept_single(): INVEPT failed. Perhaps the processor "
+      "isn't new enough to support the single-context mode for INVEPT?");
+}
+
+/*
+ * Intrinsic: sva_flush_vpid_all()
+ *
+ * Issues an all-contexts INVVPID, i.e. invalidates all VPID-associated
+ * translations in the current processor's TLB, except for VPID 0. (VPID 0
+ * represents the host system; to flush host mappings, use sva_mm_flush_tlb()
+ * or sva_mm_flush_tlb_global() as appropriate.)
+ *
+ * This can include both what the Intel manual refers to as "guest-physical"
+ * and "combined" translations, which are respectively used for unpaged and
+ * paged memory accesses by the guest while EPT is enabled. ("Combined"
+ * translations are tagged with *both* the associated EPT root pointer and
+ * the associated VPID, and can be flushed by *either* an INVEPT or INVVPID
+ * that matches the appropriate tag.)
+ */
+void
+sva_flush_vpid_all(void) {
+  /*
+   * Xen sometimes calls this intrinsic before it has called sva_initvmx() to
+   * initialize Shade (and thus perform VMXON) on a processor.
+   *
+   * In such a case, this intrinsic can safely be a no-op, as no
+   * VPID-associated translations can have yet been created in the TLB.
+   *
+   * There is no functional reason for Xen to do this, but it seems to do so
+   * for code-organizational reasons because non-SVA Xen implements this
+   * flush such that it is a harmless no-op when done prior to VMXON.
+   * Non-SVA Xen increments the VPID value through a generational scheme
+   * rather than explicitly issuing INVVPID; it implements the all-context
+   * flush by starting a new generation (i.e. incrementing a per-CPU
+   * counter). That generational scheme doesn't play nice with how Shade
+   * handles VPIDs, so in the SVA port we changed Xen to instead explicitly
+   * call our INVVPID intrinsics (eliminating the need to change the actual
+   * VPID value). This means, however, that we need to tolerate this
+   * intrinsic being called prior to sva_initvmx() even though INVVPID will
+   * #UD if issued prior to VMXON.
+   */
+  if (!getCPUState()->vmx_initialized)
+    return;
+
+  bool result = do_invvpid(
+      2 /* INVVPID type: all-contexts (global) invalidation */,
+      0 /* VPID is irrelevant for all-contexts flush */,
+      0 /* guest-linear address is irrelevant for all-contexts flush */);
+
+  SVA_ASSERT(result,
+      "sva_flush_vpid_all(): INVVPID failed. Perhaps the processor "
+      "isn't new enough to support INVVPID?");
+}
+
+/*
+ * Intrinsic: sva_flush_vpid_single()
+ *
+ * Issues a single-context INVVPID to invalidate all translations in the
+ * current processor's TLB that are associated with the specified VM's VPID.
+ *
+ * This can include both what the Intel manual refers to as "guest-physical"
+ * and "combined" translations, which are respectively used for unpaged and
+ * paged memory accesses by the guest while EPT is enabled. ("Combined"
+ * translations are tagged with *both* the associated EPT root pointer and
+ * the associated VPID, and can be flushed by *either* an INVEPT or INVVPID
+ * that matches the appropriate tag.)
+ *
+ * @param vmid            The SVA VM ID of the VM whose associated
+ *                        translations in the TLB should be flushed.
+ *
+ * @param retain_global   Whether global translations should be retained by
+ *                        the flush even if they match the specified VPID.
+ */
+void
+sva_flush_vpid_single(int vmid, bool retain_global) {
+  /*
+   * NOTE: It is not necessary to bounds-check the VMID, check whether it
+   * actually corresponds to a valid (i.e. currently in-use) descriptor, or
+   * to check/take the descriptor lock. There is no harm in allowing the
+   * system software to issue a TLB flush for an invalid VM's VPID; at worst,
+   * it could slow the system down by discarding pefectly good TLB entries.
+   * (Since we allow the system software to perform wholesale TLB flushes
+   * with other intrinsics, that's nothing it can't already do.)
+   */
+
+  /*
+   * NOTE: Currently, we use the scheme VPID == VMID in all cases. If
+   * this becomes inadequate in the future and we need to adopt a more
+   * complicated scheme (say, if we want to support more than 2^16 concurrent
+   * vCPUs, or if for some reason we want to adopt an incrementing scheme
+   * like non-SVA Xen uses), this code will need to be changed to look up the
+   * current VPID in the VM descriptor (or wherever we might store it). Note
+   * that if we were to do so, we might (depending on the design) need to
+   * check or take the VM descriptor lock (which we don't now, see above).
+   *
+   * We therefore can simply cast vmid to a 16-bit uint to conform with the
+   * hardware's VPID format. If the caller gave us a value outside of
+   * uint16_t's range, casting it by value as we do here will suffice to
+   * prevent undefined behavior and simply pass a garbage value to INVVPID.
+   * As noted above, a "stray" INVVPID is harmless from a security
+   * perspective.
+   */
+  uint16_t vpid = (uint16_t) vmid;
+
+  SVA_ASSERT(getCPUState()->vmx_initialized,
+      "sva_flush_vpid_single(): Shade has not yet been initialized on this "
+      "processor. Cannot issue INVVPID as that instruction is not valid "
+      "unless the system is running in VMX operation.\n");
+
+  bool result = do_invvpid(
+      retain_global
+        ? 3 /* INVVPID type: single-context invalidation,
+               retaining global translations */
+        : 1 /* INVVPID type: single-context invalidation */,
+      vpid,
+      0 /* guest-linear address is irrelevant for single-context flush */);
+
+  SVA_ASSERT(result,
+      "sva_flush_vpid_single(): INVVPID failed. Perhaps the processor "
+      "isn't new enough to support the specified INVVPID mode?");
+}
+
+/*
+ * Intrinsic: sva_flush_vpid_addr()
+ *
+ * Issues an individual-address INVVPID to invalidate translations in the
+ * current processor's TLB that are associated with the specified VM's VPID
+ * *and* the given guest-linear address (i.e., which translate that linear
+ * address within the context of the specified guest environment).
+ *
+ * @param vmid    The SVA VM ID of the VM whose associated translations
+ *                translating the given guest-linear address should be
+ *                flushed.
+ *
+ * @param guest_linear_addr   The guest-linear address whose associated
+ *                            translations should be flushed within the
+ *                            context of the specified VM.
+ */
+void
+sva_flush_vpid_addr(int __attribute__((unused)) vmid, uintptr_t __attribute__((unused)) guest_linear_addr) {
+  panic("sva_flush_vpid_addr(): Unimplemented");
+}
