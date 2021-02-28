@@ -4705,14 +4705,6 @@ init_vmcs_ctrls(void) {
   writevmcs_unchecked(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
 
   /*
-   * FIXME: temporarily disabled during incremental port of Xen's VMX code
-   * to Shade.
-   *
-   * These would collide with Xen's use of the MSR-load/store feature,
-   * which we have not yet ported to Shade.
-   */
-#ifndef XEN
-  /*
    * Set VM-entry/exit MSR load/store counts to 0 to indicate that we will
    * not use the general-purpose MSR save/load feature.
    *
@@ -4722,7 +4714,6 @@ init_vmcs_ctrls(void) {
   writevmcs_unchecked(VMCS_VM_ENTRY_MSR_LOAD_COUNT, 0);
   writevmcs_unchecked(VMCS_VM_EXIT_MSR_LOAD_COUNT, 0);
   writevmcs_unchecked(VMCS_VM_EXIT_MSR_STORE_COUNT, 0);
-#endif
 
   /*******
    * SVA permits the hypervisor to modify the following fields with
