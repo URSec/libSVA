@@ -61,6 +61,16 @@ struct vm_desc_t __svadata vm_descs[MAX_VMS];
 
 static int run_vm(unsigned char use_vmresume);
 
+/**
+ * Allocate and initialize a VM's MSR exiting bitmaps.
+ */
+static int msr_bitmaps_init(vm_desc_t* vm);
+
+/**
+ * Free a VM's MSR exiting bitmaps.
+ */
+static int msr_bitmaps_free(vm_desc_t* vm);
+
 /*
  * Function: cpuid_1_ecx()
  *
@@ -786,6 +796,11 @@ sva_allocvm(pml4e_t __kern* initial_eptable) {
   vm->vlapic.posted_interrupts_enabled = false;
 
   /*
+   * Initialize the MSR extiing bitmaps.
+   */
+  msr_bitmaps_init(vm);
+
+  /*
    * Allocate a physical frame of SVA secure memory from the frame cache to
    * serve as this VM's Virtual Machine Control Structure.
    *
@@ -969,6 +984,11 @@ sva_freevm(int vmid) {
           "processor!\n");
     }
   }
+
+  /*
+   * Drop MSR exiting bitmaps.
+   */
+  msr_bitmaps_free(vm);
 
   /*
    * Drop vlAPIC frames.
@@ -4816,4 +4836,28 @@ init_vmcs_ctrls(void) {
   entry.fields.reserved12 = 1;
 
   writevmcs_checked(VMCS_VM_ENTRY_CTRLS, entry.buf);
+}
+
+static paddr_t exiting_bitmap_create(void) {
+  paddr_t frame = alloc_frame();
+  frame_morph(get_frame_desc(frame), PGT_SVA);
+  frame_take(get_frame_desc(frame), PGT_SVA);
+  memset(__va(frame), ~0, FRAME_SIZE);
+  return frame;
+}
+
+static void exiting_bitmap_free(paddr_t frame) {
+  frame_drop(get_frame_desc(frame), PGT_SVA);
+  frame_morph(get_frame_desc(frame), PGT_FREE);
+  free_frame(frame);
+}
+
+static int msr_bitmaps_init(vm_desc_t* vm) {
+  vm->msr_exiting_bitmaps = exiting_bitmap_create();
+  return 0;
+}
+
+static int msr_bitmaps_free(vm_desc_t* vm) {
+  exiting_bitmap_free(vm->msr_exiting_bitmaps);
+  return 0;
 }

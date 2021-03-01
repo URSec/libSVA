@@ -723,6 +723,11 @@ typedef struct vm_desc_t {
    * The VM's vlAPIC (virtual local APIC).
    */
   struct vlapic vlapic;
+
+  /**
+   * The VM's MSR exiting bitmaps.
+   */
+  paddr_t msr_exiting_bitmaps;
 } vm_desc_t;
 
 /*
