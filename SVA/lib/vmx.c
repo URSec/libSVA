@@ -2119,6 +2119,10 @@ entry:
   writevmcs_unchecked(VMCS_HOST_CR3, host_cr3);
   uint64_t host_cr4 = read_cr4();
   writevmcs_unchecked(VMCS_HOST_CR4, host_cr4);
+  uint64_t host_efer = read_efer();
+  writevmcs_unchecked(VMCS_HOST_IA32_EFER, host_efer);
+  uint64_t host_pat = rdmsr(MSR_IA32_PAT);
+  writevmcs_unchecked(VMCS_HOST_IA32_PAT, host_pat);
 #if 0
   DBGPRNT(("run_vm: Saved host control registers.\n"));
 #endif
@@ -3462,6 +3466,11 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
      * (This is not an exhaustive list of safe fields. We've only added the
      * ones that we've actually needed thusfar for our toy hypervisor.)
      */
+    case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
+    case VMCS_VM_ENTRY_EXCEPTION_ERROR_CODE:
+    case VMCS_EXCEPTION_BITMAP:
+    case VMCS_PAGE_FAULT_ERROR_CODE_MASK:
+    case VMCS_PAGE_FAULT_ERROR_CODE_MATCH:
     case VMCS_GUEST_RIP:
     case VMCS_GUEST_RSP:
     case VMCS_GUEST_RFLAGS:
@@ -3480,6 +3489,17 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     case VMCS_VM_EXIT_INSTR_INFO:
     case VMCS_VM_INSTR_ERROR:
     case VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:
+    case VMCS_PLE_GAP:
+    case VMCS_PLE_WINDOW:
+    case VMCS_TSC_OFFSET:
+    case VMCS_TSC_MULTIPLIER:
+    case VMCS_GUEST_INTERRUPT_STATUS:
+    case VMCS_EOI_EXIT_BITMAP_0:
+    case VMCS_EOI_EXIT_BITMAP_1:
+    case VMCS_EOI_EXIT_BITMAP_2:
+    case VMCS_EOI_EXIT_BITMAP_3:
+    case VMCS_TPR_THRESHOLD:
+    case VMCS_XSS_EXITING_BITMAP:
       return readvmcs_unchecked(field, data);
 
     default:
@@ -3923,7 +3943,10 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
      * ones that we've actually needed thusfar for our toy hypervisor.)
      */
     case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
+    case VMCS_VM_ENTRY_EXCEPTION_ERROR_CODE:
     case VMCS_EXCEPTION_BITMAP:
+    case VMCS_PAGE_FAULT_ERROR_CODE_MASK:
+    case VMCS_PAGE_FAULT_ERROR_CODE_MATCH:
     case VMCS_GUEST_RIP:
     case VMCS_GUEST_RSP:
     case VMCS_GUEST_RFLAGS:
@@ -3985,6 +4008,17 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_GUEST_ACTIVITY_STATE:
     case VMCS_GUEST_INTERRUPTIBILITY_STATE:
     case VMCS_GUEST_PENDING_DBG_EXCEPTIONS:
+    case VMCS_PLE_GAP:
+    case VMCS_PLE_WINDOW:
+    case VMCS_TSC_OFFSET:
+    case VMCS_TSC_MULTIPLIER:
+    case VMCS_GUEST_INTERRUPT_STATUS:
+    case VMCS_EOI_EXIT_BITMAP_0:
+    case VMCS_EOI_EXIT_BITMAP_1:
+    case VMCS_EOI_EXIT_BITMAP_2:
+    case VMCS_EOI_EXIT_BITMAP_3:
+    case VMCS_TPR_THRESHOLD:
+    case VMCS_XSS_EXITING_BITMAP:
       return writevmcs_unchecked(field, data);
 
     default:
