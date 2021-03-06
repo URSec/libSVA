@@ -5034,6 +5034,44 @@ int sva_vmx_msr_intercept_clear(int vmid, uint32_t msr, enum vmx_exit_bitmap_rw 
     SVA_CHECK(!(rw & VMX_EXIT_BITMAP_R), EPERM);
     break;
 
+  /*
+   * Access to x2APIC MSRs is allowed as long as the vlAPIC is in x2APIC mode.
+   */
+  case MSR_X2APIC_TPR:
+    goto x2apic_msr;
+
+  case MSR_X2APIC_ID:
+  case MSR_X2APIC_VERSION:
+  case MSR_X2APIC_PPR:
+  case MSR_X2APIC_LDR:
+  case MSR_X2APIC_SIVR:
+  case MSR_X2APIC_ISR(0) ... MSR_X2APIC_ISR(7):
+  case MSR_X2APIC_TMR(0) ... MSR_X2APIC_TMR(7):
+  case MSR_X2APIC_IRR(0) ... MSR_X2APIC_IRR(7):
+  case MSR_X2APIC_ESR:
+  case MSR_X2APIC_LVT_CMCI:
+  case MSR_X2APIC_ICR:
+  case MSR_X2APIC_LVT_TIMER:
+  case MSR_X2APIC_LVT_THERMAL:
+  case MSR_X2APIC_LVT_PMI:
+  case MSR_X2APIC_LVT_LINT0:
+  case MSR_X2APIC_LVT_LINT1:
+  case MSR_X2APIC_LVT_ERROR:
+  case MSR_X2APIC_INIT_COUNT:
+  case MSR_X2APIC_CUR_COUNT:
+  case MSR_X2APIC_DIV_CONF:
+    SVA_CHECK(!(rw & VMX_EXIT_BITMAP_W), EPERM);
+    goto x2apic_msr;
+
+  case MSR_X2APIC_EOI:
+  case MSR_X2APIC_SELF_IPI:
+    SVA_CHECK(!(rw & VMX_EXIT_BITMAP_R), EPERM);
+    goto x2apic_msr;
+
+  x2apic_msr:
+    SVA_CHECK(vm->vlapic.mode == VLAPIC_X2APIC, EPERM);
+    break;
+
   default:
     SVA_CHECK(false, EPERM);
   }
