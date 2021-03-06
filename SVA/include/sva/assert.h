@@ -88,13 +88,13 @@ static inline void SVA_NOOP_ASSERT(int res, char* st) {
  * @param cond  The condition to check
  * @param err   The error code to return to the caller on failure
  */
-#define SVA_CHECK(cond, err)                                    \
-  do {                                                          \
-    if (!(cond)) {                                              \
-      printf("SVA: DEBUG: %s: Check failed: " #cond, __func__); \
-      __sva_intrinsic_result = -(err);                          \
-      goto __sva_fail;                                          \
-    }                                                           \
-  } while (0)                                                   \
+#define SVA_CHECK(cond, err)                                          \
+  do {                                                                \
+    if (!(cond)) {                                                    \
+      printf("SVA: DEBUG: %s: Check failed: " #cond "\n", __func__);  \
+      __sva_intrinsic_result = -(err);                                \
+      goto __sva_fail;                                                \
+    }                                                                 \
+  } while (0)                                                         \
 
 #endif /* SVA_ASSERT_H */
