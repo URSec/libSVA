@@ -4980,6 +4980,7 @@ __sva_fail:
 
 int sva_vmx_msr_intercept_clear(int vmid, uint32_t msr, enum vmx_exit_bitmap_rw rw) {
   int __sva_intrinsic_result;
+  int acquired_lock = 0;
   unsigned long rflags = sva_enter_critical();
   kernel_to_usersva_pcid();
 
@@ -4991,16 +4992,47 @@ int sva_vmx_msr_intercept_clear(int vmid, uint32_t msr, enum vmx_exit_bitmap_rw 
   /*
    * Take the lock for this VM if we don't already have it.
    */
-  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
   SVA_CHECK(acquired_lock, EBUSY);
 
+  switch(msr) {
+  /*
+   * Read/Write allowed.
+   */
+  case MSR_IA32_SYSENTER_CS:
+  case MSR_IA32_SYSENTER_EIP:
+  case MSR_IA32_SYSENTER_ESP:
+  case MSR_SPEC_CTRL:
+  case MSR_FS_BASE:
+  case MSR_GS_BASE:
+  case MSR_SHADOW_GS_BASE:
+    break;
+
+  /*
+   * Read-only allowed.
+   */
+  case MSR_EFER:
+    SVA_CHECK(!(rw & VMX_EXIT_BITMAP_W), EPERM);
+    break;
+
+  /*
+   * Write-only allowed.
+   */
+  case MSR_FLUSH_CMD:
+  case MSR_PRED_CMD:
+    SVA_CHECK(!(rw & VMX_EXIT_BITMAP_R), EPERM);
+    break;
+
+  default:
+    SVA_CHECK(false, EPERM);
+  }
   __sva_intrinsic_result = msr_bitmaps_clear_intercept(vm, msr, rw);
 
+__sva_fail:
   if (acquired_lock == 2) {
     vm_desc_unlock(vm);
   }
 
-__sva_fail:
   usersva_to_kernel_pcid();
   sva_exit_critical(rflags);
   return __sva_intrinsic_result;
