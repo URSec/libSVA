@@ -4861,3 +4861,82 @@ static int msr_bitmaps_free(vm_desc_t* vm) {
   exiting_bitmap_free(vm->msr_exiting_bitmaps);
   return 0;
 }
+
+#define MSR_BITMAP_COUNT 0x2000UL
+#define MSR_BITMAP_HIGH_BASE 0xc0000000U
+
+struct msr_bitmaps {
+  unsigned char read_low[MSR_BITMAP_COUNT / CHAR_BIT];
+  unsigned char read_high[MSR_BITMAP_COUNT / CHAR_BIT];
+  unsigned char write_low[MSR_BITMAP_COUNT / CHAR_BIT];
+  unsigned char write_high[MSR_BITMAP_COUNT / CHAR_BIT];
+};
+
+static inline int msr_bitmaps_op_intercept(
+    void (*op)(unsigned char*, size_t, bool*),
+    enum vmx_exit_bitmap_rw* out,
+    vm_desc_t* vm,
+    uint32_t msr,
+    enum vmx_exit_bitmap_rw rw)
+{
+  struct msr_bitmaps* bitmaps = __va(vm->msr_exiting_bitmaps);
+
+  unsigned char (*read_map)[MSR_BITMAP_COUNT / CHAR_BIT];
+  unsigned char (*write_map)[MSR_BITMAP_COUNT / CHAR_BIT];
+
+  size_t idx;
+  if (msr < MSR_BITMAP_COUNT) {
+    read_map = &bitmaps->read_low;
+    write_map = &bitmaps->write_low;
+    idx = msr;
+  } else if (MSR_BITMAP_HIGH_BASE <= msr &&
+             msr < MSR_BITMAP_HIGH_BASE + MSR_BITMAP_COUNT)
+  {
+    read_map = &bitmaps->read_high;
+    write_map = &bitmaps->write_high;
+    idx = msr - MSR_BITMAP_HIGH_BASE;
+  } else {
+    return -ESRCH;
+  }
+
+  bool read, write;
+  if (rw & VMX_EXIT_BITMAP_R) {
+    op(*read_map, idx, &read);
+  }
+  if (rw & VMX_EXIT_BITMAP_W) {
+    op(*write_map, idx, &write);
+  }
+  if (out != NULL) {
+    *out = (read ? VMX_EXIT_BITMAP_R : VMX_EXIT_BITMAP_NONE) |
+           (write ? VMX_EXIT_BITMAP_W : VMX_EXIT_BITMAP_NONE);
+  }
+
+  return 0;
+}
+
+static inline void get_bit(unsigned char* in, size_t off, bool* out) {
+  *out = !!(in[off / CHAR_BIT] & (1 << off % CHAR_BIT));
+}
+
+int msr_bitmaps_get_intercept(vm_desc_t* vm, uint32_t msr, enum vmx_exit_bitmap_rw* out) {
+  *out = VMX_EXIT_BITMAP_NONE;
+  return msr_bitmaps_op_intercept(get_bit, out, vm, msr, VMX_EXIT_BITMAP_RW);
+}
+
+static inline void clear_bit(unsigned char* in, size_t off, bool* _unused) {
+  (void)_unused;
+  in[off / CHAR_BIT] &= ~(1 << off % CHAR_BIT);
+}
+
+int msr_bitmaps_clear_intercept(vm_desc_t* vm, uint32_t msr, enum vmx_exit_bitmap_rw rw) {
+  return msr_bitmaps_op_intercept(clear_bit, NULL, vm, msr, rw);
+}
+
+static inline void set_bit(unsigned char* in, size_t off, bool* _unused) {
+  (void)_unused;
+  in[off / CHAR_BIT] |= 1 << off % CHAR_BIT;
+}
+
+int msr_bitmaps_set_intercept(vm_desc_t* vm, uint32_t msr, enum vmx_exit_bitmap_rw rw) {
+  return msr_bitmaps_op_intercept(set_bit, NULL, vm, msr, rw);
+}

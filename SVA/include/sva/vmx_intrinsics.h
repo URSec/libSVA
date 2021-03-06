@@ -445,4 +445,11 @@ void print_vmcs_field_name(enum sva_vmcs_field field, bool enable);
 void print_vmcs_field(enum sva_vmcs_field field, uint64_t value);
 void sva_print_vmcs_allowed_settings(void);
 
+enum vmx_exit_bitmap_rw {
+  VMX_EXIT_BITMAP_NONE = 0,
+  VMX_EXIT_BITMAP_R = 0x1,
+  VMX_EXIT_BITMAP_W = 0x2,
+  VMX_EXIT_BITMAP_RW = 0x3,
+};
+
 #endif /* _SVA_VMX_INTRINSICS_H */

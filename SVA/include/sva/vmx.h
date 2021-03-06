@@ -997,4 +997,49 @@ vm_desc_unlock(struct vm_desc_t *vm) {
   __atomic_clear(&vm->in_use, __ATOMIC_RELEASE);
 }
 
+/**
+ * Determine if reads or writes to an MSR are configured to cause an exit.
+ *
+ * Requires that the VM's lock is currently held.
+ *
+ * @param[in]  vm   The VM
+ * @param[in]  msr  The MSR for which access is checked
+ * @param[out] out  Whether read and write access is intercepted for the given MSR
+ * @return          0 on success or an error code
+ *
+ * Errors:
+ *  ESRCH The MSR is outside of the range which the exiting bitmaps cover
+ */
+int msr_bitmaps_get_intercept(vm_desc_t* vm, uint32_t msr, enum vmx_exit_bitmap_rw* out);
+
+/**
+ * Allow guest access to an MSR.
+ *
+ * Requires that the VM's lock is currently held.
+ *
+ * @param vm  The VM
+ * @param msr The MSR to which to allow access
+ * @param rw  The kind of access which is to be allowed
+ * @return    0 on success or an error code
+ *
+ * Errors:
+ *  ESRCH The MSR is outside of the range which the exiting bitmaps cover
+ */
+int msr_bitmaps_clear_intercept(vm_desc_t* vm, uint32_t msr, enum vmx_exit_bitmap_rw rw);
+
+/**
+ * Deny guest access to an MSR.
+ *
+ * Requires that the VM's lock is currently held.
+ *
+ * @param vm  The VM
+ * @param msr The MSR to which to deny access
+ * @param rw  The kind of access which is to be denied
+ * @return    0 on success or an error code
+ *
+ * Errors:
+ *  ESRCH The MSR is outside of the range which the exiting bitmaps cover
+ */
+int msr_bitmaps_set_intercept(vm_desc_t* vm, uint32_t msr, enum vmx_exit_bitmap_rw rw);
+
 #endif /* _SVA_VMX_H */
