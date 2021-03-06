@@ -4735,6 +4735,9 @@ init_vmcs_ctrls(void) {
   writevmcs_unchecked(VMCS_VM_EXIT_MSR_LOAD_COUNT, 0);
   writevmcs_unchecked(VMCS_VM_EXIT_MSR_STORE_COUNT, 0);
 
+  writevmcs_unchecked(VMCS_MSR_BITMAPS_ADDR,
+    getCPUState()->active_vm->msr_exiting_bitmaps);
+
   /*******
    * SVA permits the hypervisor to modify the following fields with
    * sva_writevmcs(), but subject to bitwise restrictions enforced by
