@@ -23,12 +23,30 @@
 #include <sva/msr.h>
 #include <sva/util.h>
 
-#define MSR_APIC_BASE ...
 #define MSR_X2APIC_REG_BASE     0x800
 #define MSR_X2APIC_ID           (MSR_X2APIC_REG_BASE + 0x02)
-#define MSR_X2APIC_ISR          (MSR_X2APIC_REG_BASE + 0x10)
+#define MSR_X2APIC_VERSION      (MSR_X2APIC_REG_BASE + 0x03)
+#define MSR_X2APIC_TPR          (MSR_X2APIC_REG_BASE + 0x08)
+#define MSR_X2APIC_PPR          (MSR_X2APIC_REG_BASE + 0x0a)
 #define MSR_X2APIC_EOI          (MSR_X2APIC_REG_BASE + 0x0b)
+#define MSR_X2APIC_LDR          (MSR_X2APIC_REG_BASE + 0x0d)
+#define MSR_X2APIC_SIVR         (MSR_X2APIC_REG_BASE + 0x0f)
+#define MSR_X2APIC_ISR(n)       (MSR_X2APIC_REG_BASE + 0x10 + (n))
+#define MSR_X2APIC_TMR(n)       (MSR_X2APIC_REG_BASE + 0x18 + (n))
+#define MSR_X2APIC_IRR(n)       (MSR_X2APIC_REG_BASE + 0x20 + (n))
+#define MSR_X2APIC_ESR          (MSR_X2APIC_REG_BASE + 0x28)
+#define MSR_X2APIC_LVT_CMCI     (MSR_X2APIC_REG_BASE + 0x2f)
 #define MSR_X2APIC_ICR          (MSR_X2APIC_REG_BASE + 0x30)
+#define MSR_X2APIC_LVT_TIMER    (MSR_X2APIC_REG_BASE + 0x32)
+#define MSR_X2APIC_LVT_THERMAL  (MSR_X2APIC_REG_BASE + 0x33)
+#define MSR_X2APIC_LVT_PMI      (MSR_X2APIC_REG_BASE + 0x34)
+#define MSR_X2APIC_LVT_LINT0    (MSR_X2APIC_REG_BASE + 0x35)
+#define MSR_X2APIC_LVT_LINT1    (MSR_X2APIC_REG_BASE + 0x36)
+#define MSR_X2APIC_LVT_ERROR    (MSR_X2APIC_REG_BASE + 0x37)
+#define MSR_X2APIC_INIT_COUNT   (MSR_X2APIC_REG_BASE + 0x38)
+#define MSR_X2APIC_CUR_COUNT    (MSR_X2APIC_REG_BASE + 0x39)
+#define MSR_X2APIC_DIV_CONF     (MSR_X2APIC_REG_BASE + 0x3e)
+#define MSR_X2APIC_SELF_IPI     (MSR_X2APIC_REG_BASE + 0x3f)
 
 struct apic_icr {
   uint8_t vector: 8;
@@ -141,7 +159,7 @@ static inline void apic_send_ipi(struct apic_icr icr) {
 }
 
 static inline bool apic_isr_test(uint8_t idx) {
-  uint32_t reg = rdmsr(MSR_X2APIC_ISR + (idx / 32));
+  uint32_t reg = rdmsr(MSR_X2APIC_ISR(idx / 32));
   return !!(reg & (1U << (idx % 32)));
 }
 
