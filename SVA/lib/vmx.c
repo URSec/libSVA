@@ -15,6 +15,7 @@
 
 #include <sva/vmx.h>
 #include <sva/vmx_intrinsics.h>
+#include <sva/apic.h>
 #include <sva/fpu.h>
 #include <sva/interrupt.h>
 #include <sva/mmu.h>
@@ -4333,6 +4334,14 @@ static void posted_interrupts_disable(void) {
   active_vm->vlapic.posted_interrupts_enabled = false;
 }
 
+static void vlapic_set_msr_intercepts(vm_desc_t* vm) {
+  for (uint32_t msr = MSR_X2APIC_REG_BASE;
+       msr < MSR_X2APIC_REG_BASE + 0x40; ++msr)
+  {
+    msr_bitmaps_set_intercept(vm, msr, VMX_EXIT_BITMAP_RW);
+  }
+}
+
 int sva_vlapic_disable(void) {
   /* TODO: enter interrupt critical section */
 
@@ -4355,6 +4364,7 @@ int sva_vlapic_disable(void) {
            active_vm->vlapic.mode));
 
   posted_interrupts_disable();
+  vlapic_set_msr_intercepts(active_vm);
 
   switch (active_vm->vlapic.mode) {
   case VLAPIC_OFF:
@@ -4373,7 +4383,6 @@ int sva_vlapic_disable(void) {
     secondary.virtualize_apic_accesses = false;
     secondary.virtualize_x2apic_mode = false;
     secondary.apic_register_virtualization = false;
-    // TODO: Set x2APIC MSR intercepts
 
     BUG_ON(vmcs_proc1ctrls_set(primary));
     BUG_ON(vmcs_proc2ctrls_set(secondary));
@@ -4414,6 +4423,8 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
 
   DBGPRNT(("SVA: vlAPIC is in %d mode. Switching to APIC\n",
            active_vm->vlapic.mode));
+
+  vlapic_set_msr_intercepts(active_vm);
 
   /* Take frame references. */
   SVA_CHECK(is_aligned(virtual_apic_frame, PG_L1_SHIFT), EINVAL);
@@ -4466,7 +4477,6 @@ int sva_vlapic_enable(paddr_t virtual_apic_frame, paddr_t apic_access_frame) {
     secondary.virtualize_apic_accesses = true;
     secondary.virtualize_x2apic_mode = false;
     secondary.apic_register_virtualization = true;
-    // TODO: Set x2APIC MSR intercepts
 
     BUG_ON(vmcs_proc1ctrls_set(primary));
     BUG_ON(vmcs_proc2ctrls_set(secondary));
@@ -4539,7 +4549,6 @@ int sva_vlapic_enable_x2apic(paddr_t virtual_apic_frame) {
     secondary.virtualize_apic_accesses = false;
     secondary.virtualize_x2apic_mode = true;
     secondary.apic_register_virtualization = true;
-    // TODO: Clear x2APIC MSR intercepts
 
     BUG_ON(vmcs_proc1ctrls_set(primary));
     BUG_ON(vmcs_proc2ctrls_set(secondary));
