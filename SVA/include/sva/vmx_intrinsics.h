@@ -452,4 +452,53 @@ enum vmx_exit_bitmap_rw {
   VMX_EXIT_BITMAP_RW = 0x3,
 };
 
+/**
+ * Query whether reads or writes to the given MSR are configured to cause an
+ * exit.
+ *
+ * @param vmid  The VM ID for the VM to query
+ * @param msr   The MSR for which to determine guest accessibility
+ * @return      A value in the range of `enum vmx_exit_bitmap_rw` on success or
+ *              an error code (<0)
+ *
+ * Errors:
+ *  ENODEV  VMX is not initialized
+ *  ESRCH   No VM with the given ID found
+ *  EBUSY   The VM is in use by another CPU
+ *  ESRCH   The MSR is outside the range which the exiting bitmaps cover
+ */
+extern int sva_vmx_msr_intercept_get(int vmid, uint32_t msr);
+
+/**
+ * Allow guest access to the given MSR.
+ *
+ * @param vmid  The VM to which to grant access
+ * @param msr   The MSR for which to grant access
+ * @return      0 on success or an error code
+ *
+ * Errors:
+ *  ENODEV  VMX is not initialized
+ *  ESRCH   No VM with the given ID found
+ *  EBUSY   The VM is in use by another CPU
+ *  ESRCH   The MSR is outside the range which the exiting bitmaps cover
+ */
+extern int sva_vmx_msr_intercept_clear(int vmid, uint32_t msr,
+                                       enum vmx_exit_bitmap_rw rw);
+
+/**
+ * Deny guest access to the given MSR.
+ *
+ * @param vmid  The VM to which to deny access
+ * @param msr   The MSR for which to deny access
+ * @return      0 on success or an error code
+ *
+ * Errors:
+ *  ENODEV  VMX is not initialized
+ *  ESRCH   No VM with the given ID found
+ *  EBUSY   The VM is in use by another CPU
+ *  ESRCH   The MSR is outside the range which the exiting bitmaps cover
+ */
+extern int sva_vmx_msr_intercept_set(int vmid, uint32_t msr,
+                                     enum vmx_exit_bitmap_rw rw);
+
 #endif /* _SVA_VMX_INTRINSICS_H */
