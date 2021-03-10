@@ -659,8 +659,10 @@ int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor);
  * interface.
  */
 /* "Cheater's code" to support gradual porting of Xen */
+#if 0
 uintptr_t sva_get_vmcs_paddr(int vmid); /* defined in debug.c */
 int sva_get_vmid_from_vmcs(uintptr_t vmcs_paddr); /* defined in debug.c */
+#endif
 /* Functions for printing debug information to screen (defined in debug.c) */
 void sva_print_vmx_msrs(void);
 void print_vmcs_field_name(enum sva_vmcs_field field, bool enable);

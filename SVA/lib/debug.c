@@ -1732,6 +1732,7 @@ sva_verify_gsbase(const char *const context_msg) {
 }
 #endif /* SVA_DEBUG_GSBASE */
 
+#if 0
 /*
  * Debug intrinsic: sva_get_vmcs_paddr()
  *
@@ -1742,9 +1743,11 @@ sva_verify_gsbase(const char *const context_msg) {
  *  The VMCS lives in secure memory, so in theory the OS/hypervisor shouldn't
  *  care what address it's at, because it can't access it anyway. However,
  *  during the process of porting Xen to SVA, it is necessary to let Xen
- *  continue to use its own code to access an SVA-managed VMCS. (This,
- *  obviously, will only work with the SFI checks turned off or otherwise
- *  neutered.)
+ *  continue to use its own code to access an SVA-managed VMCS. (In
+ *  principle, this should only work with the SFI checks turned off or
+ *  otherwise neutered. In practice, our pass tha adds the SFI
+ *  instrumentation won't catch instructions like VMPTRLD and VMCLEAR because
+ *  they deal with physical addresses instead of virtual ones.)
  *
  *  This is for use during early development. It is not part of the designed
  *  SVA-VMX interface and will be removed.
@@ -1810,7 +1813,7 @@ sva_get_vmcs_paddr(int vmid) {
  *  SVA-VMX interface and will be removed.
  *
  *  (Used by Xen temporarily until we transition Xen to keeping track of
- *  VMIDs instead of VMCs addresses.)
+ *  VMIDs instead of VMCS addresses.)
  *
  * Return value:
  *  The VMID corresponding to the given VMCS physical address, if it exists.
@@ -1852,6 +1855,7 @@ sva_get_vmid_from_vmcs(uintptr_t vmcs_paddr) {
 
   return vmid;
 }
+#endif /* end #if 0 */
 
 /*
  * Global counter tables for logging VMCS field reads and writes.

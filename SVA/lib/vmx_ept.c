@@ -682,6 +682,15 @@ sva_flush_vpid_single(int vmid, bool retain_global) {
    * it could slow the system down by discarding pefectly good TLB entries.
    * (Since we allow the system software to perform wholesale TLB flushes
    * with other intrinsics, that's nothing it can't already do.)
+   *
+   * The one edge case of an invalid VMID that *won't* fail silently is if
+   * the value 0 is passed. 0 represents the host, so the processor will
+   * return VMfail if it is given as the argument to INVVPID. Our assert
+   * below will notice that and cause a panic. This is OK as it's the
+   * hypervisor's fault (it shouldn't be passing a garbage VMID in the first
+   * place), but it's something to be aware of if you're wondering why you're
+   * crashing here on a processor that you know supports single-context
+   * INVVPID. :-)
    */
 
   /*
@@ -718,7 +727,8 @@ sva_flush_vpid_single(int vmid, bool retain_global) {
 
   SVA_ASSERT(result,
       "sva_flush_vpid_single(): INVVPID failed. Perhaps the processor "
-      "isn't new enough to support the specified INVVPID mode?");
+      "isn't new enough to support the specified INVVPID mode? (Or the "
+      "hypervisor passed an invalid VMID of 0.)");
 }
 
 /*
