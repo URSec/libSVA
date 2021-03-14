@@ -72,6 +72,16 @@ static int msr_bitmaps_init(vm_desc_t* vm);
  */
 static int msr_bitmaps_free(vm_desc_t* vm);
 
+/**
+ * Allocate and initialize a VM's IO exiting bitmaps.
+ */
+static int io_bitmaps_init(vm_desc_t* vm);
+
+/**
+ * Free a VM's IO exiting bitmaps.
+ */
+static int io_bitmaps_free(vm_desc_t* vm);
+
 /*
  * Function: cpuid_1_ecx()
  *
@@ -797,9 +807,10 @@ sva_allocvm(pml4e_t __kern* initial_eptable) {
   vm->vlapic.posted_interrupts_enabled = false;
 
   /*
-   * Initialize the MSR extiing bitmaps.
+   * Initialize the MSR and IO extiing bitmaps.
    */
   msr_bitmaps_init(vm);
+  io_bitmaps_init(vm);
 
   /*
    * Allocate a physical frame of SVA secure memory from the frame cache to
@@ -987,9 +998,10 @@ sva_freevm(int vmid) {
   }
 
   /*
-   * Drop MSR exiting bitmaps.
+   * Drop the MSR and IO exiting bitmaps.
    */
   msr_bitmaps_free(vm);
+  io_bitmaps_free(vm);
 
   /*
    * Drop vlAPIC frames.
@@ -4746,6 +4758,10 @@ init_vmcs_ctrls(void) {
 
   writevmcs_unchecked(VMCS_MSR_BITMAPS_ADDR,
     getCPUState()->active_vm->msr_exiting_bitmaps);
+  writevmcs_unchecked(VMCS_IOBITMAP_A_ADDR,
+    getCPUState()->active_vm->io_exiting_bitmaps[0]);
+  writevmcs_unchecked(VMCS_IOBITMAP_B_ADDR,
+    getCPUState()->active_vm->io_exiting_bitmaps[1]);
 
   /*******
    * SVA permits the hypervisor to modify the following fields with
@@ -5113,4 +5129,16 @@ __sva_fail:
   usersva_to_kernel_pcid();
   sva_exit_critical(rflags);
   return __sva_intrinsic_result;
+}
+
+static int io_bitmaps_init(vm_desc_t* vm) {
+  vm->io_exiting_bitmaps[0] = exiting_bitmap_create();
+  vm->io_exiting_bitmaps[1] = exiting_bitmap_create();
+  return 0;
+}
+
+static int io_bitmaps_free(vm_desc_t* vm) {
+  exiting_bitmap_free(vm->io_exiting_bitmaps[0]);
+  exiting_bitmap_free(vm->io_exiting_bitmaps[1]);
+  return 0;
 }

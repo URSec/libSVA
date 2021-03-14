@@ -726,6 +726,11 @@ typedef struct vm_desc_t {
    * The VM's MSR exiting bitmaps.
    */
   paddr_t msr_exiting_bitmaps;
+
+  /**
+   * The VM's IO exiting bitmaps.
+   */
+  paddr_t io_exiting_bitmaps[2];
 } vm_desc_t;
 
 /*
