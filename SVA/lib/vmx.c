@@ -5006,6 +5006,8 @@ int sva_vmx_msr_intercept_clear(int vmid, uint32_t msr, enum vmx_exit_bitmap_rw 
   case MSR_FS_BASE:
   case MSR_GS_BASE:
   case MSR_SHADOW_GS_BASE:
+  case MSR_IA32_PAT:
+  case MSR_IA32_BNDCFGS:
     break;
 
   /*
