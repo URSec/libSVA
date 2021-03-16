@@ -5142,3 +5142,33 @@ static int io_bitmaps_free(vm_desc_t* vm) {
   exiting_bitmap_free(vm->io_exiting_bitmaps[1]);
   return 0;
 }
+
+static inline int io_bitmaps_op_intercept(
+    void (*op)(unsigned char*, size_t, bool*),
+    bool* out,
+    vm_desc_t* vm,
+    uint16_t port)
+{
+  unsigned char* io_bitmap = __va(vm->io_exiting_bitmaps[port < 0x8000 ? 0 : 1]);
+
+  bool result;
+  op(io_bitmap, port & 0x7fff, &result);
+  if (out != NULL) {
+    *out = result;
+  }
+
+  return 0;
+}
+
+int io_bitmaps_get_intercept(vm_desc_t* vm, uint16_t port, bool* out) {
+  *out = false;
+  return io_bitmaps_op_intercept(get_bit, out, vm, port);
+}
+
+int io_bitmaps_clear_intercept(vm_desc_t* vm, uint16_t port) {
+  return io_bitmaps_op_intercept(clear_bit, NULL, vm, port);
+}
+
+int io_bitmaps_set_intercept(vm_desc_t* vm, uint16_t port) {
+  return io_bitmaps_op_intercept(set_bit, NULL, vm, port);
+}

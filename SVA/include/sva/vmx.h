@@ -1045,4 +1045,38 @@ int msr_bitmaps_clear_intercept(vm_desc_t* vm, uint32_t msr, enum vmx_exit_bitma
  */
 int msr_bitmaps_set_intercept(vm_desc_t* vm, uint32_t msr, enum vmx_exit_bitmap_rw rw);
 
+/**
+ * Determine if to an IO port is configured to cause an exit.
+ *
+ * Requires that the VM's lock is currently held.
+ *
+ * @param[in]  vm   The VM
+ * @param[in]  port The IO port for which access is checked
+ * @param[out] out  Whether access is intercepted for the given IO port
+ * @return          0 on success or an error code
+ */
+int io_bitmaps_get_intercept(vm_desc_t* vm, uint16_t port, bool* out);
+
+/**
+ * Allow guest access to an IO port.
+ *
+ * Requires that the VM's lock is currently held.
+ *
+ * @param vm    The VM
+ * @param port  The IO port to which to allow access
+ * @return      0 on success or an error code
+ */
+int io_bitmaps_clear_intercept(vm_desc_t* vm, uint16_t port);
+
+/**
+ * Deny guest access to an IO port.
+ *
+ * Requires that the VM's lock is currently held.
+ *
+ * @param vm    The VM
+ * @param port  The IO port to which to deny access
+ * @return      0 on success or an error code
+ */
+int io_bitmaps_set_intercept(vm_desc_t* vm, uint16_t port);
+
 #endif /* _SVA_VMX_H */
