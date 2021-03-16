@@ -501,4 +501,48 @@ extern int sva_vmx_msr_intercept_clear(int vmid, uint32_t msr,
 extern int sva_vmx_msr_intercept_set(int vmid, uint32_t msr,
                                      enum vmx_exit_bitmap_rw rw);
 
+/**
+ * Query whether reads or writes to the given IO port are configured to cause
+ * an exit.
+ *
+ * @param vmid  The VM ID for the VM to query
+ * @param port  The IO port for which to determine guest accessibility
+ * @return      0 (intercept clear) or 1 (intercept set) on success or
+ *              an error code (<0)
+ *
+ * Errors:
+ *  ENODEV  VMX is not initialized
+ *  ESRCH   No VM with the given ID found
+ *  EBUSY   The VM is in use by another CPU
+ */
+extern int sva_vmx_io_intercept_get(int vmid, uint16_t port);
+
+/**
+ * Allow guest access to the given IO port.
+ *
+ * @param vmid  The VM to which to grant access
+ * @param port  The IO port for which to grant access
+ * @return      0 on success or an error code
+ *
+ * Errors:
+ *  ENODEV  VMX is not initialized
+ *  ESRCH   No VM with the given ID found
+ *  EBUSY   The VM is in use by another CPU
+ */
+extern int sva_vmx_io_intercept_clear(int vmid, uint16_t port);
+
+/**
+ * Deny guest access to the given IO port.
+ *
+ * @param vmid  The VM to which to deny access
+ * @param port  The IO port for which to deny access
+ * @return      0 on success or an error code
+ *
+ * Errors:
+ *  ENODEV  VMX is not initialized
+ *  ESRCH   No VM with the given ID found
+ *  EBUSY   The VM is in use by another CPU
+ */
+extern int sva_vmx_io_intercept_set(int vmid, uint16_t port);
+
 #endif /* _SVA_VMX_INTRINSICS_H */

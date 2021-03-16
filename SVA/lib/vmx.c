@@ -5172,3 +5172,93 @@ int io_bitmaps_clear_intercept(vm_desc_t* vm, uint16_t port) {
 int io_bitmaps_set_intercept(vm_desc_t* vm, uint16_t port) {
   return io_bitmaps_op_intercept(set_bit, NULL, vm, port);
 }
+
+int sva_vmx_io_intercept_get(int vmid, uint16_t port) {
+  int __sva_intrinsic_result;
+  unsigned long rflags = sva_enter_critical();
+  kernel_to_usersva_pcid();
+
+  SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
+
+  SVA_CHECK(vmid >= 0 && vmid <= MAX_VMS, ESRCH);
+  vm_desc_t* vm = &vm_descs[vmid];
+
+  /*
+   * Take the lock for this VM if we don't already have it.
+   */
+  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  SVA_CHECK(acquired_lock, EBUSY);
+
+  bool out;
+  int res;
+  if ((res = io_bitmaps_get_intercept(vm, port, &out)) == 0) {
+    __sva_intrinsic_result = (int)out;
+  } else {
+    __sva_intrinsic_result = res;
+  }
+
+  if (acquired_lock == 2) {
+    vm_desc_unlock(vm);
+  }
+
+__sva_fail:
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+  return __sva_intrinsic_result;
+}
+
+int sva_vmx_io_intercept_clear(int vmid, uint16_t port) {
+  int __sva_intrinsic_result;
+  unsigned long rflags = sva_enter_critical();
+  kernel_to_usersva_pcid();
+
+  SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
+
+  SVA_CHECK(vmid >= 0 && vmid <= MAX_VMS, ESRCH);
+  vm_desc_t* vm = &vm_descs[vmid];
+
+  /*
+   * Take the lock for this VM if we don't already have it.
+   */
+  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  SVA_CHECK(acquired_lock, EBUSY);
+
+  __sva_intrinsic_result = io_bitmaps_clear_intercept(vm, port);
+
+  if (acquired_lock == 2) {
+    vm_desc_unlock(vm);
+  }
+
+__sva_fail:
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+  return __sva_intrinsic_result;
+}
+
+int sva_vmx_io_intercept_set(int vmid, uint16_t port) {
+  int __sva_intrinsic_result;
+  unsigned long rflags = sva_enter_critical();
+  kernel_to_usersva_pcid();
+
+  SVA_CHECK(getCPUState()->vmx_initialized, ENODEV);
+
+  SVA_CHECK(vmid >= 0 && vmid <= MAX_VMS, ESRCH);
+  vm_desc_t* vm = &vm_descs[vmid];
+
+  /*
+   * Take the lock for this VM if we don't already have it.
+   */
+  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  SVA_CHECK(acquired_lock, EBUSY);
+
+  __sva_intrinsic_result = io_bitmaps_set_intercept(vm, port);
+
+  if (acquired_lock == 2) {
+    vm_desc_unlock(vm);
+  }
+
+__sva_fail:
+  usersva_to_kernel_pcid();
+  sva_exit_critical(rflags);
+  return __sva_intrinsic_result;
+}
