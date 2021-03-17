@@ -1866,7 +1866,7 @@ sva_get_vmid_from_vmcs(uintptr_t vmcs_paddr) {
  * virtual address space later in the boot process and does not have this
  * limitation.
  */
-bool __svadata log_only_failed;
+bool __svadata vmcs_log_successes;
 uint32_t __svadata vmcs_write_counters[0x7000];
 uint32_t __svadata vmcs_read_counters[0x7000];
 
@@ -1894,7 +1894,7 @@ struct vmcs_contents_log_entry __svadata vmcs_contents_log[100];
  */
 void
 log_vmcs_write(enum sva_vmcs_field field, uint64_t data, bool passed_checks) {
-  if (log_only_failed && passed_checks)
+  if (!vmcs_log_successes && passed_checks)
     return;
 
   /* Bounds check to avoid overflowing counter array */
@@ -1930,7 +1930,10 @@ log_vmcs_write(enum sva_vmcs_field field, uint64_t data, bool passed_checks) {
 
 /* as above */
 void
-log_vmcs_read(enum sva_vmcs_field field) {
+log_vmcs_read(enum sva_vmcs_field field, bool passed_checks) {
+  if (!vmcs_log_successes && passed_checks)
+    return;
+
   /* Bounds check to avoid overflowing counter array */
   if ((uint32_t)field >= 0x7000) {
     printf("SVA log_vmcs_read(): VMCS field %u exceeds 0x7000\n", (uint32_t)field);
@@ -1949,8 +1952,8 @@ log_vmcs_read(enum sva_vmcs_field field) {
 void
 print_logged_vmcs_accesses(void) {
   printf("-------------------------------\n");
-  if (log_only_failed)
-    printf("Note: only logging accesses that failed security checks.\n");
+  if (vmcs_log_successes)
+    printf("Note: logging *all* reads/writes, including those that passed security checks.\n");
   printf("SVA: VMCS write counter values:\n");
 
   for (size_t i = 0; i < 0x7000; i++) {
@@ -2002,13 +2005,13 @@ set_detailed_vmcs_logging(bool enable_log, enum sva_vmcs_field field) {
 }
 
 void
-reset_vmcs_counters(bool _log_only_failed) {
+reset_vmcs_counters(bool log_successes) {
   for (size_t i = 0; i < 0x7000; i++) {
     vmcs_write_counters[i] = 0;
     vmcs_read_counters[i] = 0;
   }
 
-  log_only_failed = _log_only_failed;
+  vmcs_log_successes = log_successes;
 }
 
 void

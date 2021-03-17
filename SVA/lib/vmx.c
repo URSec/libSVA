@@ -1569,25 +1569,7 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
    * Perform the read if it won't leak sensitive information to the system
    * software (or if it can be sanitized).
    */
-#ifdef XEN
-  /*
-   * FIXME: checks temporarily bypassed to support incremental porting of
-   * Xen.
-   */
-  int retval = readvmcs_unchecked(field, &out);
-
-#if 0
-  /*
-   * DEBUG CODE: Log this VMCS read so that we can determine which VMCS
-   * fields Xen needs us to support.
-   */
-  extern void log_vmcs_read(enum sva_vmcs_field);
-  log_vmcs_read(field);
-#endif
-
-#else
   int retval = readvmcs_checked(field, &out);
-#endif
 
   if (retval == 0) {
     if (sva_copy_to_kernel(data, &out, sizeof(out))) {
@@ -3438,9 +3420,7 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
    *
    * Otherwise, sanitize the read value or reject the read.
    */
-  if (!usevmx) {
-    return readvmcs_unchecked(field, data);
-  }
+  bool is_safe = true;
   switch (field) {
     /*
      * These VMCS controls are safe to read unconditionally.
@@ -3448,6 +3428,7 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
      * (This is not an exhaustive list of safe fields. We've only added the
      * ones that we've actually needed thusfar for our toy hypervisor.)
      */
+    case VMCS_VM_ENTRY_CTRLS:
     case VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD:
     case VMCS_VM_ENTRY_EXCEPTION_ERROR_CODE:
     case VMCS_EXCEPTION_BITMAP:
@@ -3456,9 +3437,66 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     case VMCS_GUEST_RIP:
     case VMCS_GUEST_RSP:
     case VMCS_GUEST_RFLAGS:
+    case VMCS_GUEST_CR0:
+    case VMCS_GUEST_CR4:
+    case VMCS_CR0_GUESTHOST_MASK:
+    case VMCS_CR4_GUESTHOST_MASK:
+    case VMCS_CR0_READ_SHADOW:
+    case VMCS_CR4_READ_SHADOW:
     case VMCS_GUEST_DR7:
     case VMCS_GUEST_IA32_DEBUGCTL:
+    case VMCS_GUEST_CR3:
+    case VMCS_GUEST_PDPTE0:
+    case VMCS_GUEST_PDPTE1:
+    case VMCS_GUEST_PDPTE2:
+    case VMCS_GUEST_PDPTE3:
+    case VMCS_GUEST_IA32_PAT:
+    case VMCS_GUEST_IA32_EFER:
+    case VMCS_GUEST_IA32_SYSENTER_CS:
+    case VMCS_GUEST_IA32_SYSENTER_ESP:
+    case VMCS_GUEST_IA32_SYSENTER_EIP:
+#ifdef MPX
     case VMCS_GUEST_IA32_BNDCFGS:
+#endif
+    case VMCS_GUEST_CS_SEL:
+    case VMCS_GUEST_CS_BASE:
+    case VMCS_GUEST_CS_LIMIT:
+    case VMCS_GUEST_CS_ACCESS_RIGHTS:
+    case VMCS_GUEST_SS_SEL:
+    case VMCS_GUEST_SS_BASE:
+    case VMCS_GUEST_SS_LIMIT:
+    case VMCS_GUEST_SS_ACCESS_RIGHTS:
+    case VMCS_GUEST_DS_SEL:
+    case VMCS_GUEST_DS_BASE:
+    case VMCS_GUEST_DS_LIMIT:
+    case VMCS_GUEST_DS_ACCESS_RIGHTS:
+    case VMCS_GUEST_ES_SEL:
+    case VMCS_GUEST_ES_BASE:
+    case VMCS_GUEST_ES_LIMIT:
+    case VMCS_GUEST_ES_ACCESS_RIGHTS:
+    case VMCS_GUEST_FS_SEL:
+    case VMCS_GUEST_FS_BASE:
+    case VMCS_GUEST_FS_LIMIT:
+    case VMCS_GUEST_FS_ACCESS_RIGHTS:
+    case VMCS_GUEST_GS_SEL:
+    case VMCS_GUEST_GS_BASE:
+    case VMCS_GUEST_GS_LIMIT:
+    case VMCS_GUEST_GS_ACCESS_RIGHTS:
+    case VMCS_GUEST_TR_SEL:
+    case VMCS_GUEST_TR_BASE:
+    case VMCS_GUEST_TR_LIMIT:
+    case VMCS_GUEST_TR_ACCESS_RIGHTS:
+    case VMCS_GUEST_GDTR_BASE:
+    case VMCS_GUEST_GDTR_LIMIT:
+    case VMCS_GUEST_IDTR_BASE:
+    case VMCS_GUEST_IDTR_LIMIT:
+    case VMCS_GUEST_LDTR_SEL:
+    case VMCS_GUEST_LDTR_BASE:
+    case VMCS_GUEST_LDTR_LIMIT:
+    case VMCS_GUEST_LDTR_ACCESS_RIGHTS:
+    case VMCS_GUEST_ACTIVITY_STATE:
+    case VMCS_GUEST_INTERRUPTIBILITY_STATE:
+    case VMCS_GUEST_PENDING_DBG_EXCEPTIONS:
     case VMCS_VM_EXIT_REASON:
     case VMCS_EXIT_QUAL:
     case VMCS_GUEST_LINEAR_ADDR:
@@ -3482,16 +3520,42 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     case VMCS_EOI_EXIT_BITMAP_3:
     case VMCS_TPR_THRESHOLD:
     case VMCS_XSS_EXITING_BITMAP:
-      return readvmcs_unchecked(field, data);
+      is_safe = true;
+      break;
 
     default:
-      printf("SVA: Attempted read from VMCS field: 0x%x (", field);
+      is_safe = false;
+      printf("SVA: Disallowed read to VMCS field not on read whitelist: 0x%x (", field);
       print_vmcs_field_name(field, true);
-      printf(")\n");
-      panic("SVA: Disallowed read to VMCS field not on read whitelist.\n");
+      printf(").\n");
+      break;
+  }
 
-      /* Unreachable code to silence compiler warning */
-      return -1;
+#ifdef XEN
+#if 0
+  /*
+   * DEBUG CODE: Log this VMCS read so that we can determine which VMCS
+   * fields Xen needs us to support.
+   */
+  extern void log_vmcs_read(enum sva_vmcs_field, bool passed_checks);
+  log_vmcs_read(field, is_safe);
+#endif
+
+  /*
+   * FIXME: for now we are just logging check failures instead of shutting
+   * down the system, to support incremental porting of Xen.
+   */
+  if (!is_safe)
+    is_safe = true; /* allow the read */
+#endif /* end #ifdef XEN */
+
+  if (is_safe)
+    return readvmcs_unchecked(field, data);
+  else {
+    /* Note: field and value already printed above, since currently we
+     * don't need to perform any checking/filtering of VMCS reads besides
+     * checking whether the field is on the whitelist. */
+    panic("SVA: VMCS checks in hard-fail mode; shutting down system.\n");
   }
 }
 
@@ -3902,6 +3966,8 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_GUEST_PDPTE1:
     case VMCS_GUEST_PDPTE2:
     case VMCS_GUEST_PDPTE3:
+    case VMCS_GUEST_IA32_PAT:
+    case VMCS_GUEST_IA32_EFER:
     case VMCS_GUEST_IA32_SYSENTER_CS:
     case VMCS_GUEST_IA32_SYSENTER_ESP:
     case VMCS_GUEST_IA32_SYSENTER_EIP:
