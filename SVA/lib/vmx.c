@@ -1689,25 +1689,7 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
    * Vet the value to be written to ensure that it will not compromise system
    * security, and perform the write.
    */
-#ifdef XEN
-  /*
-   * FIXME: checks temporarily bypassed to support incremental porting of
-   * Xen.
-   */
-  int retval = writevmcs_unchecked(field, data);
-
-#if 0
-  /*
-   * DEBUG CODE: Log this VMCS write so that we can determine which VMCS
-   * fields Xen needs us to support.
-   */
-  extern void log_vmcs_write(enum sva_vmcs_field, uint64_t data);
-  log_vmcs_write(field, data);
-#endif
-
-#else
   int retval = writevmcs_checked(field, data);
-#endif
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -3592,7 +3574,7 @@ readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data) {
  *  Same as sva_writevmcs().
  *
  * Preconditions:
- *  - There must be a VMCS loaded on the processor.
+ *  - There must be a VMCS loaded and active on the processor.
  */
 static inline int
 writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
@@ -3602,20 +3584,24 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
    * Otherwise, modify the write to render it harmless (if we can), or reject
    * it.
    */
-  if (!usevmx) {
-    return writevmcs_unchecked( field, data );
-  }
+  bool is_safe = false;
   switch (field) {
     case VMCS_PINBASED_VM_EXEC_CTRLS:
       {
         /* Cast data field to bitfield struct */
         struct vmcs_pinbased_vm_exec_ctrls ctrls;
-        uint32_t data_lower32 = (uint32_t) data;
         uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
-        *ctrls_u32 = data_lower32;
+        *ctrls_u32 = (uint32_t) data;
 
-        /* Check bit settings */
-        unsigned char is_safe =
+        /* Override bits controlled by Shade intrinsics */
+        ctrls.process_posted_ints =
+          getCPUState()->active_vm->vlapic.posted_interrupts_enabled;
+
+        /* Apply overrides to data that will be written */
+        data = (uint64_t) *ctrls_u32;
+
+        /* Check remaining bit settings */
+        is_safe =
           /*
            * SVA needs first crack at all interrupts.
            *
@@ -3629,9 +3615,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           /* Likewise for NMIs. */
           ctrls.nmi_exiting &&
 
-          /* NMI virtualization not currently supported by SVA */
-          !ctrls.virtual_nmis &&
-
           /*
            * VMX preemption timer must be enabled to prevent the guest from
            * tying up system resources indefinitely.
@@ -3639,9 +3622,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
 #if 0 /* our toy hypervisor doesn't know how to use the preemption timer yet */
           ctrls.activate_vmx_preempt_timer &&
 #endif
-
-          /* APIC virtualization not currently supported by SVA */
-          !ctrls.process_posted_ints &&
 
           /*
            * Enforce reserved bits to ensure safe defaults on future
@@ -3651,21 +3631,28 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           ctrls.reserved4 &&
           (ctrls.reserved8_31 == 0x0);
 
-        if (!is_safe)
-          panic("SVA: Disallowed VMCS pin-based VM-exec controls setting.\n");
-
-        return writevmcs_unchecked(field, data);
+        break;
       }
     case VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS:
       {
         /* Cast data field to bitfield struct */
         struct vmcs_primary_procbased_vm_exec_ctrls ctrls;
-        uint32_t data_lower32 = (uint32_t) data;
         uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
-        *ctrls_u32 = data_lower32;
+        *ctrls_u32 = (uint32_t) data;
 
-        /* Check bit settings */
-        unsigned char is_safe =
+        /* Override bits controlled by Shade intrinsics */
+        ctrls.cr8_load_exiting =
+          getCPUState()->active_vm->vlapic.mode == VLAPIC_OFF;
+        ctrls.cr8_store_exiting =
+          getCPUState()->active_vm->vlapic.mode == VLAPIC_OFF;
+        ctrls.use_tpr_shadow =
+          getCPUState()->active_vm->vlapic.mode != VLAPIC_OFF;
+
+        /* Apply overrides to data that will be written */
+        data = (uint64_t) *ctrls_u32;
+
+        /* Check remaining bit settings */
+        is_safe =
           /*
            * We must unconditionally exit for I/O instructions since SVA
            * mediates all access to hardware.
@@ -3681,7 +3668,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           !ctrls.use_io_bitmaps &&
 
           /*
-           * SVA will mitigate all access to MSRs, so we will not use MSR
+           * SVA will mediate all access to MSRs, so we will not use MSR
            * bitmaps (i.e., we will exit unconditionally for RDMSR/WRMSR).
            *
            * If necessary for performance, we can potentially relax this
@@ -3707,25 +3694,30 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           (ctrls.reserved17_18 == 0x0) &&
           ctrls.reserved26;
 
-        if (!is_safe)
-          panic("SVA: Disallowed VMCS primary processor-based VM-exec "
-              "controls setting.\n");
-
-        return writevmcs_unchecked(field, data);
+        break;
       }
     case VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS:
       {
         /* Cast data field to bitfield struct */
         struct vmcs_secondary_procbased_vm_exec_ctrls ctrls;
-        uint32_t data_lower32 = (uint32_t) data;
         uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
-        *ctrls_u32 = data_lower32;
+        *ctrls_u32 = (uint32_t) data;
 
-        /* Check bit settings */
-        unsigned char is_safe =
-          /* APIC virtualization not currently supported by SVA */
-          !ctrls.virtualize_apic_accesses &&
+        /* Override bits controlled by Shade intrinsics */
+        ctrls.virtualize_apic_accesses =
+          getCPUState()->active_vm->vlapic.mode == VLAPIC_APIC;
+        ctrls.virtualize_x2apic_mode =
+          getCPUState()->active_vm->vlapic.mode == VLAPIC_X2APIC;
+        ctrls.apic_register_virtualization =
+          getCPUState()->active_vm->vlapic.mode != VLAPIC_OFF;
+        ctrls.virtual_int_delivery =
+          getCPUState()->active_vm->vlapic.posted_interrupts_enabled;
 
+        /* Apply overrides to data that will be written */
+        data = (uint64_t) *ctrls_u32;
+
+        /* Check remaining bit settings */
+        is_safe =
           /*
            * SVA requires the use of extended page tables (EPT) for guest
            * memory management.
@@ -3740,9 +3732,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
            * as a design decision.
            */
           ctrls.enable_ept &&
-
-          /* APIC virtualization not currently supported by SVA */
-          !ctrls.virtualize_x2apic_mode &&
 
           /*
            * SVA requires the use of VPIDs (Virtual Processor IDs) to manage
@@ -3761,26 +3750,11 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
            */
           ctrls.enable_vpid &&
 
-          /* APIC virtualization not currently supported by SVA */
-          !ctrls.apic_register_virtualization &&
-
-          /* APIC virtualization not currently supported by SVA */
-          !ctrls.virtual_int_delivery &&
-
           /* VM functions not currently supported by SVA */
           !ctrls.enable_vmfunc &&
 
           /* VMCS shadowing not currently supported by SVA */
           !ctrls.vmcs_shadowing &&
-
-          /*
-           * Don't allow the guest to use XSAVES/XRSTORS.
-           *
-           * We don't currently support using these instructions to manage FP
-           * state in the host, so we couldn't maintain correctness if we
-           * allowed guests to use them.
-           */
-          !ctrls.enable_xsaves_xrstors &&
 
           /*
            * Enforce reserved bits to ensure safe defaults on future
@@ -3792,23 +3766,17 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           (ctrls.reserved23_24 == 0x0) &&
           (ctrls.reserved26_31 == 0x0);
 
-        if (!is_safe)
-          panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
-              "controls setting.\n");
-
-        return writevmcs_unchecked(field, data);
+        break;
       }
-
     case VMCS_VM_EXIT_CTRLS:
       {
         /* Cast data field to bitfield struct */
         struct vmcs_vm_exit_ctrls ctrls;
-        uint32_t data_lower32 = (uint32_t) data;
         uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
-        *ctrls_u32 = data_lower32;
+        *ctrls_u32 = (uint32_t) data;
 
         /* Check bit settings */
-        unsigned char is_safe =
+        is_safe =
           /*
            * SVA/FreeBSD operates in 64-bit mode, so we must always return to
            * that on VM exit.
@@ -3816,15 +3784,15 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           ctrls.host_addr_space_size &&
 
           /*
-           * Since we currently don't allow guests to change MSRs (or have
-           * their values changed for them by the hypervisor), we do not save
-           * or load any MSRs on VM exit; we know their values are exactly as
-           * we left them on VM entry.
+           * We rely on these controls to re-load the host's PAT and EFER
+           * values on VM exit.
+           *
+           * The hypervisor is free to set or not set the corresponding
+           * "save" controls depending on whether it cares to save the
+           * guest's values on exit.
            */
-          !ctrls.save_ia32_pat &&
-          !ctrls.load_ia32_pat &&
-          !ctrls.save_ia32_efer &&
-          !ctrls.load_ia32_efer &&
+          ctrls.load_ia32_pat &&
+          ctrls.load_ia32_efer &&
 
           /*
            * Note: it is safe to allow the hypervisor to have discretion over
@@ -3848,22 +3816,17 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           (ctrls.reserved16_17 == 0x3) &&
           (ctrls.reserved25_31 == 0x0);
 
-        if (!is_safe)
-          panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
-              "controls setting.\n");
-
-        return writevmcs_unchecked(field, data);
+        break;
       }
     case VMCS_VM_ENTRY_CTRLS:
       {
         /* Cast data field to bitfield struct */
         struct vmcs_vm_entry_ctrls ctrls;
-        uint32_t data_lower32 = (uint32_t) data;
         uint32_t *ctrls_u32 = (uint32_t *) &ctrls;
-        *ctrls_u32 = data_lower32;
+        *ctrls_u32 = (uint32_t) data;
 
         /* Check bit settings */
-        unsigned char is_safe =
+        is_safe =
           /*
            * We do not support SMM (either on the host or in VMs).
            *
@@ -3872,26 +3835,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
            */
           !ctrls.entry_to_smm &&
           !ctrls.deact_dual_mon_treatment &&
-
-          /*
-           * We currently don't allow guests to change any MSRs (or have
-           * their values changed for them by the hypervisor) from whatever
-           * they are set to on the host.
-           *
-           * (Note: the FS_BASE and GS_BASE MSRs are an exception to this
-           * because segment bases are handled through separate VMCS fields.)
-           *
-           * We will probably need to add support for saving/loading MSRs on
-           * VM entry/exit when we port BHyVe to SVA, but for now we don't
-           * have any need for it.
-           *
-           * Note in particular that support for loading IA32_EFER on VM
-           * entry will be necessary to support guests running in anything
-           * other than 64-bit mode.
-           */
-          !ctrls.load_ia32_perf_global_ctrl &&
-          !ctrls.load_ia32_pat &&
-          !ctrls.load_ia32_efer &&
 
           /*
            * Note: it is safe to allow the hypervisor to have discretion over
@@ -3929,11 +3872,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
           ctrls.reserved12 &&
           (ctrls.reserved18_31 == 0x0);
 
-        if (!is_safe)
-          panic("SVA: Disallowed VMCS secondary processor-based VM-exec "
-              "controls setting.\n");
-
-        return writevmcs_unchecked(field, data);
+        break;
       }
 
     /*
@@ -4019,16 +3958,45 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_EOI_EXIT_BITMAP_3:
     case VMCS_TPR_THRESHOLD:
     case VMCS_XSS_EXITING_BITMAP:
-      return writevmcs_unchecked(field, data);
+      is_safe = true;
+      break;
 
     default:
-      printf("SVA: Attempted write to VMCS field: 0x%x (", field);
+      is_safe = false;
+      printf("SVA: Disallowed write to VMCS field not on write whitelist: 0x%x (", field);
       print_vmcs_field_name(field, true);
       printf("); value = 0x%lx\n", data);
-      panic("SVA: Disallowed write to VMCS field not on write whitelist.\n");
+      break;
+  }
 
-      /* Unreachable code to silence compiler warning */
-      return -1;
+#ifdef XEN
+#if 0
+  /*
+   * DEBUG CODE: Log this VMCS write so that we can determine which VMCS
+   * fields Xen needs us to support.
+   */
+  extern void log_vmcs_write(enum sva_vmcs_field, uint64_t data, bool passed_checks);
+  log_vmcs_write(field, data, is_safe);
+#endif
+
+  /*
+   * FIXME: for now we are just logging check failures instead of shutting
+   * down the system, to support incremental porting of Xen.
+   */
+  if (!is_safe)
+    is_safe = true; /* allow the write */
+#endif /* end #ifdef XEN */
+
+  if (is_safe)
+    return writevmcs_unchecked(field, data);
+  else {
+    printf("SVA: Disallowed write to VMCS field: 0x%x (", field);
+    print_vmcs_field_name(field, true);
+    printf("); value = 0x%lx\n", data);
+    panic("SVA: VMCS checks in hard-fail mode; shutting down system.\n");
+
+    /* Unreachable code to silence compiler warning */
+    return -1;
   }
 }
 

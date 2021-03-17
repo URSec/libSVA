@@ -1231,8 +1231,6 @@ print_vmcs_field_name(enum sva_vmcs_field field, bool enable) {
  * Prints using the kernel's printf() function. The output may be multi-line,
  * and a newline is printed after the last line.
  *
- * Doesn't print anything if the preprocessor variable SVAVMX_DEUBG is 0.
- *
  * Parameters:
  *  - field: the VMCS field whose specification should be used to interpret
  *           the given field value.
@@ -1246,9 +1244,6 @@ print_vmcs_field_name(enum sva_vmcs_field field, bool enable) {
  */
 void
 print_vmcs_field(enum sva_vmcs_field field, uint64_t value) {
-  if (!SVAVMX_DEBUG)
-    return;
-
   switch (field) {
     case VMCS_PINBASED_VM_EXEC_CTRLS:
       {
@@ -1871,6 +1866,7 @@ sva_get_vmid_from_vmcs(uintptr_t vmcs_paddr) {
  * virtual address space later in the boot process and does not have this
  * limitation.
  */
+bool __svadata log_only_failed;
 uint32_t __svadata vmcs_write_counters[0x7000];
 uint32_t __svadata vmcs_read_counters[0x7000];
 
@@ -1897,7 +1893,10 @@ struct vmcs_contents_log_entry __svadata vmcs_contents_log[100];
  * or security, and should only be used for debugging.
  */
 void
-log_vmcs_write(enum sva_vmcs_field field, uint64_t data) {
+log_vmcs_write(enum sva_vmcs_field field, uint64_t data, bool passed_checks) {
+  if (log_only_failed && passed_checks)
+    return;
+
   /* Bounds check to avoid overflowing counter array */
   if ((uint32_t)field >= 0x7000) {
     printf("SVA log_vmcs_write(): VMCS field %u exceeds 0x7000\n", (uint32_t)field);
@@ -1950,6 +1949,8 @@ log_vmcs_read(enum sva_vmcs_field field) {
 void
 print_logged_vmcs_accesses(void) {
   printf("-------------------------------\n");
+  if (log_only_failed)
+    printf("Note: only logging accesses that failed security checks.\n");
   printf("SVA: VMCS write counter values:\n");
 
   for (size_t i = 0; i < 0x7000; i++) {
@@ -1982,6 +1983,8 @@ print_logged_vmcs_accesses(void) {
 
       printf("0x%16lx: written %u times\n",
           vmcs_contents_log[i].contents, vmcs_contents_log[i].count);
+      printf("Bitwise breakdown:\n");
+      print_vmcs_field(vmcs_contents_log_field, vmcs_contents_log[i].contents);
     }
   }
 
@@ -1999,6 +2002,16 @@ set_detailed_vmcs_logging(bool enable_log, enum sva_vmcs_field field) {
 }
 
 void
+reset_vmcs_counters(bool _log_only_failed) {
+  for (size_t i = 0; i < 0x7000; i++) {
+    vmcs_write_counters[i] = 0;
+    vmcs_read_counters[i] = 0;
+  }
+
+  log_only_failed = _log_only_failed;
+}
+
+void
 handle_vmcsdebug_hypercall(sva_icontext_t *ic) {
   switch(ic->rdi) {
     case 0:
@@ -2006,6 +2019,9 @@ handle_vmcsdebug_hypercall(sva_icontext_t *ic) {
       break;
     case 1:
       set_detailed_vmcs_logging((bool)ic->rsi, (enum sva_vmcs_field)ic->rdx);
+      break;
+    case 2:
+      reset_vmcs_counters((bool)ic->rsi);
       break;
     default:
       panic("SVA: handle_vmcsdebug_hypercall(): invalid argument in RDI\n");
