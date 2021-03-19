@@ -630,10 +630,6 @@ sva_initvmx(void) {
  *  processor.
  *
  * Arguments:
- *  - initial_ctrls: the initial control settings that will define the
- *    parameters under which this VM will operate.
- *  - initial_state: the initial state of the guest system virtualized by
- *    this VM.
  *  - initial_eptable: a (host-virtual) pointer to the initial top-level
  *    extended page table (EPML4) that will map this VM's guest-physical
  *    memory space to host-physical frames.
@@ -649,9 +645,7 @@ sva_initvmx(void) {
  *  will result in an error). This intrinsic should *never* return zero.
  */
 int
-sva_allocvm(struct sva_vmx_vm_ctrls __kern* initial_ctrls,
-    struct sva_vmx_guest_state __kern* initial_state,
-    pml4e_t __kern* initial_eptable) {
+sva_allocvm(pml4e_t __kern* initial_eptable) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -664,29 +658,6 @@ sva_allocvm(struct sva_vmx_vm_ctrls __kern* initial_ctrls,
 
   SVA_ASSERT(getCPUState()->vmx_initialized,
       "sva_allocvm(): Shade not yet initialized on this processor!\n");
-
-  /*
-   * Ensure that the inputs are mapped and accessible.  If they are not, then
-   * trap here.
-   *
-   * FIXME: we should really be using sva_check_buffer() here, since these
-   * are untrusted buffers. We need to check for security and not just
-   * accessibility, otherwise the system software could trick SVA by passing
-   * it pointers into secure memory.
-   */
-  /* FIXME: for now, skip this when building for Xen. At this stage in the
-   * port we are expecting Xen to pass null pointers for these. */
-#ifndef XEN
-  if (usevmx) {
-    sva_check_memory_read(initial_ctrls, sizeof(struct sva_vmx_vm_ctrls));
-    sva_check_memory_read(initial_state, sizeof(struct sva_vmx_guest_state));
-  }
-#else
-  /* Silence unused parameter warnings. */
-  (void)initial_ctrls;
-  (void)initial_state;
-  (void)initial_eptable;
-#endif
 
   /*
    * Scan the vm_descs array for the first free slot, i.e., the first entry
@@ -756,40 +727,21 @@ sva_allocvm(struct sva_vmx_vm_ctrls __kern* initial_ctrls,
 
   struct vm_desc_t* vm = &vm_descs[vmid];
 
-  /* FIXME: similar to above where we call sva_check_memory_read() on these
-   * two pointers, we need to disable these for now in the Xen config. At
-   * this stage in the port, we are expecting Xen to pass null pointers for
-   * these. */
-#ifndef XEN
-  /*
-   * Save initial values of VMCS controls to be initialized the first the the
-   * VMCS is loaded. (Intel's hardware interface doesn't let us write to a
-   * VMCS unless it is active on the processor, so we can't do that here.)
-   */
-  vm->initial_ctrls = *initial_ctrls;
-
-  /*
-   * Initialize the guest system state (registers, program counter, etc.).
-   */
-  vm->state = *initial_state;
-#else
   /*
    * Initialize the guest's XSAVE area so that we won't #GP when trying to
-   * load it.
-   *
-   * FIXME: Normally we would initialize it with contents passed by Xen to
-   * sva_allocvm(), but at this stage in the port Xen is just passing a
-   * null pointer for initial_state.
+   * load it. The hypervisor may optionally call sva_setvmfpu() to provide an
+   * initial state for the FPU before the first VM entry, but if it doesn't
+   * (as is the case in Xen), we need to ensure that sane initial values are
+   * in place.
    */
   xinit(&vm->state.fp.inner);
-#endif
 
   /*
    * Mark that the initial values of VMCS controls have not yet been
    * installed so that we know we need to do so the first time the VMCS is
    * loaded.
    */
-  vm->vmcs_fields_initialized = 0;
+  vm->vmcs_ctrls_initialized = 0;
 
   /*
    * Mark that this VM has not yet been launched, i.e. its first VM entry
@@ -822,6 +774,9 @@ sva_allocvm(struct sva_vmx_vm_ctrls __kern* initial_ctrls,
    * Shade intrinsics for loading and running VMs. */
 #ifndef XEN
   load_eptable_internal(vmid, initial_eptable, 1 /* is initial setting */);
+#else
+  /* Silence unused parameter warning */
+  (void)initial_eptable;
 #endif
 
   /*
@@ -1205,120 +1160,26 @@ sva_loadvm(int vmid) {
   }
 
   /*
-   * If this is the first time this VMCS has been loaded, write the initial
-   * values of VMCS fields provided to sva_allocvm() to the VMCS.
+   * If this is the first time this VMCS has been loaded, initialize its
+   * control fields to safe defaults to ensure that their uninitialized
+   * contents do not contain values that sva_writevmcs()'s runtime checks
+   * would normally prevent the hypervisor from writing to them.
    *
    * We had to wait until now to do this (instead of doing it immediately in
    * sva_allocvm()) because Intel's hardware interface doesn't let you write
    * to a VMCS that isn't currently active on the processor.
    */
-  if (!getCPUState()->active_vm->vmcs_fields_initialized) {
+  if (!getCPUState()->active_vm->vmcs_ctrls_initialized) {
     DBGPRNT(("sva_loadvm(): First time this VMCS has been loaded. "
           "Initializing VMCS controls...\n"));
 
-    /*
-     * Set the VPID (Virtual Processor ID) field to be equal to the VM ID
-     * assigned to this VM by SVA.
-     *
-     * The VPID distinguishes TLB entries belonging to the VM from those
-     * belonging to the host and to other VMs.
-     *
-     * It must NOT be set to 0; that is used for the host. (We ensure this by
-     * skipping slot #0 in the VM descriptor array when assigning a slot in
-     * sva_allocvm().)
-     */
-    /* TODO: SVA should really be using 16-bit integers for VM ID's, since
-     * VPIDs are limited to 16 bits. This is a processor-imposed hard limit on
-     * the number of VMs we can run concurrently if we want to take advantage
-     * of the VPID feature.
-     */
-    writevmcs_unchecked(VMCS_VPID, vmid);
-
-    /*
-     * Set the "CR3-target count" VM execution control to 0. The value doesn't
-     * actually matter because we are using EPT (and thus there are no
-     * restrictions on what the guest can load into CR3); but if we leave the
-     * value uninitialized, the processor may throw an error on VM entry if the
-     * value is greater than 4.
-     */
-    writevmcs_unchecked(VMCS_CR3_TARGET_COUNT, 0);
-
-    /*
-     * Set VMCS link pointer to indicate that we are not using VMCS shadowing.
-     *
-     * (SVA currently does not support VMCS shadowing.)
-     */
-    uint64_t vmcs_link_ptr = 0xffffffffffffffff;
-    writevmcs_unchecked(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
-
-    /*
-     * FIXME: temporarily disabled during incremental port of Xen's VMX code
-     * to Shade.
-     *
-     * These would collide with Xen's use of the MSR-load/store feature,
-     * which we have not yet ported to Shade.
-     */
-#ifndef XEN
-    /*
-     * Set VM-entry/exit MSR load/store counts to 0 to indicate that we will
-     * not use the general-purpose MSR save/load feature.
-     *
-     * Some MSRs are individually saved/loaded on entry/exit as part of SVA's
-     * guest state management.
-     */
-    writevmcs_unchecked(VMCS_VM_ENTRY_MSR_LOAD_COUNT, 0);
-    writevmcs_unchecked(VMCS_VM_EXIT_MSR_LOAD_COUNT, 0);
-    writevmcs_unchecked(VMCS_VM_EXIT_MSR_STORE_COUNT, 0);
-#endif
-
-    /*
-     * FIXME: temporarily disabled during incremental port of Xen's VMX code
-     * to Shade.
-     *
-     * Currently Xen is still handling all VMCS control fields itself, so it
-     * is passing null pointers to sva_allocvm() for initial_ctrls and
-     * initial_state, and sva_allocvm() currently has the code disabled that
-     * would actually copy those into the VM descriptor. Thus SVA would just
-     * be loading 0's into the VMCS fields - which won't pass muster with the
-     * security checks in writevmcs_checked().
-     *
-     * (Hilariously enough, it apparently works fine with the checks
-     * disabled. I'm a little surprised the processor didn't complain about
-     * having 0's fed into a bunch of VMCS control fields with lots of bits
-     * with complicated default settings...)
-     *
-     * Ditto for the call to save_restore_guest_state(), since initial_state
-     * is also uninitialized.
-     */
-#ifndef XEN
-    /*
-     * Load the initial values of VMCS controls that were passed to
-     * sva_allocvm() when this VM was created.
-     *
-     * FIXME: return error code instead of void from update_vmcs_ctrls() to
-     * handle errors cleanly
-     */
-    update_vmcs_ctrls();
-
-    /*
-     * Load the initial values of VMCS-resident guest state fields that were
-     * passed to sva_allocvm() when this VM was created.
-     *
-     * FIXME: return error code instead of void from this function to handle
-     * errors cleanly
-     */
-    save_restore_guest_state(0 /* this is a "restore" operation */);
-#else
-    /* Silence unused-function warnings */
-    (void)update_vmcs_ctrls;
-    (void)save_restore_guest_state;
-#endif
+    init_vmcs_ctrls();
 
     /*
      * Mark that we've initialized these fields so we don't try to do this
      * again the next time this VMCS is loaded.
      */
-    getCPUState()->active_vm->vmcs_fields_initialized = 1;
+    getCPUState()->active_vm->vmcs_ctrls_initialized = 1;
   }
 
   /* Restore interrupts and return to the kernel page tables. */
@@ -3070,329 +2931,6 @@ entry:
 }
 
 /*
- * Function: update_vmcs_ctrls()
- *
- * Description:
- *  A local helper function that updates control fields in the VMCS to match
- *  newer values in the active VM descriptor.
- *
- * Preconditions:
- *  - There must be a VMCS loaded on the processor.
- *
- *  - This CPU's active_vm pointer should point to the VM descriptor
- *    corresponding to the VMCS loaded on the processor.
- *
- *  - This processor should hold the lock in the VM descriptor pointed to by
- *    this CPU's active_vm pointer.
- *
- *  This function is meant to be used internally by SVA code that has already
- *  ensured these conditions hold. Particularly, this is true in run_vm()
- *  (which inherits these preconditions from its own broader precondition,
- *  namely, that it is only called at the end of sva_launch/resumevm() after
- *  all checks have been performed to ensure it is safe to enter a VM).
- */
-static inline void
-update_vmcs_ctrls() {
-  /*
-   * FIXME: check return values from writevmcs_checked() and bail out sanely
-   * if any of the writes failed for whatever reason
-   *
-   * (This function should probably return an error code instead of void.)
-   */
-
-  /* VM execution controls */
-  writevmcs_checked(VMCS_PINBASED_VM_EXEC_CTRLS,
-      getCPUState()->active_vm->initial_ctrls.pinbased_exec_ctrls);
-  writevmcs_checked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS,
-      getCPUState()->active_vm->initial_ctrls.procbased_exec_ctrls1);
-  writevmcs_checked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS,
-      getCPUState()->active_vm->initial_ctrls.procbased_exec_ctrls2);
-  writevmcs_checked(VMCS_VM_ENTRY_CTRLS,
-      getCPUState()->active_vm->initial_ctrls.entry_ctrls);
-  writevmcs_checked(VMCS_VM_EXIT_CTRLS,
-      getCPUState()->active_vm->initial_ctrls.exit_ctrls);
-
-  /* Event injection and exception controls */
-  writevmcs_checked(VMCS_VM_ENTRY_INTERRUPT_INFO_FIELD,
-      getCPUState()->active_vm->initial_ctrls.entry_interrupt_info);
-  writevmcs_checked(VMCS_EXCEPTION_BITMAP,
-      getCPUState()->active_vm->initial_ctrls.exception_exiting_bitmap);
-
-  /* Control register guest/host masks */
-  writevmcs_checked(VMCS_CR0_GUESTHOST_MASK,
-      getCPUState()->active_vm->initial_ctrls.cr0_guesthost_mask);
-  writevmcs_checked(VMCS_CR4_GUESTHOST_MASK,
-      getCPUState()->active_vm->initial_ctrls.cr4_guesthost_mask);
-}
-
-/*
- * Function: save_restore_guest_state()
- *
- * FIXME: refactor this function. We no longer need to abstract around
- * saving/loading like this since scrapped the omnibus get/set guest state
- * intrinsics. This function is only used for initializing VMCS-resident
- * guest state fields and should be named accordingly. It should call
- * writevmcs_checked() directly instead of the (now unnecessary)
- * read_write_vmcs_field() wrapper.
- *
- * Description:
- *  A local helper function which abstracts around whether we are saving or
- *  restoring guest state from an sva_vmx_guest_state structure.
- *
- *  Saving and restoring are "mirror" operations performed on a long list of
- *  state fields. It's better software engineering practice to do both
- *  operations with the same code, both to make the code more concise and to
- *  prevent inconsistencies between the two operations. The more fields we
- *  add to the state structure, the more important this will be.
- *
- *  This function *always* operates on the active VMCS and its corresponding
- *  VM descriptor (pointed to by the CPU's active_vm pointer). The preconditions
- *  below assure that this is safe to do.
- *
- * Arguments:
- *  - saverestore: A boolean value. If true, we are saving (copying from the
- *    active VMCS to the state structure). If false, we are restoring
- *    (copying from the state structure to the active VMCS).
- *
- * Preconditions:
- *  - There must be a VMCS loaded on the processor.
- *
- *  - The CPU's active_vm pointer should point to the VM descriptor
- *    corresponding to the VMCS loaded on the processor.
- *
- *  - This processor should hold the lock in the VM descriptor pointed to by
- *    host-state.active_vm.
- *
- *  This function is meant to be used internally by SVA code that has already
- *  ensured these conditions hold. Particularly, this is true in run_vm()
- *  (which inherits these preconditions from its own broader precondition,
- *  namely, that it is only called at the end of sva_launch/resumevm() after
- *  all checks have been performed to ensure it is safe to enter a VM).
- */
-static inline void
-save_restore_guest_state(unsigned char saverestore) {
-  /*
-   * FIXME: check return values from writevmcs_checked() and bail out sanely
-   * if any of the writes failed for whatever reason
-   *
-   * (This function should probably return an error code instead of void.)
-   */
-
-  // FIXME; debug code
-  if (saverestore /* saving state i.e. reading from VMCS */)
-    panic("save_restore_guest_state() called in 'save' mode\n");
-
-  /*
-   * If saverestore == true, we are saving state (copying from the active
-   * VMCS to the state structure), i.e. *reading* from the VMCS, so the
-   * "write" argument passed to read_write_vmcs_field() is false.
-   *
-   * If saverestore == false, we are restoring state (copying from the state
-   * structure to the active VMCS, i.e. *writing* to the VMCS, so the "write"
-   * argument passed to read_write_vmcs_field() is true.
-   *
-   * In other words, !saverestore == write.
-   */
-
-  /* RIP and RSP */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_RIP,
-      &getCPUState()->active_vm->state.rip);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_RSP,
-      &getCPUState()->active_vm->state.rsp);
-  /* Flags */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_RFLAGS,
-      &getCPUState()->active_vm->state.rflags);
-
-  /* Control registers (except paging-related ones) */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_CR0,
-      &getCPUState()->active_vm->state.cr0);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_CR4,
-      &getCPUState()->active_vm->state.cr4);
-  /* Control register read shadows */
-  read_write_vmcs_field(!saverestore, VMCS_CR0_READ_SHADOW,
-      &getCPUState()->active_vm->state.cr0_read_shadow);
-  read_write_vmcs_field(!saverestore, VMCS_CR4_READ_SHADOW,
-      &getCPUState()->active_vm->state.cr4_read_shadow);
-
-  /* Debug registers/MSRs saved/restored by processor */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_DR7,
-      &getCPUState()->active_vm->state.dr7);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_DEBUGCTL,
-      &getCPUState()->active_vm->state.msr_debugctl);
-
-  /* Paging-related registers saved/restored by processor */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_CR3,
-      &getCPUState()->active_vm->state.cr3);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE0,
-      &getCPUState()->active_vm->state.pdpte0);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE1,
-      &getCPUState()->active_vm->state.pdpte1);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE2,
-      &getCPUState()->active_vm->state.pdpte2);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_PDPTE3,
-      &getCPUState()->active_vm->state.pdpte3);
-
-  /* SYSENTER-related MSRs */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_SYSENTER_CS,
-      &getCPUState()->active_vm->state.msr_sysenter_cs);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_SYSENTER_ESP,
-      &getCPUState()->active_vm->state.msr_sysenter_esp);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_SYSENTER_EIP,
-      &getCPUState()->active_vm->state.msr_sysenter_eip);
-
-  /* Segment registers (including hidden portions) */
-  /* CS */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_BASE,
-      &getCPUState()->active_vm->state.cs_base);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_LIMIT,
-      &getCPUState()->active_vm->state.cs_limit);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_ACCESS_RIGHTS,
-      &getCPUState()->active_vm->state.cs_access_rights);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_CS_SEL,
-      &getCPUState()->active_vm->state.cs_sel);
-  /* SS */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_BASE,
-      &getCPUState()->active_vm->state.ss_base);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_LIMIT,
-      &getCPUState()->active_vm->state.ss_limit);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_ACCESS_RIGHTS,
-      &getCPUState()->active_vm->state.ss_access_rights);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_SS_SEL,
-      &getCPUState()->active_vm->state.ss_sel);
-  /* DS */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_BASE,
-      &getCPUState()->active_vm->state.ds_base);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_LIMIT,
-      &getCPUState()->active_vm->state.ds_limit);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_ACCESS_RIGHTS,
-      &getCPUState()->active_vm->state.ds_access_rights);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_DS_SEL,
-      &getCPUState()->active_vm->state.ds_sel);
-  /* ES */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_BASE,
-      &getCPUState()->active_vm->state.es_base);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_LIMIT,
-      &getCPUState()->active_vm->state.es_limit);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_ACCESS_RIGHTS,
-      &getCPUState()->active_vm->state.es_access_rights);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_ES_SEL,
-      &getCPUState()->active_vm->state.es_sel);
-  /* FS */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_BASE,
-      &getCPUState()->active_vm->state.fs_base);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_LIMIT,
-      &getCPUState()->active_vm->state.fs_limit);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_ACCESS_RIGHTS,
-      &getCPUState()->active_vm->state.fs_access_rights);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_FS_SEL,
-      &getCPUState()->active_vm->state.fs_sel);
-  /* GS */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_BASE,
-      &getCPUState()->active_vm->state.gs_base);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_LIMIT,
-      &getCPUState()->active_vm->state.gs_limit);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_ACCESS_RIGHTS,
-      &getCPUState()->active_vm->state.gs_access_rights);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_GS_SEL,
-      &getCPUState()->active_vm->state.gs_sel);
-  /* TR */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_BASE,
-      &getCPUState()->active_vm->state.tr_base);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_LIMIT,
-      &getCPUState()->active_vm->state.tr_limit);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_ACCESS_RIGHTS,
-      &getCPUState()->active_vm->state.tr_access_rights);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_TR_SEL,
-      &getCPUState()->active_vm->state.tr_sel);
-
-  /* Descriptor table registers */
-  /* GDTR */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_GDTR_BASE,
-      &getCPUState()->active_vm->state.gdtr_base);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_GDTR_LIMIT,
-      &getCPUState()->active_vm->state.gdtr_limit);
-  /* IDTR */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_IDTR_BASE,
-      &getCPUState()->active_vm->state.idtr_base);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_IDTR_LIMIT,
-      &getCPUState()->active_vm->state.idtr_limit);
-  /* LDTR */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_BASE,
-      &getCPUState()->active_vm->state.ldtr_base);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_LIMIT,
-      &getCPUState()->active_vm->state.ldtr_limit);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_ACCESS_RIGHTS,
-      &getCPUState()->active_vm->state.ldtr_access_rights);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_LDTR_SEL,
-      &getCPUState()->active_vm->state.ldtr_sel);
-
-#ifdef MPX
-  /* MPX configuration register for supervisor mode */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_IA32_BNDCFGS,
-      &getCPUState()->active_vm->state.msr_bndcfgs);
-#endif
-
-  /* Various other guest system state */
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_ACTIVITY_STATE,
-      &getCPUState()->active_vm->state.activity_state);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_INTERRUPTIBILITY_STATE,
-      &getCPUState()->active_vm->state.interruptibility_state);
-  read_write_vmcs_field(!saverestore, VMCS_GUEST_PENDING_DBG_EXCEPTIONS,
-      &getCPUState()->active_vm->state.pending_debug_exceptions);
-}
-
-/*
- * Function: read_write_vmcs_field()
- *
- * Description:
- *  A local helper function which abstracts around whether we are reading or
- *  writing a VMCS field.
- *
- *  Calls writevmcs_checked() if "rw" is true, otherwise calls
- *  readvmcs_checked().  The "data" parameter is appropriately dereferenced
- *  if we're calling writevmcs_checked() (which takes a uint64_t, not a
- *  uint64_t*).
- *
- *  This is useful so that we don't have to repeat ourselves when writing
- *  code that saves/restores long sequences of VMCS fields. These usually
- *  come in pairs (save and restore) which are otherwise identical; using the
- *  same code for both is better software engineering practice (makes the
- *  code more concise and eliminates the risk of inconsistency between the
- *  two implementations).
- *
- * Arguments:
- *  - write: A boolean value. If true, we write the VMCS field; if false, we
- *    read it.
- *
- *  - field: Specifies the VMCS field. Passed through to
- *    read/writevmcs_checked().
- *
- *  - data: Pointer to the location containing the data to be written, or to
- *    which the data to be read should be stored. For writes, this is
- *    dereferenced and the value in it is passed on to writevmcs_checked() be
- *    written. For reads, the address is passed directly to
- *    readvmcs_checked() and the read value is stored there.
- *
- * Return value:
- *  The error code returned by read/writevmcs_checked(), respectively, is
- *  passed through.
- *
- * Preconditions:
- *  - There must be a VMCS loaded on the processor.
- */
-static inline int
-read_write_vmcs_field(unsigned char write,
-    enum sva_vmcs_field field, uint64_t *data) {
-  if (write) {
-    /* We are writing to the VMCS field. */
-    return writevmcs_checked(field, *data);
-  } else {
-    /* We are reading from the VMCS field. */
-    return readvmcs_checked(field, data);
-  }
-}
-
-/*
  * Function: readvmcs_checked()
  *
  * Description:
@@ -5092,4 +4630,199 @@ int sva_posted_interrupts_enable(uint8_t vector, paddr_t descriptor) {
 __sva_fail:
   usersva_to_kernel_pcid();
   return __sva_intrinsic_result;
+}
+
+/*
+ * Helper function: init_vmcs_ctrls()
+ *
+ * Initializes the active VM's VMCS control fields to safe defaults.
+ *
+ * Note that this initialization is *NOT* sufficient to actually run a guest
+ * and have it perform meaningful computation. The hypervisor is expected to
+ * use the sva_writevmcs() intrinsic to specify meaningful initial values to
+ * these fields (to the extent required based on the features it intends to
+ * use) before running the guest for the first time. The initial values set
+ * by this function are intended merely to ensure that SVA's safety needs are
+ * met if the hypervisor attempts to run the guest without explicitly
+ * initializing these values.
+ *
+ * This function is designed to be called by sva_loadvm() the first time a
+ * particular VMCS is loaded onto the processor, and at no other time.
+ *
+ * PRECONDITION:
+ *    A VMCS must be active on the processor. If this is not the case, the
+ *    calls to writevmcs_unchecked() will fail since the VMWRITE instruction
+ *    is only valid with an active VMCS.
+ */
+static inline void
+init_vmcs_ctrls(void) {
+  SVA_ASSERT(getCPUState()->active_vm,
+      "init_vmcs_ctrls(): A VM must be active on the processor.");
+
+  /*******
+   * These VMCS fields are not on the writevmcs_checked() whitelist, i.e.,
+   * the hypervisor is not allowed to change them using sva_writevmcs(). We
+   * initialize them here to the values that SVA wants and do not allow them
+   * to be changed throughout the life of the VM.
+   */
+
+  /*
+   * Set the VPID (Virtual Processor ID) field to be equal to the VM ID
+   * assigned to this VM by SVA.
+   *
+   * The VPID distinguishes TLB entries belonging to the VM from those
+   * belonging to the host and to other VMs.
+   *
+   * It must NOT be set to 0; that is used for the host. (We ensure this by
+   * skipping slot #0 in the VM descriptor array when assigning a slot in
+   * sva_allocvm().)
+   *
+   * Note that the hardware VPID field is limited to 16 bits (i.e. uint16_t),
+   * but SVA VMIDs are int32_t's; the constant MAX_VMS (defined in vmx.h)
+   * should be defined to a value less than UINT16_MAX to prevent overflow.
+   * (In practice, it would probably be undesirable to set MAX_VMS that large
+   * anyway, because it determines the size of the statically-allocated VM
+   * descriptor array.)
+   */
+  int active_vmid = getCPUState()->active_vm - vm_descs;
+  writevmcs_unchecked(VMCS_VPID, active_vmid);
+
+  /*
+   * Set the "CR3-target count" VM execution control to 0. The value doesn't
+   * actually matter because we are using EPT (and thus there are no
+   * restrictions on what the guest can load into CR3); but if we leave the
+   * value uninitialized, the processor may throw an error on VM entry if the
+   * value is greater than 4.
+   */
+  writevmcs_unchecked(VMCS_CR3_TARGET_COUNT, 0);
+
+  /*
+   * Set VMCS link pointer to indicate that we are not using VMCS shadowing.
+   *
+   * (SVA currently does not support VMCS shadowing.)
+   */
+  uint64_t vmcs_link_ptr = 0xffffffffffffffff;
+  writevmcs_unchecked(VMCS_VMCS_LINK_PTR, vmcs_link_ptr);
+
+  /*
+   * FIXME: temporarily disabled during incremental port of Xen's VMX code
+   * to Shade.
+   *
+   * These would collide with Xen's use of the MSR-load/store feature,
+   * which we have not yet ported to Shade.
+   */
+#ifndef XEN
+  /*
+   * Set VM-entry/exit MSR load/store counts to 0 to indicate that we will
+   * not use the general-purpose MSR save/load feature.
+   *
+   * Some MSRs are individually saved/loaded on entry/exit as part of SVA's
+   * guest state management.
+   */
+  writevmcs_unchecked(VMCS_VM_ENTRY_MSR_LOAD_COUNT, 0);
+  writevmcs_unchecked(VMCS_VM_EXIT_MSR_LOAD_COUNT, 0);
+  writevmcs_unchecked(VMCS_VM_EXIT_MSR_STORE_COUNT, 0);
+#endif
+
+  /*******
+   * SVA permits the hypervisor to modify the following fields with
+   * sva_writevmcs(), but subject to bitwise restrictions enforced by
+   * writevmcs_checked().
+   *
+   * We initialize all control bits to 0 unless they are reserved to 1 by the
+   * ISA or our runtime checks in writevmcs_checked() would require them to
+   * be so.
+   */
+
+  /* Field: VMCS_PINBASED_VM_EXEC_CTRLS */
+  union {
+    struct vmcs_pinbased_vm_exec_ctrls fields;
+    uint64_t buf;
+  } pinbased;
+  pinbased.buf = 0;
+
+  pinbased.fields.ext_int_exiting = 1;
+  pinbased.fields.nmi_exiting = 1;
+  pinbased.fields.reserved1_2 = 0x3;
+  pinbased.fields.reserved4 = 1;
+
+  /*
+   * N.B.: We use writevmcs_checked() here and below, rather than
+   * writevmcs_unchecked(), even though this is a trusted write from inside
+   * SVA, because writevmcs_checked() will automatically override
+   * intrinsic-controlled bits (e.g. vlAPIC) to the correct values based on
+   * current settings. writevmcs_unchecked() wouldn't do that and would
+   * require us to duplicate the code here that determines their correct
+   * settings.
+   *
+   * No significant performance impact is expected from this, because a) this
+   * code only runs the first time a VMCS is loaded; and b) we split out
+   * writevmcs_checked() and writevmcs_unchecked() not really for performance
+   * reasons (the runtime checks are super fast), but because SVA often needs
+   * to make changes to VMCS fields that the checks are designed to prevent
+   * the hypervisor from making on its own. As the whole point of this code
+   * here is to write safe defaults that the hypervisor *could* have written
+   * on its own, that is not an issue.
+   */
+  writevmcs_checked(VMCS_PINBASED_VM_EXEC_CTRLS, pinbased.buf);
+
+  /* Field: VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS */
+  union {
+    struct vmcs_primary_procbased_vm_exec_ctrls fields;
+    uint64_t buf;
+  } primary;
+  primary.buf = 0;
+
+  primary.fields.uncond_io_exiting = 1;
+  primary.fields.activate_secondary_ctrls = 1;
+  primary.fields.reserved0_1 = 0x2;
+  primary.fields.reserved4_6 = 0x7;
+  primary.fields.reserved8 = 1;
+  primary.fields.reserved13_14 = 0x3;
+  primary.fields.reserved26 = 1;
+
+  writevmcs_checked(VMCS_PRIMARY_PROCBASED_VM_EXEC_CTRLS, primary.buf);
+
+  /* Field: VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS */
+  union {
+    struct vmcs_secondary_procbased_vm_exec_ctrls fields;
+    uint64_t buf;
+  } secondary;
+  secondary.buf = 0;
+
+  secondary.fields.enable_ept = 1;
+  secondary.fields.enable_vpid = 1;
+
+  writevmcs_checked(VMCS_SECONDARY_PROCBASED_VM_EXEC_CTRLS, secondary.buf);
+
+  /* Field: VMCS_VM_EXIT_CTRLS */
+  union {
+    struct vmcs_vm_exit_ctrls fields;
+    uint64_t buf;
+  } exit;
+  exit.buf = 0;
+
+  exit.fields.host_addr_space_size = 1;
+  exit.fields.load_ia32_pat = 1;
+  exit.fields.load_ia32_efer = 1;
+  exit.fields.reserved0_1 = 0x3;
+  exit.fields.reserved3_8 = 0x3f;
+  exit.fields.reserved10_11 = 0x3;
+  exit.fields.reserved13_14 = 0x3;
+  exit.fields.reserved16_17 = 0x3;
+
+  writevmcs_checked(VMCS_VM_EXIT_CTRLS, exit.buf);
+
+  /* Field: VMCS_VM_ENTRY_CTRLS */
+  union {
+    struct vmcs_vm_entry_ctrls fields;
+    uint64_t buf;
+  } entry;
+  entry.buf = 0;
+
+  entry.fields.reserved0_1 = 0x3;
+  entry.fields.reserved3_8 = 0x3f;
+  entry.fields.reserved12 = 1;
+
+  writevmcs_checked(VMCS_VM_ENTRY_CTRLS, entry.buf);
 }

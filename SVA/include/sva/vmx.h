@@ -451,6 +451,144 @@ struct vlapic {
 };
 
 /*
+ * Structure: sva_vmx_guest_state
+ *
+ * Description:
+ *  A structure describing the state of a guest system virtualized by a VM.
+ *
+ *  SVA stores a guest's context-switched state here when the guest is not
+ *  running. When a guest is running, its state is live on the processor and
+ *  the fields in this structure should (generally) not be used, as they are
+ *  out of date (and will be clobbered by updated values on the next VM
+ *  exit). SVA code should utilize the lock field in struct vm_desc_t to
+ *  ensure that it does not improperly access the data here while the
+ *  corresponding VM is active on another processor.
+ *
+ *  Note that this structure only contains state fields that must be
+ *  saved/restored explicitly by SVA on VM entry and exit. Numerous other
+ *  state fields are (or can be, depending on VMCS control settings)
+ *  saved/restored automatically by the processor on entry and exit, and thus
+ *  live in the VMCS where the processor can access them. To access those
+ *  fields, use the read/writevmcs_checked() or read/writevmcs_unchecked()
+ *  functions as appropriate.
+ */
+typedef struct sva_vmx_guest_state {
+#ifdef SVA_LLC_PART
+  /*** Padding for protection against side-channel attacks ***
+   *
+   * SVA's VM entry/exit code must access guest state structures in SVA
+   * protected memory to save/restore guest registers. Some of these
+   * registers need to be saved/restored during the time window between
+   * switching to the OS cache partition and VM entry (and likewise on VM
+   * exit).
+   *
+   * Any SVA protected memory that we touch while in the OS cache partition
+   * becomes vulnerable to side-channel attacks launched by the OS or VMs.
+   * That's harmless for the guest state structure because guest state is
+   * already under control of the system software. However, we want to make
+   * sure that there's no sensitive data adjacent to it in the same cache
+   * lines(s) that will also be made vulnerable to side-channel attacks.
+   *
+   * To ensure this, we place an amount of padding on each side of the
+   * guest-state structure equal to the size of a last-level cache line. A
+   * LLC cache line is 64 B on our current development hardware (Skylake) and
+   * most/all other Intel Core processors.
+   *
+   * NOTE: Hardcoding 64 B of padding is fine for our prototype, but a
+   * production version of SVA should have a more robust solution that works
+   * with any cache line size.
+   *
+   * These padding fields (here and at the end of the structure) do not need
+   * to be initialized in any way by the system software. SVA does not read
+   * or write them.
+   */
+  uint8_t llc_padding_front[64];
+#endif /* #ifdef SVA_LLC_PART */
+
+  /* General purpose registers */
+  uint64_t rax, rbx, rcx, rdx;
+  uint64_t rbp, rsi, rdi;
+  uint64_t r8,  r9,  r10, r11;
+  uint64_t r12, r13, r14, r15;
+
+  /* Control registers not automatically saved/restored by processor */
+  uint64_t cr2;
+  /* TODO: also handle CR8 */
+
+  /* FP State */
+  union xsave_area_max fp;
+
+#ifdef MPX
+  /*
+   * MPX bounds registers
+   *
+   * These are 128 bits each, represented as two adjacent 64-bit unsigned
+   * pointer values. This matches the format used by the hardware when the
+   * BNDMOV instruction is used to store/load bounds register values to/from
+   * memory. The lower bound is stored at index 0 and the upper bound at
+   * index 1.
+   */
+  uint64_t bnd0[2], bnd1[2], bnd2[2], bnd3[2];
+#endif
+
+  /*
+   * Extended Control Register 0 (XCR0)
+   *
+   * This governs the use of the XSAVE feature and enables/disables MPX
+   * (since MPX is an XSAVE-enabled feature).
+   */
+  uint64_t xcr0;
+
+  /*
+   * XSS MSR (Extended Supervisor State Mask)
+   *
+   * This is the counterpart to XCR0 for XSAVE features which are accessible
+   * only in supervisor mode (i.e., via the XSAVES version of the
+   * instruction).
+   *
+   * As of this writing (2020-10-20), the only such feature is "Trace Packet
+   * Configuration State", which neither SVA nor Xen cares about using in
+   * host (VMX root) mode; however, Xen supports the use of XSS features by
+   * guests, so we must context-switch it in sva_runvm().
+   *
+   * Note that we do *not* need a corresponding field for this in struct
+   * vmx_host_state_t, since the correct value of this MSR for SVA/Xen in
+   * host mode is unconditionally 0.
+   */
+  uint64_t msr_xss;
+
+  /*
+   * MSRs related to SYSCALL handling
+   *
+   * Unlike the SYSENTER MSRs, these are *not* switched atomically during VM
+   * entry/exit. (I'm sure someone at Intel has a good reason for that...)
+   */
+  uint64_t msr_fmask, msr_star, msr_lstar, msr_cstar;
+
+  /*
+   * GS Shadow register
+   *
+   * In a classic example of ISA-minimalism lawyering on Intel's part, they
+   * decided to leave the GS Shadow register - by itself - to be manually
+   * switched between host and guest values by the hypervisor on VM entry and
+   * exit, despite the fact that *every other part* of the segment registers
+   * (including the non-shadow GS Base) corresponds to a field in the VMCS
+   * and is switched automatically by the processor as part of VM entry/exit.
+   *
+   * Thus, we take care of switching GS Shadow in sva_runvm() along with the
+   * GPRs and other non-VMCS-resident control registers/MSRs stored here.
+   */
+  uint64_t gs_shadow;
+
+#ifdef SVA_LLC_PART
+  /*** Padding for protection against side-channel attacks ***
+   * (64 B = size of a cache line on Intel Core processors)
+   */
+  uint8_t llc_padding_back[64];
+#endif
+} sva_vmx_guest_state;
+
+/*
  * Structure: vm_desc_t
  *
  * Description:
@@ -525,21 +663,6 @@ typedef struct vm_desc_t {
   unsigned char is_launched;
 
   /*
-   * Initial values of all VMCS controls for this VM.
-   *
-   * This stores the initial settings provided to sva_allocvm() when creating
-   * a VM so that they can be written to the VMCS the first time it is loaded
-   * onto the processor. This is necessary because Intel's hardware interface
-   * only allows us to write to VMCS fields when the VMCS is active on the
-   * processor.
-   *
-   * This structure is not used any more after the first load of the VMCS.
-   * Once it's been loaded, the system software can use sva_writevmcs() to
-   * update individual VMCS fields.
-   */
-  sva_vmx_vm_ctrls initial_ctrls;
-
-  /*
    * State of the guest system virtualized by this VM.
    *
    * This structure includes two groups of fields:
@@ -562,16 +685,20 @@ typedef struct vm_desc_t {
   sva_vmx_guest_state state;
 
   /*
-   * Have VMCS fields been loaded with their initial values provided to
-   * sva_allocvm()?
+   * Have the VMCS's control fields been initialized with safe defaults since
+   * the VMCS was created?
    *
-   * These initial values are stored in "initial_ctrls" and "state" above (as
-   * appropriate) and are written to the VMCS at the first opportunity,
-   * namely, the first time the VMCS is loaded. sva_loadvm() will set this
-   * flag after initializing the values to ensure that we don't attempt to
-   * reinstall the initial values on subsequent loads of the VMCS.
+   * Because the ISA doesn't let us use VMWRITE to write to a VMCS until the
+   * VMCS has been loaded onto the processor, we must defer this
+   * initialization until the first time sva_loadvm() is called for a VM
+   * rather than doing it in sva_allocvm() (which would otherwise be more
+   * sensible).
+   *
+   * sva_loadvm() will set this flag to prevent itself from repeating this
+   * initialization on future (re-)loads of the VMCS so it doesn't clobber
+   * any changes the hypervisor has subsequently made to these fields.
    */
-  unsigned char vmcs_fields_initialized;
+  unsigned char vmcs_ctrls_initialized;
 
   /*
    * Extended page-table pointer (EPT) for this VM.
@@ -679,11 +806,7 @@ static inline unsigned char cpu_permit_vmx(void);
 static inline unsigned char check_cr0_fixed_bits(void);
 static inline unsigned char check_cr4_fixed_bits(void);
 
-static inline void update_vmcs_ctrls();
-static inline void save_restore_guest_state(unsigned char saverestore);
-static inline int read_write_vmcs_field(
-    unsigned char write,
-    enum sva_vmcs_field field, uint64_t *data);
+static inline void init_vmcs_ctrls(void);
 static inline int readvmcs_checked(enum sva_vmcs_field field, uint64_t *data);
 static inline int readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data);
 static inline int writevmcs_checked(enum sva_vmcs_field field, uint64_t data);
