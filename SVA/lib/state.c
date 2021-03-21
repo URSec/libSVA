@@ -1790,8 +1790,15 @@ void __attribute__((noreturn)) sva_reinit_stack(void (*func)(void)) {
   usersva_to_kernel_pcid();
 
   asm volatile ("movq %[sp], %%rsp\n\t"
+
+		/*
+		 * Note: our stack frame is now dead. This means that any
+		 * inputs used after this point must be registers or
+		 * immediates.
+		 */
+
                 "jmp *%[target]"
-                : : [sp]"r"(rsp), [target]"rm"(func)
+                : : [sp]"r"(rsp), [target]"r"(func)
                 : "memory");
 
   __builtin_unreachable();
