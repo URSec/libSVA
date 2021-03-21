@@ -224,6 +224,7 @@ ENTRY(Trap)
   testq $0x3, IC_CS(%rsp)
   cmovnzq TSS_RSP0(%rbx), %rsp
   cmovzq IC_RSP(%rsp), %rsp
+  andq	$-16, %rsp
 
   /*
    * Zero out live registers that could be spilled to the stack.  Without

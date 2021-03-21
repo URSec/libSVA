@@ -1775,7 +1775,7 @@ void __attribute__((noreturn)) sva_reinit_stack(void (*func)(void)) {
    */
   uintptr_t rsp;
   if (sva_was_privileged()) {
-      rsp = (uintptr_t)getCPUState()->newCurrentIC->rsp;
+      rsp = (uintptr_t)getCPUState()->newCurrentIC->rsp & -16UL;
   } else {
       rsp = getCPUState()->tssp->rsp0;
   }
