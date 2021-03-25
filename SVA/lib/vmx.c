@@ -3289,28 +3289,46 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
         /* Check remaining bit settings */
         is_safe =
           /*
-           * We must unconditionally exit for I/O instructions since SVA
-           * mediates all access to hardware.
-           */
-          ctrls.uncond_io_exiting &&
-
-          /*
-           * I/O bitmaps are irrelevant since we are unconditionally exiting
-           * for I/O instructions. This bit must be 0 because it would
-           * otherwise override the "unconditional I/O exiting" setting which
-           * we enforce above.
-           */
-          !ctrls.use_io_bitmaps &&
-
-          /*
-           * SVA will mediate all access to MSRs, so we will not use MSR
-           * bitmaps (i.e., we will exit unconditionally for RDMSR/WRMSR).
+           * N.B.: We do not, at present, need to restrict the settings of
+           * the "unconditional I/O exiting" or "use I/O bitmaps" controls.
            *
-           * If necessary for performance, we can potentially relax this
-           * constraint by allowing guests to read/write certain MSRs
-           * directly that are deemed safe.
+           * This is because:
+           *  a) Unconditional I/O exiting is always safe from SVA's
+           *     perspective;
+           *  b) SVA owns the I/O bitmap pages, and sets them up safely when
+           *     creating a new VM in sva_allocvm(); and
+           *  c) We don't, at present, actually restrict any particular I/O
+           *     ports' intercepts from being cleared (see
+           *     sva_vmx_io_intercept_clear()). Thus the hypervisor could, in
+           *     princple, clear *all* of the intercepts, which is
+           *     functionally equivalent to disabling both unconditional I/O
+           *     exiting and I/O bitmaps.
+           *
+           * Note that this will no longer be true if, in the future, we
+           * decide to start restricting the clearing of I/O intercepts on a
+           * per-port basis (as we do with the MSR bitmaps). If we do that,
+           * then we will need to add a check here to require that *either*
+           * unconditional I/O exiting *or* I/O bitmaps be enabled. (If
+           * bitmaps are enabled, the processor will ignore the
+           * unconditional-exiting control bit.)
            */
-          !ctrls.use_msr_bitmaps &&
+
+          /*
+           * N.B.: As with I/O exiting (see above), we do not need to
+           * restrict the setting of the "use MSR bitmaps" control - but for
+           * a slightly different reason. Unlike with I/O exiting, there is
+           * no control for disabling RD/WRMSR exiting except by using the
+           * bitmaps to do so on a per-MSR basis. Therefore, even though we
+           * do restrict the clearing of certain MSR intercepts in
+           * sva_vmx_msr_intercept_clear(), it is safe to permit the
+           * hypervisor to enable or disable MSR bitmaps as it chooses -
+           * because the result will be safe either way. If bitmaps are
+           * disabled, all guest RD/WRMSR instances will cause exits, which
+           * is always safe. If bitmaps are enabled, the hypervisor will have
+           * to go through our intrinsics to configure the bitmaps (since we
+           * own the bitmap page), so we can prevent it from clearing
+           * intercepts for sensitive MSRs.
+           */
 
           /*
            * We must activate the secondary controls because SVA requires
@@ -4812,7 +4830,6 @@ init_vmcs_ctrls(void) {
   } primary;
   primary.buf = 0;
 
-  primary.fields.uncond_io_exiting = 1;
   primary.fields.activate_secondary_ctrls = 1;
   primary.fields.reserved0_1 = 0x2;
   primary.fields.reserved4_6 = 0x7;
