@@ -89,6 +89,8 @@
 
 #ifndef __ASSEMBLER__
 
+#include <sva/types.h>
+
 struct SVAThread;
 
 /**
@@ -109,6 +111,20 @@ static inline bool is_secure_memory_addr(uintptr_t p) {
 }
 
 void ghostFree(struct SVAThread* tp, void* p, size_t size);
+
+/**
+ * Create a new stack in secure memory.
+ *
+ * The new stack will have a guard page above it (lower virtual address).
+ *
+ * NB: If the returned stack is sent to another CPU with weaker than
+ * acquire-release synchronization, the other CPU is not guaranteed to see the
+ * page table updates that map the new stack.
+ *
+ * @return  A pointer to the *bottom* of the new stack (highest virtual address)
+ *          or NULL if unsuccessful
+ */
+void* create_sva_stack(void);
 
 #endif /* !__ASSEMBLER__ */
 

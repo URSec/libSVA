@@ -12,8 +12,7 @@
  *===----------------------------------------------------------------------===
  */
 
-#include <string.h>
-
+#include <sva/secmem.h>
 #include <sva/assert.h>
 #include <sva/types.h>
 #include <sva/config.h>
@@ -23,6 +22,8 @@
 #include <sva/self_profile.h>
 #include <sva/state.h>
 #include <sva/util.h>
+
+#include <string.h>
 
 /* Size of frame cache queue */
 #define FRAME_CACHE_SIZE 4096
@@ -485,6 +486,99 @@ free_frame(uintptr_t paddr) {
   frame_cache_lock();
   frame_enqueue(paddr);
   frame_cache_unlock();
+}
+
+paddr_t alloc_frame_type(frame_type_t type) {
+  paddr_t frame = alloc_frame();
+  frame_desc_t* desc = get_frame_desc(frame);
+  frame_morph(desc, type);
+  frame_take(desc, type);
+  return frame;
+}
+
+void free_frame_type(paddr_t frame, frame_type_t type) {
+  frame_desc_t* desc = get_frame_desc(frame);
+  frame_drop(desc, type);
+  frame_morph(desc, PGT_FREE);
+  free_frame(frame);
+}
+
+void* create_sva_stack(void) {
+  char* const start = (char*)0xffff860020000000;
+  /* char* const end = (char*)0xffff860040000000; */
+  const unsigned long flags = PG_P | PG_W | PG_NX | PG_A | PG_D;
+  void* addr = start;
+  paddr_t frames[7];
+
+  for (size_t i = 0; i < ARRAY_SIZE(frames); ++i) {
+    frames[i] = alloc_frame_type(PGT_SVA);
+  }
+
+  pml4e_t* l4e = get_pml4eVaddr(get_root_pagetable(), (uintptr_t)start);
+  pdpte_t* l3e = get_pdpteVaddr(*l4e, (uintptr_t)start);
+  pde_t* l2t = (pde_t*)__va(PG_ENTRY_FRAME(*l3e));
+
+  for (pde_t* l2e = &l2t[PG_L2_ENTRY(start)]; l2e < l2t + PG_ENTRIES; ++l2e) {
+    pte_t* l1t;
+    {
+      pde_t old = __atomic_load_n(l2e, __ATOMIC_ACQUIRE);
+      if (!isPresent(old)) {
+        /*
+         * L1 table doesn't exist. Try to create it.
+         */
+        paddr_t l1_table = alloc_frame_type(PGT_SML1);
+        memset(__va(l1_table), 0, FRAME_SIZE);
+
+        bool success =
+          __atomic_compare_exchange_n(l2e, &old, l1_table | flags,
+              false, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE);
+        if (success) {
+          /*
+           * We successfully created the L1 table.
+           */
+          l1t = (pte_t*)__va(l1_table);
+        } else {
+          /*
+           * Another thread created the L1 table. Free the one we created.
+           */
+          free_frame_type(l1_table, PGT_SML1);
+          l1t = (pte_t*)__va(PG_ENTRY_FRAME(old));
+          pause();
+        }
+      } else {
+        l1t = (pte_t*)__va(PG_ENTRY_FRAME(old));
+      }
+    }
+
+    for (pte_t* l1e = l1t; l1e < l1t + PG_ENTRIES; l1e += 8, addr += 0x8000) {
+      pte_t old = ZERO_MAPPING;
+      bool success =
+        __atomic_compare_exchange_n(&l1e[1], &old, frames[0] | flags,
+            false, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
+      if (success) {
+        /*
+         * We claimed this region and can assume no other CPU will write to the
+         * remaining entries.
+         */
+        for (size_t i = 1; i < ARRAY_SIZE(frames); ++i) {
+          __atomic_store_n(&l1e[i + 1], frames[i] | flags, __ATOMIC_RELAXED);
+        }
+
+        /* Return a pointer to the *bottom* of the stack. */
+        return addr + 0x8000;
+      }
+    }
+  }
+
+  /*
+   * We couldn't find a place to map the stack. Free the frames we allocated
+   * for it.
+   */
+  for (size_t i = 0; i < ARRAY_SIZE(frames); ++i) {
+    free_frame_type(frames[i], PGT_SVA);
+  }
+
+  return NULL;
 }
 
 /*
