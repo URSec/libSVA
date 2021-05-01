@@ -2031,3 +2031,85 @@ handle_vmcsdebug_hypercall(sva_icontext_t *ic) {
       break;
   }
 }
+
+/*
+ * Debug intrinsic: sva_print_faulting_frame_metadata()
+ *
+ * Prints various information from SVA's metadata for the physical memory
+ * frame associated with a particular virtual address.
+ *
+ * Useful for debugging situations where the system software is encountering
+ * an unexpected page fault because it is suspected of running up against SVA
+ * memory restrictions (e.g., attempting to write to a page which has been
+ * declared to SVA as a page-table page and thus has been made read-only in
+ * the system software's direct map).
+ *
+ * @param vaddr   The faulting virtual address. This function will walk the
+ *                page tables to find the corresponding physical address and
+ *                report the associated frame metadata.
+ */
+void
+sva_print_faulting_frame_metadata(void *vaddr) {
+  frame_desc_t *frame_desc = get_frame_desc(__pa(vaddr));
+
+  SVA_ASSERT(frame_desc,
+      "sva_print_faulting_frame_metadata(): page table walk yielded a paddr "
+      "which doesn't correspond to a valid frame descriptor.\n");
+
+  /* Atomically load the live descriptor into a local copy. */
+  frame_desc_t desc;
+  __atomic_load(frame_desc, &desc, __ATOMIC_ACQUIRE);
+
+  printf("SVA frame type for 0x%p is %s; ref_count = %u, type_count = %u\n",
+      vaddr, frame_type_name(desc.type), desc.ref_count, desc.type_count);
+}
+
+/*
+ * Debug intrinsic: sva_check_frame_type()
+ *
+ * Checks if a frame is currently considered to be of a PTP type by SVA.
+ * Useful for debugging issues where the system software is failing to
+ * undeclare PTPs to SVA before trying to reuse the memory for some other
+ * purpose, or attempting to use an SVA intrinsic to update an entry within a
+ * page that hasn't been declared as a PTP to SVA.
+ *
+ * @param paddr   The physical address of the frame to check. (You can also
+ *                pass a raw page-table entry; the flag bits will be masked
+ *                off when the frame's descriptor is queried.)
+ *
+ * @param expect_declared   Whether the nominal expectation in the situation
+ *                          being debugged is for the frame to be declared as
+ *                          a PTP, or not. Used to determine whether an
+ *                          informational printout should be printed (to
+ *                          avoid console spam in nominal cases).
+ *
+ * @return    True if the frame's type is a PTP type, false otherwise.
+ */
+bool
+sva_check_frame_type(unsigned long paddr, bool expect_declared) {
+  frame_desc_t *frame_desc = get_frame_desc(paddr);
+
+  SVA_ASSERT(frame_desc,
+      "sva_check_frame_type(): paddr doesn't correspond to a valid frame "
+      "descriptor.\n");
+
+  /* Atomically load the live descriptor into a local copy. */
+  frame_desc_t desc;
+  __atomic_load(frame_desc, &desc, __ATOMIC_ACQUIRE);
+
+  if (desc.type >= PGT_L1 && desc.type <= PGT_EPTL4) {
+    if (!expect_declared) {
+      printf("sva_check_frame_type(): paddr 0x%016lx has frame type %s\n",
+          paddr, frame_type_name(desc.type));
+    }
+
+    return true;
+  } else {
+    if (expect_declared) {
+      printf("sva_check_frame_type(): paddr 0x%016lx has frame type %s\n",
+          paddr, frame_type_name(desc.type));
+    }
+
+    return false;
+  }
+}
