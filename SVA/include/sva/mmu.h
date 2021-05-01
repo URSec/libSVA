@@ -97,6 +97,22 @@ extern uintptr_t alloc_frame(void);
 extern void free_frame(uintptr_t paddr);
 
 /**
+ * Allocate a frame and take a reference of the given type.
+ *
+ * @param type  The type of the reference to take
+ * @return      The physical address of the allocated frame
+ */
+paddr_t alloc_frame_type(frame_type_t type);
+
+/**
+ * Drop a reference and free the frame.
+ *
+ * @param frame The physical address of the frame to free
+ * @param type  The type of the reference to drop
+ */
+void free_frame_type(paddr_t frame, frame_type_t type);
+
+/**
  * Perform early initialization of the MMU metadata.
  */
 void init_mmu(void);
