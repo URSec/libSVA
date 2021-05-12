@@ -308,7 +308,7 @@ enum sva_vm_reg {
  *****************************************************************************
  */
 unsigned char sva_initvmx(void);
-int sva_allocvm(pml4e_t __kern* initial_eptable);
+int sva_allocvm(void);
 void sva_freevm(int vmid);
 int sva_loadvm(int vmid);
 int sva_unloadvm(int vmid);
@@ -336,7 +336,7 @@ void sva_declare_l2_eptpage(uintptr_t frameAddr);
 void sva_declare_l3_eptpage(uintptr_t frameAddr);
 void sva_declare_l4_eptpage(uintptr_t frameAddr);
 void sva_update_ept_mapping(page_entry_t __kern* eptePtr, page_entry_t val);
-void sva_load_eptable(int vmid, pml4e_t __kern* epml4t);
+void sva_load_eptable(int vmid, uintptr_t eptp);
 uintptr_t sva_save_eptable(int vmid);
 
 /* EPT/VPID TLB flush intrinsics (impl. in vmx_ept.c) */

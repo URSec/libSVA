@@ -798,6 +798,7 @@ typedef struct vmx_host_state_t {
  * Global variables
 **********/
 extern struct vm_desc_t vm_descs[MAX_VMS]; /* defined in vmx.c */
+extern uint8_t dummy_ept_root_table[4096]; /* defined in vmx.c */
 
 /**********
  * Helper functions for use internally by SVA code
@@ -819,9 +820,6 @@ static inline int readvmcs_checked(enum sva_vmcs_field field, uint64_t *data);
 static inline int readvmcs_unchecked(enum sva_vmcs_field field, uint64_t *data);
 static inline int writevmcs_checked(enum sva_vmcs_field field, uint64_t data);
 static inline int writevmcs_unchecked(enum sva_vmcs_field field, uint64_t data);
-
-void load_eptable_internal(
-    int vmid, pml4e_t __kern* epml4t, unsigned char is_initial_setting);
 
 /**
  * Get the pin-based execution controls.

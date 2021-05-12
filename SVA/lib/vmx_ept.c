@@ -118,7 +118,7 @@ sva_declare_l4_eptpage(uintptr_t frameAddr) {
  *  surface. We could/should unify those into a single intrinsic.)
  *
  * Inputs:
- *  epteptr - A (host-virtual) pointer to the location within the page table
+ *  eptePtr - A (host-virtual) pointer to the location within the page table
  *            page in which the new translation should be placed.
  *  val     - The new translation (page-table entry) to insert into the
  *            extended page table.
@@ -187,11 +187,14 @@ sva_update_ept_mapping(page_entry_t __kern* eptePtr, page_entry_t val) {
  * Inputs:
  *  - vmid: the numeric handle of the virtual machine whose extended page
  *    table should be set.
- *  - epml4t: a (host-virtual) pointer to the top-level extended page table
- *    (EPML4) that the VM should use.
+ *  - eptp: the host-physical address of the top-level extended page table
+ *    (EPML4) that the VM should use. (This should be the value that the
+ *    hypervisor would load into the VMCS's VMCS_EPT_PTR field on the native
+ *    platform. SVA will mask off the flag bits and use just the address bits
+ *    with its own flags settings.)
  */
 void
-sva_load_eptable(int vmid, pml4e_t __kern* epml4t) {
+sva_load_eptable(int vmid, uintptr_t eptp) {
   /*
    * Switch to the user/SVA page tables so that we can access SVA memory
    * regions.
@@ -230,65 +233,20 @@ sva_load_eptable(int vmid, pml4e_t __kern* epml4t) {
   }
 
   /*
-   * Call a helper function which vets the EPML4 pointer and sets the EPTP in
-   * the VM descriptor.
+   * Mask off any flag bits the system software may have included in eptp. We
+   * are only interested in the root pointer itself as we will supply our own
+   * flag settings below.
    */
-  load_eptable_internal(vmid, epml4t, 0 /* is not initial setting */);
+  paddr_t epml4t_paddr = PG_ENTRY_FRAME(eptp);
 
-  /* Release the VM descriptor lock if we took it earlier. */
-  if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
-    vm_desc_unlock(&vm_descs[vmid]);
-
-  /* Restore interrupts and return to the kernel page tables. */
-  sva_exit_critical(rflags);
-  usersva_to_kernel_pcid();
-}
-
-/*
- * Helper function: load_eptable_internal()
- *
- * Description:
- *  Like sva_load_eptable(), but skips checks on vmid.
- *
- *  Verifies that epml4t points to a valid declared EPML4 frame and sets the
- *  EPTP in the VM descriptor to point to it.
- *
- *  Used to share code between sva_load_eptable() and sva_allocvm(), which
- *  also needs to set the EPTP from an untrusted value, but knows it has a
- *  valid vmid (because it generated that ID).
- *
- * Inputs:
- *  - vmid, epml4t: same as sva_load_eptable()
- *
- *  - is_initial_setting: boolean indicating whether this is the first time
- *    the EPTP is being loaded for this VM. (This indicates whether we need
- *    to decrement the refcount for an existing top-level PTP.)
- *
- * Preconditions:
- *  - Must be called by an SVA intrinsic, i.e., interrupts should be disabled
- *    and the SVA/userspace page tables should be active.
- *
- *  - vmid must be valid (i.e., in-bounds and pointing to an active VM).
- *
- *  - is_initial_setting must come from a trusted source (as it determines
- *    whether we skip a security check that is invalid the first time the
- *    extended page table is loaded for a new VM). In general, SVA code
- *    calling this function should be able to set it as a constant.
- *      (As the code is currently structured, this is only set to true
- *      when sva_allocvm() is the caller.)
- */
-void
-load_eptable_internal(
-    int vmid, pml4e_t __kern* epml4t, unsigned char is_initial_setting) {
   /*
    * Verify that the given extended page table pointer points to a valid
    * top-level extended-page-table page (i.e., one properly declared with
    * sva_declare_l4_eptpage()).
    */
-  paddr_t epml4t_paddr = __pa(epml4t);
   frame_desc_t *ptpDesc = get_frame_desc(epml4t_paddr);
   SVA_ASSERT(ptpDesc != NULL,
-    "SVA: FATAL: EPT root page table frame at %p doesn't exist\n", epml4t);
+    "SVA: FATAL: EPT root page table frame at 0x%lx doesn't exist\n", epml4t_paddr);
 
   /*
    * Increment the reference count for the new top-level extended PTP to
@@ -300,12 +258,15 @@ load_eptable_internal(
   /*
    * Decrement the reference count for the old PTP.
    *
-   * Skip this if this is the first time we are loading the EPTP for this VM
-   * (i.e., there is no old PTP).
+   * Skip this if the table we are switching away from is the dummy table
+   * used by sva_allocvm() for safe initialization of newly created VMs.
+   * (The dummy table lives in SVA internal memory and is not subject to the
+   * usual PTP reference counting.)
    */
-  if (!is_initial_setting) {
+  bool old_table_is_dummy =
+    PG_ENTRY_FRAME(vm_descs[vmid].eptp) == __pa(dummy_ept_root_table);
+  if (!old_table_is_dummy) {
     frame_desc_t *old_ptpDesc = get_frame_desc(vm_descs[vmid].eptp);
-
     frame_drop(old_ptpDesc, PGT_EPTL4);
   }
 
@@ -340,6 +301,14 @@ load_eptable_internal(
 
   /* Store the EPTP value in the VM descriptor. */
   vm_descs[vmid].eptp = eptp_val;
+
+  /* Release the VM descriptor lock if we took it earlier. */
+  if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
+    vm_desc_unlock(&vm_descs[vmid]);
+
+  /* Restore interrupts and return to the kernel page tables. */
+  sva_exit_critical(rflags);
+  usersva_to_kernel_pcid();
 }
 
 /*
@@ -394,6 +363,7 @@ sva_save_eptable(int vmid) {
 
   /* Get the current EPTP value from the VM descriptor. */
   eptp_t eptp = vm_descs[vmid].eptp;
+
   /*
    * Mask off the flags in the EPTP to get the host-physical address of the
    * top-level table.

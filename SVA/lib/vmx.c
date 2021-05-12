@@ -30,16 +30,6 @@
 #include <string.h>
 #include <stddef.h> // for offsetof()
 
-/**********
- * Global variables
- *
- * (Some of these are really global; others are static, i.e. local to this
- * file but not local to a function.)
- *
- * (Eventually, some of these may need to be handled in a more complex way to
- * support SMP. For instance, we might want to store some of them on a
- * per-CPU basis in some structure already used for that purpose.)
-**********/
 /*
  * Array of vm_desc_t structures for each VM allocated on the system.
  *
@@ -54,11 +44,28 @@
  * is returned by the sva_allocvm() intrinsic and used to refer to the VM in
  * future intrinsic calls.
  *
- * This array is zero-initialized in sva_initvmx(), which effectively marks
- * all entries as unused (and the corresponding VM IDs as free to be
- * assigned).
+ * This array is zero-initialized by the first CPU to run sva_initvmx(),
+ * which effectively marks all entries as unused (and the corresponding VM
+ * IDs as free to be assigned).
  */
 struct vm_desc_t __svadata vm_descs[MAX_VMS];
+
+/*
+ * A "dummy" EPT root page table in which all mappings are invalid.
+ * (Zero-initialized by the first CPU to run sva_initvmx().)
+ *
+ * This is maintained in SVA internal memory and used by sva_allocvm() as the
+ * initial EPT root page table for newly-created VM guests, so that the field
+ * is never left unsafely uninitialized. It is expected that the system
+ * software will use sva_load_eptable() to load a more meaningful root page
+ * table before actually running the guest.
+ *
+ * Must be 4 kB aligned since it will be used as a page-table page.
+ *
+ * N.B.: As this lives within SVA internal memory, it is *not* subject to the
+ * usual reference counting of page-table pages.
+ */
+uint8_t dummy_ept_root_table[4096] __svadata __attribute__((aligned(4096)));
 
 static int run_vm(unsigned char use_vmresume);
 
@@ -389,56 +396,91 @@ sva_initvmx(void) {
   }
 
   /*
-   * Zero-initialize the array of virtual machine descriptors.
+   * Perform initialization of global data structures related to SVA's VMX
+   * support.
    *
-   * This has the effect of marking all VM IDs as free to be assigned.
-   *
-   * NOTE: sva_initvmx() must be called by the hypervisor for each processor
-   * it desires to set up for VMX operation, but since the VM descriptor
-   * array is shared, this memset() should only be done by the first such
-   * processor. We synchronize this operation on a shared lock variable to
-   * ensure that.
-   *
-   * NOTE: it is actually unnecessary to zero-fill this array here when we
-   * are running under Xen, since Xen zero-initializes *all* of SVA's static
-   * data when it allocates physical backing for it in map_sva_static_data()
-   * (prior to calling sva_init_primary_xen()). We nonetheless leave this
-   * code in place here so that we are not taken by surprise if this is not
-   * true in future ports of other OSes to SVA. (I'm not sure to what extent
-   * SVA static data is initialized under the FreeBSD 9 port.) There is no
-   * need to *disable* this code under Xen since, although superfluous, it
-   * runs only once during boot and doesn't appreciably slow things down.
+   * These steps should only be performed once across all CPUs, so we
+   * synchronize this on a global lock which indicates the status of the
+   * process. If the system software happens to call sva_initvmx() on other
+   * CPUs while this process is still ongoing on the first, the others will
+   * wait until it is complete before proceeding.
    */
-  static uint8_t __svadata vm_descs_initialized = 0;
+  static uint8_t __svadata vmx_structures_initialized = 0;
   uint8_t UNINIT = 0, INPROG = 1, DONE = 2;
-  if (__atomic_compare_exchange(&vm_descs_initialized,
+  if (__atomic_compare_exchange(&vmx_structures_initialized,
                                 &UNINIT, &INPROG,
                                 false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
     /*
      * We are the first processor on which sva_initvmx() has been called and
-     * are responsible for initializing the VM descriptor array.
+     * are responsible for performing global initializations.
+     */
+
+    /*
+     * Zero-initialize the array of virtual machine descriptors.
+     *
+     * This has the effect of marking all VM IDs as free to be assigned.
+     *
+     * NOTE: it is actually unnecessary to zero-fill this array here when we
+     * are running under Xen, since Xen zero-initializes *all* of SVA's static
+     * data when it allocates physical backing for it in map_sva_static_data()
+     * (prior to calling sva_init_primary_xen()). We nonetheless leave this
+     * code in place here so that we are not taken by surprise if this is not
+     * true in future ports of other OSes to SVA. (I'm not sure to what extent
+     * SVA static data is initialized under the FreeBSD 9 port.) There is no
+     * need to *disable* this code under Xen since, although superfluous, it
+     * runs only once during boot and doesn't appreciably slow things down.
      */
     printf("sva_initvmx(): initializing vm_descs array.\n");
     for (int i = 0; i < MAX_VMS; i++) {
       memset(&vm_descs[i], 0, sizeof(vm_desc_t));
     }
 
-    /* Set the lock to INIT to indicate that initialization is complete. */
-    __atomic_store(&vm_descs_initialized, &DONE, __ATOMIC_RELEASE);
+    /*
+     * Zero-initialize a 4 kB physical memory frame to be used as a "safe"
+     * initial root page table for newly-created VM guests.
+     *
+     * This frame is owned and controlled by SVA as internal secure memory,
+     * i.e. the system software is not allowed to read or write it.
+     * (Technically we just don't need it to be writable, but it's convenient
+     * to just use the secmem frame allocator.) We initialize it to all zeroes
+     * so that it represents an EPT L4 page-table page in which all mappings
+     * are invalid (i.e., will cause an EPT page fault if a live guest
+     * attempts to translate through them).
+     *
+     * sva_allocvm() will point each newly-created VM guest's EPT root
+     * pointer (the EPT equivalent of CR3) to this frame. It is expected that
+     * the system software will use sva_load_eptable() to load a meaningful
+     * EPT root page table before actually running the guest.
+     *
+     * Using a "dummy" page table for the initial EPT root pointer like this
+     * simplifies things by sparing us from having to deal with edge cases
+     * related to it being uninitialized at any point in the VM's lifespan.
+     * An earlier design of the Shade interface (from the VEE '19 paper)
+     * instead solved this problem by expecting the system software to
+     * provide a root page table as a parameter to sva_allocvm(), but that
+     * wasn't a good fit for how Xen's code is structured (it performs VMCS
+     * allocation prior to setting up page tables for a vCPU).
+     */
+    SVA_ASSERT(sizeof(dummy_ept_root_table) == 4096,
+        "SVA: dummy EPT root page table should be 4 kB\n");
+    memset(dummy_ept_root_table, 0, sizeof(dummy_ept_root_table));
+
+    /* Set the lock to DONE to indicate that initialization is complete. */
+    __atomic_store(&vmx_structures_initialized, &DONE, __ATOMIC_RELEASE);
   } else {
     /*
-     * Another processor has claimed responsibility for initializing the
-     * array. If it hasn't yet finished doing so, spin until it has.
+     * Another processor has claimed responsibility for global
+     * initialization. If it hasn't yet finished doing so, spin until it has.
      *
      * (It's OK to spin here since sva_initvmx() is only called once per CPU
      * during boot and thus not especially performance sensitive. The
-     * memset() should finish promptly enough for there to be no
+     * process should finish promptly enough for there to be no
      * human-perceptible impact on boot time.)
      */
-    printf("sva_initvmx(): waiting for vm_descs array initialization.\n");
+    printf("sva_initvmx(): waiting for global structures initialization.\n");
     uint8_t lockval;
     do {
-      __atomic_load(&vm_descs_initialized, &lockval, __ATOMIC_ACQUIRE);
+      __atomic_load(&vmx_structures_initialized, &lockval, __ATOMIC_ACQUIRE);
     } while (lockval != DONE);
   }
 
@@ -650,11 +692,6 @@ sva_initvmx(void) {
  *  Virtual Machine Control Structure) necessary to load this VM onto the
  *  processor.
  *
- * Arguments:
- *  - initial_eptable: a (host-virtual) pointer to the initial top-level
- *    extended page table (EPML4) that will map this VM's guest-physical
- *    memory space to host-physical frames.
- *
  * Return value:
  *  A positive integer which will be used to identify this virtual
  *  machine in future invocations of VMX intrinsics. If the return value is
@@ -666,7 +703,7 @@ sva_initvmx(void) {
  *  will result in an error). This intrinsic should *never* return zero.
  */
 int
-sva_allocvm(pml4e_t __kern* initial_eptable) {
+sva_allocvm(void) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -783,22 +820,28 @@ sva_allocvm(pml4e_t __kern* initial_eptable) {
   vm->is_launched = 0;
 
   /*
-   * Initialize the Extended Page Table Pointer (EPTP).
+   * Initialize the Extended Page Table Pointer (EPTP) to point to a
+   * known-safe page table page filled with all zeroes (i.e., all entries are
+   * invalid and will cause an EPT fault if used for translation) which lives
+   * within SVA internal memory.
    *
-   * We directly call the helper function that implements the main
-   * functionality of sva_load_eptable(), because we know vmid is valid (but
-   * still need to vet the extended page table pointer).
+   * It is expected that the system software will use sva_load_eptable() to
+   * load a meaningful EPT root page table before actaully running the guest.
+   * Using a "dummy" initial page table like this simplifies the prevention
+   * of edge cases that could arise from it being uninitialized, without
+   * requiring the system software to specify a pre-created table at VMCS
+   * allocation time. (That was how we did it in the original design from the
+   * VEE '19 paper, but that wasn't a good fit with Xen because Xen allocates
+   * the VMCS prior to setting up page tables for a vCPU.)
+   *
+   * N.B.: The flags mask of 0x5e should match that used by
+   * sva_load_eptable(). See comments there for explanation.
    */
-  /* FIXME: for now, skip initializing the EPTP when building for Xen.
-   * This allows us to port Xen incrementally, allowing it to use
-   * sva_alloc/freevm() to manage VMCSes without yet using the rest of the
-   * Shade intrinsics for loading and running VMs. */
-#ifndef XEN
-  load_eptable_internal(vmid, initial_eptable, 1 /* is initial setting */);
-#else
-  /* Silence unused parameter warning */
-  (void)initial_eptable;
-#endif
+  paddr_t dummy_table_paddr = __pa(dummy_ept_root_table);
+  SVA_ASSERT(dummy_table_paddr == PG_ENTRY_FRAME(dummy_table_paddr),
+      "SVA: dummy EPT root page table must be 4 kB-aligned!\n");
+
+  vm->eptp = 0x5e | dummy_table_paddr;
 
   /*
    * Initialize the vlAPIC mode setting to OFF.
@@ -1018,26 +1061,21 @@ sva_freevm(int vmid) {
     }
   }
 
-  /* FIXME: for now, don't do refcount accounting for the EPTP (since we
-   * are skipping it in sva_allocvm() and are expecting Xen to pass a null
-   * pointer for this)
-   *
-   * This allows us to port Xen incrementally, allowing it to use
-   * sva_alloc/freevm() to manage VMCSes without yet using the rest of the
-   * Shade intrinsics for loading and running VMs. */
-#ifndef XEN
   /*
    * Decrement the refcount for the VM's top-level extended-page-table page
    * to reflect the fact that this VM is no longer using it.
+   *
+   * Skip this if the VM is still using the dummy table provided by
+   * sva_allocvm() for safe initialization of newly created VMs.
+   * (The dummy table lives in SVA internal memory and is not subject to the
+   * usual PTP reference counting.)
    */
-  frame_desc_t *ptpDesc = get_frame_desc(vm->eptp);
-  /*
-   * Check that the refcount isn't already zero (in which case we'd
-   * underflow). If so, our frame metadata has become inconsistent (as a
-   * reference clearly exists).
-   */
-  pgRefCountDec(ptpDesc, false);
-#endif
+  bool ptp_is_dummy =
+    PG_ENTRY_FRAME(vm->eptp) == __pa(dummy_ept_root_table);
+  if (!ptp_is_dummy) {
+    frame_desc_t *ptpDesc = get_frame_desc(vm->eptp);
+    frame_drop(ptpDesc, PGT_EPTL4);
+  }
 
   /*
    * Return the VMCS frame to the frame cache, and set its pointer to null
@@ -1929,8 +1967,6 @@ entry:
    */
   xinit(&host_state.fp.inner);
 
-  /* FIXME: temporarily disabled during incremental port of Xen */
-#ifndef XEN
   /*
    * Load the VM's extended page table pointer (EPTP) from the VM descriptor.
    *
@@ -1942,7 +1978,6 @@ entry:
    * to a valid top-level extended page table.
    */
   writevmcs_unchecked(VMCS_EPT_PTR, host_state.active_vm->eptp);
-#endif
 
   /*
    * Set the host-state-object fields to recognizable nonsense values so that
@@ -3111,13 +3146,6 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
   extern void log_vmcs_read(enum sva_vmcs_field, bool passed_checks);
   log_vmcs_read(field, is_safe);
 #endif
-
-  /*
-   * FIXME: for now we are just logging check failures instead of shutting
-   * down the system, to support incremental porting of Xen.
-   */
-  if (!is_safe)
-    is_safe = true; /* allow the read */
 #endif /* end #ifdef XEN */
 
   if (is_safe)
@@ -3300,7 +3328,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
            *  c) We don't, at present, actually restrict any particular I/O
            *     ports' intercepts from being cleared (see
            *     sva_vmx_io_intercept_clear()). Thus the hypervisor could, in
-           *     princple, clear *all* of the intercepts, which is
+           *     principle, clear *all* of the intercepts, which is
            *     functionally equivalent to disabling both unconditional I/O
            *     exiting and I/O bitmaps.
            *
@@ -3633,13 +3661,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
   extern void log_vmcs_write(enum sva_vmcs_field, uint64_t data, bool passed_checks);
   log_vmcs_write(field, data, is_safe);
 #endif
-
-  /*
-   * FIXME: for now we are just logging check failures instead of shutting
-   * down the system, to support incremental porting of Xen.
-   */
-  if (!is_safe)
-    is_safe = true; /* allow the write */
 #endif /* end #ifdef XEN */
 
   if (is_safe)
@@ -3649,9 +3670,6 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     print_vmcs_field_name(field, true);
     printf("); value = 0x%lx\n", data);
     panic("SVA: VMCS checks in hard-fail mode; shutting down system.\n");
-
-    /* Unreachable code to silence compiler warning */
-    return -1;
   }
 }
 
