@@ -111,10 +111,12 @@ void ghostFree(struct SVAThread* tp, void* p, size_t size);
  * acquire-release synchronization, the other CPU is not guaranteed to see the
  * page table updates that map the new stack.
  *
- * @return  A pointer to the *bottom* of the new stack (highest virtual address)
- *          or NULL if unsuccessful
+ * @param small If false: create one 7-page stack.
+ *              If true: create four 1-page stacks.
+ * @return      A pointer to the *bottom* of the new stack (highest virtual
+ *              address) or NULL if unsuccessful
  */
-void* create_sva_stack(void);
+void* create_sva_stack(bool small);
 
 #endif /* !__ASSEMBLER__ */
 

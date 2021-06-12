@@ -503,15 +503,17 @@ void free_frame_type(paddr_t frame, frame_type_t type) {
   free_frame(frame);
 }
 
-void* create_sva_stack(void) {
+void* create_sva_stack(bool small) {
   char* const start = (char*)0xffff860020000000;
   /* char* const end = (char*)0xffff860040000000; */
   const unsigned long flags = PG_P | PG_W | PG_NX | PG_A | PG_D;
   void* addr = start;
-  paddr_t frames[7];
+  paddr_t frames[7] = { [0 ... 6] = PADDR_INVALID };
 
   for (size_t i = 0; i < ARRAY_SIZE(frames); ++i) {
-    frames[i] = alloc_frame_type(PGT_SVA);
+    if (!small || i % 2 == 0) {
+      frames[i] = alloc_frame_type(PGT_SVA);
+    }
   }
 
   pml4e_t* l4e = get_pml4eVaddr(get_root_pagetable(), (uintptr_t)start);
@@ -561,7 +563,10 @@ void* create_sva_stack(void) {
          * remaining entries.
          */
         for (size_t i = 1; i < ARRAY_SIZE(frames); ++i) {
-          __atomic_store_n(&l1e[i + 1], frames[i] | flags, __ATOMIC_RELAXED);
+          if (!small || i % 2 == 0) {
+            BUG_ON(frames[i] == PADDR_INVALID);
+            __atomic_store_n(&l1e[i + 1], frames[i] | flags, __ATOMIC_RELAXED);
+          }
         }
 
         /* Return a pointer to the *bottom* of the stack. */

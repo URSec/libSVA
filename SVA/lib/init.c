@@ -339,7 +339,7 @@ void* sva_getCPUState(tss_t* tssp) {
      */
     paranoid_stacks = &bsp_paranoid_stacks[PG_L1_SIZE * 8];
   } else {
-    paranoid_stacks = create_sva_stack();
+    paranoid_stacks = create_sva_stack(true);
   }
 
   /*
