@@ -27,8 +27,6 @@
 extern "C" {
 #endif
 
-extern void * sva_getCPUState (tss_t * tssp);
-
 /** Table of functions that handle traps and interrupts */
 extern void (*interrupt_table[257])();
 
