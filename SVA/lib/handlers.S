@@ -24,7 +24,6 @@
 #include <sva/asmconfig.h>
 #include <sva/asm-macros.h>
 #include <sva/cr.h>
-#include <sva/percpu.h>
 #include <sva/secmem.h>
 
 .macro _TRAP name:req trapnum:req paranoid:req needsPushErrorCode:req
@@ -488,9 +487,10 @@ ENTRY(TrapParanoid)
 #endif
 
   /* Load the TLS pointer from the bottom of the stack */
-  movq $-PERCPU_REGION_SIZE, %rax
+#define PARANOID_STACK_SIZE (1 << 15)
+  movq $-PARANOID_STACK_SIZE, %rax
   andq %rsp, %rax
-  movq (PERCPU_REGION_SIZE - 8)(%rax), %rax
+  movq (PARANOID_STACK_SIZE - 8)(%rax), %rax
   wrgsbase %rax
 
   movq %gs:TLS_CPUSTATE, %rbp

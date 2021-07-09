@@ -160,7 +160,7 @@ sva_debug (void) {
   return;
 }
 
-extern char __svadata __sva_percpu_region_base[];
+extern struct percpu_alloc __sva_percpu_region_base[];
 
 /**
  * Allocate and map per-cpu structures.
@@ -168,84 +168,61 @@ extern char __svadata __sva_percpu_region_base[];
  * This function will both allocate frames for use as per-cpu data and map them
  * into secure memory.
  *
- * @return  A (virtual address) pointer to the per-cpu data region
+ * @param bsp Whether the current CPU is the BSP
+ * @return    A (virtual address) pointer to the per-cpu data region
  */
-static void* alloc_percpu_region(size_t cpu_idx) {
-  void* percpu_region = __sva_percpu_region_base + cpu_idx * PERCPU_REGION_SIZE;
+static struct percpu_alloc* alloc_percpu_region(bool bsp) {
+  static struct percpu_alloc* percpu_region_next = __sva_percpu_region_base;
+  struct percpu_alloc* percpu_region =
+    __atomic_fetch_add(&percpu_region_next, sizeof(struct percpu_alloc),
+                       __ATOMIC_RELAXED);
 
-  if (cpu_idx == 0) {
-    /*
-     * The direct map (which we need in order to walk page tables) isn't set up
-     * yet. However, we know that the BSP's per-cpu region is already
-     * allocated, so just return it.
-     */
+  /*
+   * Don't try to do a page walk on the BSP because the direct map isn't set up
+   * yet. Instead, just assume the linker gave us enough space.
+   */
+  if (bsp) {
     return percpu_region;
   }
 
-  cr3_t root = get_root_pagetable();
-  pdpte_t* l3_table = NULL;
-  pde_t* l2_table = NULL;
-  pte_t* l1_table = NULL;
+  for (const char* i = (const char*)PG_L1_DOWN(percpu_region);
+       i < (const char*)PG_L1_UP(&percpu_region[1]);
+       i += PG_L1_SIZE)
+  {
+    cr3_t root = get_root_pagetable();
+    pdpte_t* l3_table = NULL;
+    pde_t* l2_table = NULL;
+    pte_t* l1_table = NULL;
 
-  int found = walk_page_table(root, (uintptr_t)percpu_region,
-                              NULL, &l3_table, &l2_table, &l1_table, NULL);
+    int found = walk_page_table(root, (uintptr_t)percpu_region,
+                                NULL, &l3_table, &l2_table, &l1_table, NULL);
 
-  switch (found) {
-  case -5:
-  case -4:
-    SVA_ASSERT_UNREACHABLE("SVA: FATAL: Secure memory region not mapped\n");
-  case -3: {
-    /*
-     * No L3 entry for the address; allocate an L2 table.
-     */
-    uintptr_t l2_frame = alloc_frame();
-    frame_desc_t* l2_desc = get_frame_desc(l2_frame);
-    frame_morph(l2_desc, PGT_SML2);
-    frame_take(l2_desc, PGT_SML2);
-    l3_table[PG_L3_OFFSET(percpu_region)] =
-      l2_frame | PG_P | PG_W | PG_NX | PG_G;
-    /* fallthrough */
-  }
-  case -2: {
-    /*
-     * No L2 entry for the address; allocate an L1 table.
-     */
-    uintptr_t l1_frame = alloc_frame();
-    frame_desc_t* l1_desc = get_frame_desc(l1_frame);
-    frame_morph(l1_desc, PGT_SML1);
-    frame_take(l1_desc, PGT_SML1);
-    l2_table[PG_L2_OFFSET(percpu_region)] =
-      l1_frame | PG_P | PG_W | PG_NX | PG_G;
-    /* fallthrough */
-  }
-  case -1: {
-    /*
-     * Allocate and map the new per-cpu region.
-     */
-    for (int i = 0; i < 5; ++i) {
+    switch (found) {
+    case -5:
+    case -4:
+    case -3:
+      SVA_ASSERT_UNREACHABLE("SVA: FATAL: Secure memory region not mapped\n");
+    case -2: {
       /*
-       * The low 3 pages are unused.
+       * No L2 entry for the address; allocate an L1 table.
        */
-      size_t idx = PG_L1_OFFSET(percpu_region) + 3 + i;
-
-      uintptr_t frame = alloc_frame();
-      frame_desc_t* frame_desc = get_frame_desc(frame);
-      frame_morph(frame_desc, PGT_SVA);
-      frame_take(frame_desc, PGT_SVA);
-
-      /*
-       * Map the page (rw-, supervisor, global).
-       */
-      l1_table[idx] = frame | PG_P | PG_W | PG_NX | PG_G;
+      uintptr_t l1_frame = alloc_frame();
+      memset(__va(l1_frame), 0, sizeof(pte_t) * PG_ENTRIES);
+      l2_table[PG_L2_OFFSET(percpu_region)] = l1_frame | PG_SVA_PT | PG_NX;
+      l1_table = __va(l1_frame);
+      /* fallthrough */
     }
-    break;
-  }
-  default:
-#if 0
-    SVA_ASSERT_UNREACHABLE("SVA: FATAL: Per-CPU region already allocated?\n");
-#else
-    break;
-#endif
+    case -1: {
+      /*
+       * Allocate and map the new per-cpu region.
+       */
+      uintptr_t data_frame = alloc_frame();
+      l1_table[PG_L2_OFFSET(percpu_region)] = data_frame | PG_SVA_PT | PG_NX;
+      break;
+    }
+    default:
+      break;
+    }
   }
 
   return percpu_region;
@@ -270,47 +247,14 @@ static struct SVAThread* alloc_initial_thread(void) {
  *
  * @param percpu_region The previously allocated per-cpu region
  */
-static void create_percpu_structures(void* percpu_region) {
-  char* percpu_region_cur = (char*)percpu_region + PERCPU_REGION_SIZE;
+static void create_percpu_structures(struct percpu_alloc* percpu_region) {
+  percpu_region->cpu_state = (struct CPUState){
+    .tssp = &percpu_region->tss,
+    .gip = NULL,
+  };
 
-  /*
-   * Place a pointer to the TLS area at the very end of the per-cpu region, so
-   * that it can be easily accessed during paranoid entry.
-   */
-  uintptr_t* gsbase_paranoid_pointer = (uintptr_t*)percpu_region_cur - 1;
-  percpu_region_cur = (char*)gsbase_paranoid_pointer;
-
-  /*
-   * Allocate the CPU state structure.
-   */
-  struct CPUState* cpu_state = (struct CPUState*)percpu_region_cur - 1;
-  percpu_region_cur = (char*)cpu_state;
-
-  /*
-   * Allocate the TLS area.
-   */
-  size_t offset = (uintptr_t)percpu_region_cur % alignof(struct sva_tls_area);
-  percpu_region_cur -= offset;
-  struct sva_tls_area* tls_area = (struct sva_tls_area*)percpu_region_cur - 1;
-  percpu_region_cur = (char*)tls_area;
-
-  /*
-   * Allocate the TSS.
-   */
-  percpu_region_cur -= sizeof(tss_t);
-  /* Align the TSS to 16 bytes. */
-  percpu_region_cur = (char*)((uintptr_t)percpu_region_cur & -16);
-  tss_t* tss = (tss_t*)percpu_region_cur;
-
-  /*
-   * Initialize the structures.
-   */
-  cpu_state->tssp = tss;
-  cpu_state->gip = NULL;
-
-  tls_area->cpu_state = cpu_state;
-  wrgsbase((uintptr_t)tls_area);
-  *gsbase_paranoid_pointer = (uintptr_t)tls_area;
+  percpu_region->tls_area.cpu_state = &percpu_region->cpu_state;
+  wrgsbase((uintptr_t)&percpu_region->tls_area);
 }
 
 #ifdef XEN
@@ -386,7 +330,7 @@ void* sva_getCPUState(tss_t* tssp) {
    */
   size_t index = __atomic_fetch_add(&nextIndex, 1, __ATOMIC_RELAXED);
 
-  void* percpu_region = alloc_percpu_region(index);
+  struct percpu_alloc* percpu_region = alloc_percpu_region(index == 0);
   char* paranoid_stacks;
   if (index == 0) {
     /*
@@ -438,7 +382,12 @@ void* sva_getCPUState(tss_t* tssp) {
   cpup->fp_used = false;
   cpup->prevFPThread = NULL;
 
-  cpup->tssp->ist4 = (uintptr_t)(paranoid_stacks - 0 * PG_L1_SIZE);
+  /*
+   * Set up the paranoid stacks.
+   */
+  *((struct sva_tls_area**)paranoid_stacks - 1) = &percpu_region->tls_area;
+  cpup->tssp->ist4 = (uintptr_t)(paranoid_stacks - 0 * PG_L1_SIZE
+                                 - sizeof(struct sva_tls_area**));
   cpup->tssp->ist5 = (uintptr_t)(paranoid_stacks - 2 * PG_L1_SIZE);
   cpup->tssp->ist6 = (uintptr_t)(paranoid_stacks - 4 * PG_L1_SIZE);
   cpup->tssp->ist7 = (uintptr_t)(paranoid_stacks - 6 * PG_L1_SIZE);

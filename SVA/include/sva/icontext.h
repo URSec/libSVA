@@ -429,7 +429,7 @@ struct sva_tls_area {
   unsigned long rax;
   unsigned long rcx;
   unsigned long rdx;
-} __attribute__((aligned(64)));
+};
 
 /*
  * Function: getCPUState()

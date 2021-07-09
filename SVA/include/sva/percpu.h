@@ -18,10 +18,20 @@
 #ifndef _SVA_PERCPU_H
 #define _SVA_PERCPU_H
 
-#include <sva/asm_const.h>
+#include <sva/icontext.h>
 #include <sva/page.h>
 
-#define PERCPU_REGION_SHIFT (PG_L1_SHIFT + 4)
-#define PERCPU_REGION_SIZE (_ASM_CONST(1, UL) << PERCPU_REGION_SHIFT)
+struct percpu_alloc {
+  tss_t tss;
+
+  struct sva_tls_area tls_area;
+
+  struct CPUState cpu_state;
+};
+
+/*
+ * The linker script gives us 16-byte alignment.
+ */
+_Static_assert(alignof(struct percpu_alloc) <= 16, "Per-CPU data underaligned");
 
 #endif /* _SVA_PERCPU_H */
