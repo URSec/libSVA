@@ -158,6 +158,12 @@
  * ===========================================================================
  */
 
+#define PG_SVA_RX (PG_P | PG_G | PG_A)
+#define PG_SVA_RO (PG_SVA_RX | PG_NX)
+#define PG_SVA_RWX (PG_SVA_RX | PG_W | PG_D)
+#define PG_SVA_RW (PG_SVA_RWX | PG_NX)
+#define PG_SVA_PT (PG_P | PG_W | PG_A)
+
 #ifdef SVA_DMAP
 /**
  * Flags for an SVA direct map L3 page table entrie.
