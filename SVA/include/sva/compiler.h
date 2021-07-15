@@ -26,6 +26,8 @@
 
 #define __packed __attribute__((__packed__))
 
+#define __align(n) __attribute__((__aligned__(n)))
+
 /*
  * Annotations for user and kernel pointers.
  */
