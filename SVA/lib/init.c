@@ -1206,6 +1206,8 @@ static bool create_startup_region(paddr_t start_page) {
 bool sva_launch_ap(uint32_t apic_id, paddr_t start_page,
                    init_fn init, void* stack)
 {
+  frame_cache_reserve(64);
+
   if (start_page >= 0x100000UL /* 1MB */) {
     printf("SVA: WARNING: AP start page address (0x%lx) "
            "higher than 1MB limit\n",

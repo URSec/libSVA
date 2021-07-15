@@ -401,6 +401,14 @@ static void frame_cache_unlock(void) {
   __atomic_clear(&_frame_cache_lock, __ATOMIC_RELEASE);
 }
 
+void frame_cache_reserve(size_t frames) {
+  frame_cache_lock();
+  if ((size_t)frame_cache_used() <= frames) {
+    fill_in_frames();
+  }
+  frame_cache_unlock();
+}
+
 /*
  * Function: alloc_frame()
  *

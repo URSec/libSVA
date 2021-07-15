@@ -93,6 +93,16 @@ extern pml4e_t mapSecurePage(uintptr_t vaddr, uintptr_t paddr);
  */
 extern uintptr_t unmapSecurePage(struct SVAThread* threadp, uintptr_t vaddr);
 
+/**
+ * Fill the frame cache to at least the specified number of frames.
+ *
+ * This is useful e.g. before bringing another CPU online so that it doesn't
+ * call the kernel allocator duing its early boot.
+ *
+ * @param frames  The minimum number of frames that should be available
+ */
+void frame_cache_reserve(size_t frames);
+
 extern uintptr_t alloc_frame(void);
 extern void free_frame(uintptr_t paddr);
 
