@@ -24,6 +24,7 @@
 #include <sva/asmconfig.h>
 #include <sva/asm-macros.h>
 #include <sva/cr.h>
+#include <sva/page.h>
 #include <sva/secmem.h>
 
 .macro _TRAP name:req trapnum:req paranoid:req needsPushErrorCode:req
@@ -486,11 +487,10 @@ ENTRY(TrapParanoid)
   bndmk (%rax, %rdx), %bnd1
 #endif
 
-  /* Load the TLS pointer from the bottom of the stack */
-#define PARANOID_STACK_SIZE (1 << 15)
-  movq $-PARANOID_STACK_SIZE, %rax
-  andq %rsp, %rax
-  movq (PARANOID_STACK_SIZE - 8)(%rax), %rax
+  /*
+   * Load the TLS pointer from the bottom of the stack.
+   */
+  movq IC_SHADOW_GS_BASE(%rsp), %rax
   wrgsbase %rax
 
   movq %gs:TLS_CPUSTATE, %rbp

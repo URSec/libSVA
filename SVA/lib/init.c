@@ -306,6 +306,22 @@ static void xen_tss_hack(const tss_t* tss) {
 #endif
 
 /**
+ * Initialize a stack for the paranoid handlers.
+ *
+ * @param bottom    The base (highest) address of the collection of stacks, as
+ *                  returned by `create_sva_stack`
+ * @param idx       Which of the stacks to use (0 - 3)
+ * @param tls_area  The address of the TLS area (%gs.base)
+ * @return          The bottom of the usable portion of the stack
+ */
+static void* setup_paranoid_stack(void* bottom, size_t idx, void* tls_area) {
+  void* stack_bottom = (char*)bottom - (idx * 2) * PG_L1_SIZE;
+  struct sva_tls_area** p = (struct sva_tls_area**)stack_bottom - 1;
+  *p = tls_area;
+  return (void*)align_down((uintptr_t)p, 16);
+}
+
+/**
  * Initialize the per-processor CPU state for this processor.
  *
  * @param tssp  A pointer to this CPU's TSS
@@ -385,12 +401,15 @@ void* sva_getCPUState(tss_t* tssp) {
   /*
    * Set up the paranoid stacks.
    */
-  *((struct sva_tls_area**)paranoid_stacks - 1) = &percpu_region->tls_area;
-  cpup->tssp->ist4 = (uintptr_t)(paranoid_stacks - 0 * PG_L1_SIZE
-                                 - sizeof(struct sva_tls_area**));
-  cpup->tssp->ist5 = (uintptr_t)(paranoid_stacks - 2 * PG_L1_SIZE);
-  cpup->tssp->ist6 = (uintptr_t)(paranoid_stacks - 4 * PG_L1_SIZE);
-  cpup->tssp->ist7 = (uintptr_t)(paranoid_stacks - 6 * PG_L1_SIZE);
+  void* tls_area = &percpu_region->tls_area;
+  cpup->tssp->ist4 =
+    (uintptr_t)setup_paranoid_stack(paranoid_stacks, 0, tls_area);
+  cpup->tssp->ist5 =
+    (uintptr_t)setup_paranoid_stack(paranoid_stacks, 1, tls_area);
+  cpup->tssp->ist6 =
+    (uintptr_t)setup_paranoid_stack(paranoid_stacks, 2, tls_area);
+  cpup->tssp->ist7 =
+    (uintptr_t)setup_paranoid_stack(paranoid_stacks, 3, tls_area);
 
   /*
    * Set the kernel entry stack pointer.

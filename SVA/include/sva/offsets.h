@@ -67,6 +67,8 @@
 /* Size of the interrupt context allocated by trap dispatch software */
 #define IC_TRSIZE  IC_CODE
 
+#define IC_SHADOW_GS_BASE (IC_SIZE + 8)
+
 #define IS_HACKRIP 0xd8
 
 /* Offsets for fields in the TLS block (accessed off of %gs) */
