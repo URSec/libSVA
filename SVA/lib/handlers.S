@@ -223,7 +223,7 @@ ENTRY(Trap)
    * kernel stack pointer.
    */
   testq $0x3, IC_CS(%rsp)
-  cmovnzq TSS_RSP0(%rbx), %rsp
+  cmovnzq CPU_KSTACK_ENTRY(%rbp), %rsp
   cmovzq IC_RSP(%rsp), %rsp
   andq	$-16, %rsp
 
@@ -561,7 +561,7 @@ ENTRY(TrapParanoid)
    * Switch to the kernel NMI stack.
    */
   movq CPU_TSSP(%rbp), %rbx
-  movq TSS_IST2(%rbx), %rsp
+  movq CPU_KSTACK_NMI(%rbp), %rsp
 
   cache_part_switch os
 

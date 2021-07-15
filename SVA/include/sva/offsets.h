@@ -92,6 +92,11 @@
 #define CPU_NEWIC  0x10
 #define CPU_GIP    0x18
 #define CPU_FPUSED 0x28
+#define CPU_KSTACK_ENTRY    0x30
+#define CPU_KSTACK_NMI      0x38
+#define CPU_KSTACK_MCE      0x40
+#define CPU_KSTACK_DF       0x48
+#define CPU_KSTACK_FALLBACK 0x50
 
 /* Offsets into the Task State Segment */
 #define TSS_RSP0 4

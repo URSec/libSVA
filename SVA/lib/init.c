@@ -412,21 +412,19 @@ void* sva_getCPUState(tss_t* tssp) {
     (uintptr_t)setup_paranoid_stack(paranoid_stacks, 3, tls_area);
 
   /*
-   * Set the kernel entry stack pointer.
-   */
-  cpup->tssp->rsp0 = tssp->rsp0;
-
-  /*
    * Poison the stack pointers for entering rings 1 and 2.
    */
   cpup->tssp->rsp1 = 0xdead57ac00000000UL;
   cpup->tssp->rsp2 = 0xdead57ac00000000UL;
 
   /*
-   * Load the kernel's IST values. TODO: Maintain these in a separate structure.
+   * Copy the kernel's entry stack pointers.
    */
-  cpup->tssp->ist1 = tssp->ist1;
-  cpup->tssp->ist2 = tssp->ist2;
+  cpup->kernel_stacks.entry_stack = tssp->rsp0;
+  cpup->kernel_stacks.fallback_stack = tssp->ist1;
+  cpup->kernel_stacks.nmi_stack = tssp->ist2;
+  cpup->kernel_stacks.mce_stack = tssp->ist3;
+  cpup->kernel_stacks.debug_fault_stack = tssp->ist4;
 
   /*
    * Setup the Interrupt Stack Table (IST) entry so that the hardware places

@@ -757,7 +757,7 @@ saveThread(struct SVAThread* oldThread, bool switchStack) {
   save_user_segments(old);
 
   if (switchStack) {
-    old->kstackp   = cpup->tssp->rsp0;
+    old->kstackp   = cpup->kernel_stacks.entry_stack;
     old->ifp       = cpup->gip;
 
     /*
@@ -850,7 +850,7 @@ static bool loadThread(struct SVAThread* newThread) {
    * switching back to it.
    */
   if (new->kstackp != 0) {
-    cpup->tssp->rsp0 = new->kstackp;
+    cpup->kernel_stacks.entry_stack = new->kstackp;
     cpup->gip = new->ifp;
   }
 
@@ -1777,7 +1777,7 @@ void __attribute__((noreturn)) sva_reinit_stack(void (*func)(void)) {
   if (sva_was_privileged()) {
       rsp = (uintptr_t)getCPUState()->newCurrentIC->rsp & -16UL;
   } else {
-      rsp = getCPUState()->tssp->rsp0;
+      rsp = getCPUState()->kernel_stacks.entry_stack;
   }
 
   /*

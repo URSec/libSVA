@@ -298,6 +298,26 @@ struct SVAThread {
 
 } __attribute__ ((aligned (16)));
 
+/**
+ * Stack pointers for entry into the kernel
+ */
+struct kernel_stacks {
+  /** Stack pointer for normal entry from userspace */
+  uintptr_t entry_stack;
+
+  /** Stack pointer for entry from NMI */
+  uintptr_t nmi_stack;
+
+  /** Stack pointer for entry from MCE */
+  uintptr_t mce_stack;
+
+  /** Stack pointer for entry from #DF (debug fault) */
+  uintptr_t debug_fault_stack;
+
+  /** Fallback stack pointer (for double faults) */
+  uintptr_t fallback_stack;
+};
+
 /*
  * Structure: CPUState
  *
@@ -324,6 +344,9 @@ struct CPUState {
 
   /* Flags whether the floating point unit has been used */
   unsigned char fp_used;
+
+  /** Stack pointers for kernel entry stacks */
+  struct kernel_stacks kernel_stacks;
 
   /*
    * A unique identifier for this processor, sequentially (and atomically)
