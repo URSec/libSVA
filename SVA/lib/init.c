@@ -340,6 +340,15 @@ void* sva_getCPUState(tss_t* tssp) {
    */
   static char __svadata __align(PG_L1_SIZE) bsp_paranoid_stacks[PG_L1_SIZE * 8];
 
+#ifdef SVA_SPLIT_STACK
+  /**
+   * Allocation for BSP protected stack.
+   *
+   * The BSP cannot call the allocator at this point, so we use this instead.
+   */
+  static char __svadata __align(PG_L1_SIZE) bsp_protected_stack[PG_L1_SIZE * 8];
+#endif
+
   /*
    * NB: No danger of overflow, as it would require a machine with over 4
    * billion (32-bit) or 18 quintillion (64-bit) CPUs.
@@ -357,6 +366,18 @@ void* sva_getCPUState(tss_t* tssp) {
   } else {
     paranoid_stacks = create_sva_stack(true);
   }
+
+#ifdef SVA_SPLIT_STACK
+  char* protected_stack;
+  if (index == 0) {
+    /*
+     * See above about `create_sva_stack`.
+     */
+    protected_stack = &bsp_protected_stack[PG_L1_SIZE * 8];
+  } else {
+    protected_stack = create_sva_stack(false);
+  }
+#endif
 
   /*
    * Initialize the per-cpu region.
@@ -397,6 +418,10 @@ void* sva_getCPUState(tss_t* tssp) {
    */
   cpup->fp_used = false;
   cpup->prevFPThread = NULL;
+
+#ifdef SVA_SPLIT_STACK
+  cpup->tssp->rsp0 = (uintptr_t)protected_stack;
+#endif
 
   /*
    * Set up the paranoid stacks.
