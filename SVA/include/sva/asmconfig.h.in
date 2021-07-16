@@ -46,4 +46,7 @@
 /* Let the configure script determine if we enable profiling. */
 #undef SVA_SELF_PROFILE
 
+/* Let the configure script determine if we are using a split stack. */
+#undef SVA_SPLIT_STACK
+
 #endif

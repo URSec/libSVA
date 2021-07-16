@@ -110,6 +110,17 @@ AC_ARG_ENABLE(self-profile,
                              esac],
                              AC_DEFINE(NOSVA_SELF_PROFILE))
 
+dnl Enable split stack
+AC_ARG_ENABLE(split-stack,
+              AS_HELP_STRING([--enable-split-stack],
+                             [Enable split stack (default is NO)]),
+                             [case "${enableval}" in
+                              yes) AC_DEFINE(SVA_SPLIT_STACK) ;;
+                              no)  AC_DEFINE(NOSVA_SPLIT_STACK) ;;
+                              *)   AC_MSG_ERROR([bad value ${enableval} for --enable-split-stack]) ;;
+                             esac],
+                             AC_DEFINE(NOSVA_SPLIT_STACK))
+
 AC_ARG_WITH([hacks-for],
             AS_HELP_STRING([--with-hacks-for],
                            [Enable hacks for a particular kernel (such as Xen or FreeBSD)]),
