@@ -226,6 +226,11 @@ typedef struct {
   /* Store another RIP value for the second return */
   unsigned long hackRIP;              // 0xd8
 
+#ifdef SVA_SPLIT_STACK
+  /** Protected stack pointer */
+  uintptr_t protected_stack;
+#endif
+
   /* Kernel stack pointer */
   unsigned long kstackp;              // 0xe0
 

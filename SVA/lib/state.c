@@ -757,6 +757,9 @@ saveThread(struct SVAThread* oldThread, bool switchStack) {
   save_user_segments(old);
 
   if (switchStack) {
+#ifdef SVA_SPLIT_STACK
+    old->protected_stack = cpup->tssp->rsp0;
+#endif
     old->kstackp   = cpup->kernel_stacks.entry_stack;
     old->ifp       = cpup->gip;
 
@@ -784,6 +787,9 @@ saveThread(struct SVAThread* oldThread, bool switchStack) {
       return true;
     }
   } else {
+#ifdef SVA_SPLIT_STACK
+    old->protected_stack = 0;
+#endif
     old->kstackp = 0;
     old->ifp = NULL;
   }
@@ -850,6 +856,9 @@ static bool loadThread(struct SVAThread* newThread) {
    * switching back to it.
    */
   if (new->kstackp != 0) {
+#ifdef SVA_SPLIT_STACK
+    cpup->tssp->rsp0 = new->protected_stack;
+#endif
     cpup->kernel_stacks.entry_stack = new->kstackp;
     cpup->gip = new->ifp;
   }
@@ -1364,6 +1373,9 @@ uintptr_t sva_create_icontext(uintptr_t start, uintptr_t arg1, uintptr_t arg2,
   newThread->integerState.currentIC = ic;
   newThread->integerState.ist3 = (uintptr_t)ic;
   newThread->integerState.kstackp = 0;
+#ifdef SVA_SPLIT_STACK
+  newThread->integerState.protected_stack = 0;
+#endif
 
   xinit(&newThread->integerState.fpstate.inner);
 
@@ -1681,6 +1693,9 @@ uintptr_t sva_init_stack(unsigned char* start_stackp,
 #endif
 #if 1
   integerp->kstackp = (uintptr_t) stackp;
+#ifdef SVA_SPLIT_STACK
+  integerp->protected_stack = (uintptr_t)create_sva_stack(false);
+#endif
 #endif
 
   /*
@@ -1774,10 +1789,19 @@ void __attribute__((noreturn)) sva_reinit_stack(void (*func)(void)) {
    * Get a pointer to the bottom of the stack.
    */
   uintptr_t rsp;
+  register uintptr_t unprotected_stack asm ("r15") = 0;
   if (sva_was_privileged()) {
-      rsp = (uintptr_t)getCPUState()->newCurrentIC->rsp & -16UL;
+      rsp = align_down((uintptr_t)getCPUState()->newCurrentIC->rsp, 16);
+#ifdef SVA_SPLIT_STACK
+      unprotected_stack = align_down(getCPUState()->newCurrentIC->r15, 16);
+#endif
   } else {
+#ifdef SVA_SPLIT_STACK
+      rsp = getCPUState()->tssp->rsp0;
+      unprotected_stack = getCPUState()->kernel_stacks.entry_stack;
+#else
       rsp = getCPUState()->kernel_stacks.entry_stack;
+#endif
   }
 
   /*
@@ -1798,7 +1822,7 @@ void __attribute__((noreturn)) sva_reinit_stack(void (*func)(void)) {
 		 */
 
                 "jmp *%[target]"
-                : : [sp]"r"(rsp), [target]"r"(func)
+                : : [sp]"r"(rsp), "r"(unprotected_stack), [target]"r"(func)
                 : "memory");
 
   __builtin_unreachable();

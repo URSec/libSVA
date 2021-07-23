@@ -222,9 +222,25 @@ ENTRY(Trap)
    * stack pointer specified by the kernel.  Otherwise, use the previous
    * kernel stack pointer.
    */
+  movq %rsp, %rax
   testq $0x3, IC_CS(%rsp)
+
+#ifdef SVA_SPLIT_STACK
+  movq TSS_RSP0(%rbx), %rsp
+  cmovzq IC_RSP(%rax), %rsp
+
+  movq CPU_KSTACK_ENTRY(%rbp), %r15
+  cmovzq IC_R15(%rax), %r15
+
+  /*
+   * Align the stack.
+   */
+  andq $-16, %r15
+#else
   cmovnzq CPU_KSTACK_ENTRY(%rbp), %rsp
   cmovzq IC_RSP(%rsp), %rsp
+#endif
+
   andq	$-16, %rsp
 
   /*
@@ -237,10 +253,17 @@ ENTRY(Trap)
    * point state.
    */
 #ifdef VG
+  /*
+   * With the split stack, callee-saved registers are not observable by the
+   * kernel. Additionally, we can't zero the unprotected stack pointer in
+   * `%r15`.
+   */
+#ifndef SVA_SPLIT_STACK
   xorq %r15, %r15
   xorq %r14, %r14
   xorq %r13, %r13
   xorq %r12, %r12
+#endif
   xorq %r11, %r11
   xorq %r10, %r10
   xorq %r9,  %r9
@@ -561,7 +584,11 @@ ENTRY(TrapParanoid)
    * Switch to the kernel NMI stack.
    */
   movq CPU_TSSP(%rbp), %rbx
+#ifdef SVA_SPLIT_STACK
+  movq CPU_KSTACK_NMI(%rbp), %r15
+#else
   movq CPU_KSTACK_NMI(%rbp), %rsp
+#endif
 
   cache_part_switch os
 

@@ -14,6 +14,7 @@
 
 #define SVA_NO_CFI
 
+#include <sva/asmconfig.h>
 #include <sva/asm-macros.h>
 #include <sva/cr.h>
 #include <sva/msr.h>
@@ -145,6 +146,10 @@ ENTRY(ap_start_64)
 	 */
 	movabsq	ap_startup_stack, %rax
 	movq	%rax, %rsp
+#ifdef SVA_SPLIT_STACK
+	movabsq	ap_startup_unprotected_stack, %rax
+	movq	%rax, %r15
+#endif
 
 	/*
 	 * The calling convention expects the stack to be at an offset of 8

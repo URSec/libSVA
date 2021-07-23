@@ -831,6 +831,9 @@ sva_init_primary_xen(void __kern* tss) {
 
 static init_fn __svadata ap_startup_callback;
 void* __svadata ap_startup_stack;
+#ifdef SVA_SPLIT_STACK
+void* __svadata ap_startup_unprotected_stack;
+#endif
 
 void __attribute__((noreturn)) sva_init_secondary(void) {
   SVA_PROF_ENTER();
@@ -1288,7 +1291,12 @@ bool sva_launch_ap(uint32_t apic_id, paddr_t start_page,
    */
 
   ap_startup_callback = init;
+#ifdef SVA_SPLIT_STACK
+  ap_startup_stack = create_sva_stack(false);
+  ap_startup_unprotected_stack = stack;
+#else
   ap_startup_stack = stack;
+#endif
   int current_online_cpus = cpu_online_count;
 
   create_startup_region(start_page);
