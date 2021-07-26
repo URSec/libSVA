@@ -244,35 +244,6 @@ ENTRY(Trap)
   andq	$-16, %rsp
 
   /*
-   * Zero out live registers that could be spilled to the stack.  Without
-   * memory safety, we can't guarantee that they're safe.
-   *
-   * We can leave the FP/SSE registers alone.  A read or write of those
-   * registers will cause a floating point trap.  The SVA FP trap handler
-   * will lazily save the floating point state and load the missing floating
-   * point state.
-   */
-#ifdef VG
-  /*
-   * With the split stack, callee-saved registers are not observable by the
-   * kernel. Additionally, we can't zero the unprotected stack pointer in
-   * `%r15`.
-   */
-#ifndef SVA_SPLIT_STACK
-  xorq %r15, %r15
-  xorq %r14, %r14
-  xorq %r13, %r13
-  xorq %r12, %r12
-#endif
-  xorq %r11, %r11
-  xorq %r10, %r10
-  xorq %r9,  %r9
-  xorq %r8,  %r8
-  xorq %rdx, %rdx
-  xorq %rcx, %rcx
-#endif
-
-  /*
    * Save the exception vector and fault address.
    */
   movq %rdi, %rbp
@@ -301,6 +272,35 @@ ENTRY(Trap)
 
 .Lcall_handler:
   cache_part_switch os
+
+  /*
+   * Zero out live registers that could be spilled to the stack.  Without
+   * memory safety, we can't guarantee that they're safe.
+   *
+   * We can leave the FP/SSE registers alone.  A read or write of those
+   * registers will cause a floating point trap.  The SVA FP trap handler
+   * will lazily save the floating point state and load the missing floating
+   * point state.
+   */
+#ifdef VG
+  /*
+   * With the split stack, callee-saved registers are not observable by the
+   * kernel. Additionally, we can't zero the unprotected stack pointer in
+   * `%r15`.
+   */
+#ifndef SVA_SPLIT_STACK
+  xorq %r15, %r15
+  xorq %r14, %r14
+  xorq %r13, %r13
+  xorq %r12, %r12
+#endif
+  xorq %r11, %r11
+  xorq %r10, %r10
+  xorq %r9,  %r9
+  xorq %r8,  %r8
+  xorq %rdx, %rdx
+  xorq %rcx, %rcx
+#endif
 
   /*
    * Call the trap handler registered by the OS for this trap.
@@ -559,28 +559,6 @@ ENTRY(TrapParanoid)
 #endif
 
   /*
-   * Zero out live registers that could be spilled to the stack.  Without
-   * memory safety, we can't guarantee that they're safe.
-   *
-   * We can leave the FP/SSE registers alone.  A read or write of those
-   * registers will cause a floating point trap.  The SVA FP trap handler
-   * will lazily save the floating point state and load the missing floating
-   * point state.
-   */
-#ifdef VG
-  xorq %r15, %r15
-  xorq %r14, %r14
-  xorq %r13, %r13
-  xorq %r12, %r12
-  xorq %r11, %r11
-  xorq %r10, %r10
-  xorq %r9,  %r9
-  xorq %r8,  %r8
-  xorq %rdx, %rdx
-  xorq %rcx, %rcx
-#endif
-
-  /*
    * Switch to the kernel NMI stack.
    */
   movq CPU_TSSP(%rbp), %rbx
@@ -591,6 +569,35 @@ ENTRY(TrapParanoid)
 #endif
 
   cache_part_switch os
+
+  /*
+   * Zero out live registers that could be spilled to the stack.  Without
+   * memory safety, we can't guarantee that they're safe.
+   *
+   * We can leave the FP/SSE registers alone.  A read or write of those
+   * registers will cause a floating point trap.  The SVA FP trap handler
+   * will lazily save the floating point state and load the missing floating
+   * point state.
+   */
+#ifdef VG
+  /*
+   * With the split stack, callee-saved registers are not observable by the
+   * kernel. Additionally, we can't zero the unprotected stack pointer in
+   * `%r15`.
+   */
+#ifndef SVA_SPLIT_STACK
+  xorq %r15, %r15
+  xorq %r14, %r14
+  xorq %r13, %r13
+  xorq %r12, %r12
+#endif
+  xorq %r11, %r11
+  xorq %r10, %r10
+  xorq %r9,  %r9
+  xorq %r8,  %r8
+  xorq %rdx, %rdx
+  xorq %rcx, %rcx
+#endif
 
   /*
    * Call the trap handler registered by the OS for this trap.
