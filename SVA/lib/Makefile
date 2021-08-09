@@ -12,7 +12,7 @@ WARN_FLAGS = -Wall -Wextra -Werror
 CPPFLAGS += -I../include -include sva/compiler.h
 CPPFLAGS += $(WARN_FLAGS)
 
-OPT_FLAGS += -O2 -fno-strict-aliasing -fno-omit-frame-pointer
+OPT_FLAGS += -O2 -fno-strict-aliasing
 
 TARGET_FLAGS += -sva -fno-sva-sfi					\
 		-ffreestanding -fno-exceptions -fpic -fno-common	\
