@@ -14,7 +14,7 @@ CPPFLAGS += $(WARN_FLAGS)
 
 OPT_FLAGS += -O2 -fno-strict-aliasing
 
-TARGET_FLAGS += -sva -fno-sva-sfi					\
+TARGET_FLAGS += -sva -fno-sva-cfi -fno-sva-sfi -mno-jump-return		\
 		-ffreestanding -fno-exceptions -fpic -fno-common	\
 		-msoft-float -mno-mmx -mno-sse -mno-avx -mno-aes	\
 		-mno-red-zone -mcmodel=medium
