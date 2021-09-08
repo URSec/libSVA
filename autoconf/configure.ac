@@ -58,13 +58,13 @@ AC_ARG_ENABLE(mmuchecks,
 dnl Enable SVA Direct Map Enhancement
 AC_ARG_ENABLE(sva-dmap,
               AS_HELP_STRING([--enable-sva-dmap],
-                             [Enable SVA Direct Map Feature (default is NO)]),
+                             [Enable SVA Direct Map Feature (default is YES)]),
                              [case "${enableval}" in
                              	yes) AC_DEFINE(SVA_DMAP) ;;
                              	no)  AC_DEFINE(NOSVA_DMAP) ;;
                              	*)   AC_MSG_ERROR([bad value ${enableval} for --enable-sva-dmap]) ;;
                              esac],
-                             AC_DEFINE(NOSVA_DMAP))
+                             AC_DEFINE(SVA_DMAP))
 
 dnl Enable LLC partitioning Feature
 AC_ARG_ENABLE(llc-part,
