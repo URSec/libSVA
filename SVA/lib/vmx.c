@@ -1872,29 +1872,10 @@ static void vmcs_init_host_segments(void) {
   uint64_t gs_base = rdmsr(MSR_GS_BASE);
   BUG_ON(writevmcs_unchecked(VMCS_HOST_GS_BASE, gs_base));
 
-  struct __packed {
-    uint16_t limit;
-    uintptr_t base;
-  } gdtr;
-  /* The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
-   * memory. The first 2 bytes are the limit field adn the last 8 bytes are
-   * the base-address field.
-   */
-  asm volatile (
-      "sgdt %0\n"
-      : "=m"(gdtr)
-      );
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_GDTR_BASE, gdtr.base));
   BUG_ON(writevmcs_unchecked(VMCS_HOST_IDTR_BASE, (uintptr_t)&sva_idt));
 
 #if 0
-  DBGPRNT(("run_vm: Saved host FS, GS, GDTR, and IDTR bases.\n"));
-#endif
-
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_TR_BASE, (uintptr_t)getCPUState()->tssp));
-
-#if 0
-  DBGPRNT(("run_vm: Saved host TR base.\n"));
+  DBGPRNT(("run_vm: Saved host FS, GS, and IDTR bases.\n"));
 #endif
 }
 
@@ -1906,6 +1887,36 @@ static void vmcs_save_host_pt(void) {
       "Caller must have a VMCS loaded");
   uint64_t host_cr3 = read_cr3();
   BUG_ON(writevmcs_unchecked(VMCS_HOST_CR3, host_cr3));
+}
+
+/**
+ * Save the current GDT to the VMCS host state.
+ */
+static void vmcs_save_host_gdt_and_tss(void) {
+  SVA_ASSERT(getCPUState()->active_vm != NULL,
+      "Caller must have a VMCS loaded");
+
+  /*
+   * The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
+   * memory. The first 2 bytes are the limit field adn the last 8 bytes are
+   * the base-address field.
+   */
+  struct __packed {
+    uint16_t limit;
+    uintptr_t base;
+  } gdtr;
+
+  asm volatile (
+      "sgdt %0\n"
+      : "=m"(gdtr)
+      );
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_GDTR_BASE, gdtr.base));
+
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_TR_BASE, (uintptr_t)getCPUState()->tssp));
+
+#if 0
+  DBGPRNT(("run_vm: Saved host GDT and TSS base.\n"));
+#endif
 }
 
 /**
@@ -2099,6 +2110,7 @@ entry:
   vmcs_save_host_pt();
 
   vmcs_init_host_segments();
+  vmcs_save_host_gdt_and_tss();
 
   /*
    * Save host and load guest GS Shadow
