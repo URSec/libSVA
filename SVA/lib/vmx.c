@@ -1829,8 +1829,6 @@ static void vmcs_init_host_cr(void) {
   SVA_ASSERT(getCPUState()->active_vm != NULL,
       "Caller must have a VMCS loaded");
   BUG_ON(writevmcs_unchecked(VMCS_HOST_CR0, SVA_CR0));
-  uint64_t host_cr3 = read_cr3();
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_CR3, host_cr3));
   uint64_t host_cr4 = read_cr4();
   BUG_ON(writevmcs_unchecked(VMCS_HOST_CR4, host_cr4));
   BUG_ON(writevmcs_unchecked(VMCS_HOST_IA32_EFER, SVA_EFER | EFER_LMA));
@@ -1840,6 +1838,16 @@ static void vmcs_init_host_cr(void) {
 #if 0
   DBGPRNT(("run_vm: Saved host control registers.\n"));
 #endif
+}
+
+/**
+ * Save the current host page table pointer (`%cr3`) to the VMCS host state.
+ */
+static void vmcs_save_host_pt(void) {
+  SVA_ASSERT(getCPUState()->active_vm != NULL,
+      "Caller must have a VMCS loaded");
+  uint64_t host_cr3 = read_cr3();
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_CR3, host_cr3));
 }
 
 /**
@@ -2031,6 +2039,7 @@ entry:
 #endif
 
   vmcs_init_host_cr();
+  vmcs_save_host_pt();
 
   /* Segment selectors */
   uint16_t es_sel, cs_sel, ss_sel, ds_sel, fs_sel, gs_sel, tr_sel;
