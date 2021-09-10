@@ -1828,8 +1828,7 @@ sva_resumevm(void) {
 static void vmcs_init_host_cr(void) {
   SVA_ASSERT(getCPUState()->active_vm != NULL,
       "Caller must have a VMCS loaded");
-  uint64_t host_cr0 = read_cr0();
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_CR0, host_cr0));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_CR0, SVA_CR0));
   uint64_t host_cr3 = read_cr3();
   BUG_ON(writevmcs_unchecked(VMCS_HOST_CR3, host_cr3));
   uint64_t host_cr4 = read_cr4();
