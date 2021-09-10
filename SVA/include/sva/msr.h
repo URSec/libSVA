@@ -22,9 +22,10 @@
 
 #define MSR_EFER 0xc0000080
 
-#define EFER_SCE 0x1
-#define EFER_LME 0x100
-#define EFER_NXE 0x800
+#define EFER_SCE 0x001 /* Enable syscall/sysret */
+#define EFER_LME 0x100 /* Enable long mode */
+#define EFER_LMA 0x400 /* Long mode currently active */
+#define EFER_NXE 0x800 /* Enable page-level no-execute protection */
 
 #define SVA_EFER (EFER_LME | EFER_NXE | EFER_SCE)
 

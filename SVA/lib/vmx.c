@@ -1833,8 +1833,7 @@ static void vmcs_init_host_cr(void) {
   BUG_ON(writevmcs_unchecked(VMCS_HOST_CR3, host_cr3));
   uint64_t host_cr4 = read_cr4();
   BUG_ON(writevmcs_unchecked(VMCS_HOST_CR4, host_cr4));
-  uint64_t host_efer = read_efer();
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_IA32_EFER, host_efer));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_IA32_EFER, SVA_EFER | EFER_LMA));
   uint64_t host_pat = rdmsr(MSR_IA32_PAT);
   BUG_ON(writevmcs_unchecked(VMCS_HOST_IA32_PAT, host_pat));
 
