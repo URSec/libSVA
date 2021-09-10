@@ -2113,41 +2113,23 @@ entry:
   vmcs_save_host_gdt_and_tss();
 
   /*
-   * Save host and load guest GS Shadow
-   *
    * In a classic example of ISA-minimalism lawyering on Intel's part, they
    * decided to leave the GS Shadow register - by itself - to be manually
    * switched between host and guest values by the hypervisor on VM entry and
    * exit, despite the fact that *every other part* of the segment registers
-   * (including the non-shadow GS Base) corresponds to a field in the VMCS
+   * (including the non-shadow `%gs.base`) corresponds to a field in the VMCS
    * and is switched automatically by the processor as part of VM entry/exit.
    *
-   * Thus, we save this to SVA's host state structure instead of the VMCS,
-   * and load the incoming guest's GS Shadow from its VM descriptor at this
-   * time.
+   * NB: The host value of this field corresponds to the current thread's
+   * `%gs.base` when in userspace. However, the SVA threads that Xen uses to
+   * run VMs don't have a real userspace context to return to. Therefore, there
+   * is no need to save the current host value.
    *
-   * It seems that the best/fastest way to access the GS Shadow register is
-   * to do SWAPGS, RD/WRGSBASE, and SWAPGS again. The ISA also provides an
-   * MSR for direct access to GS Shadow (alongside the similar MSRs for
-   * direct access to FS/GS Base), but it seems that the double-SWAPGS method
-   * is preferable (probably for performance?), because that's how Xen does
-   * it. (It makes sense that using the RD/WRGSBASE instructions is
-   * substantially faster than RD/WRMSR, otherwise there wouldn't have been
-   * much reason for Intel to introduce those instructions in the first
-   * place.)
+   * TODO: Require that each VM have its own SVA thread. This will allow us to
+   * context-switch certain pieces of state rather than loading and saving them
+   * on every entry/exit.
    */
-  asm __volatile__ (
-      "swapgs\n" /* Rotate shadow GS value into active GS Base slot */
-      "rdgsbase %[host_gss]\n"
-      "wrgsbase %[guest_gss]\n"
-      "swapgs\n" /* Rotate the value we loaded back into the shadow slot,
-                  * restoring SVA's GS Base to the main slot (this will be
-                  * replaced by the guest's GS Base from the VMCS during VM
-                  * entry, and on subsequent exit, restored to SVA's value
-                  * which we wrote to the VMCS just above) */
-      : [host_gss] "=&r" (host_state.gs_shadow)
-      : [guest_gss] "r" (host_state.active_vm->state.gs_shadow)
-      );
+  wrgsshadow(host_state.active_vm->state.gs_shadow);
 
   /* SYSENTER MSRs */
   /*
@@ -2859,18 +2841,9 @@ entry:
   register_syscall_handler();
 
   /*
-   * Save guest and restore host GS Shadow
+   * Save the guest's shadow `%gs.base`.
    */
-  asm __volatile__ (
-      "swapgs\n" /* Rotate shadow GS value into active GS Base slot */
-      "rdgsbase %[guest_gss]\n"
-      "wrgsbase %[host_gss]\n"
-      "swapgs\n" /* Rotate the value we loaded back into the shadow slot,
-                  * restoring SVA's GS Base to the main slot */
-      : [guest_gss] "=&r" (host_state.active_vm->state.gs_shadow)
-      : [host_gss] "r" (host_state.gs_shadow)
-      );
-
+  host_state.active_vm->state.gs_shadow = rdgsshadow();
 
   /* Confirm that the operation succeeded. */
   enum vmx_statuscode_t result = query_vmx_result(vmexit_rflags);

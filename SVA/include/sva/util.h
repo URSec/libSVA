@@ -135,6 +135,53 @@ static inline void wrgsbase(uintptr_t base) {
 }
 
 /**
+ * Swap the `%gs.base` with the shadow `%gs.base`.
+ */
+static inline void swapgs(void) {
+  asm volatile ("swapgs");
+}
+
+/**
+ * Load the shadow `%gs.base`.
+ *
+ * Note: This function returns the current shadow `%gs.base` because it is
+ * faster to read it while the bases are swapped for writing than to swap them
+ * twice in two separate function calls (one to read, one to write).
+ *
+ * @param gss The new shadow `%gs.base` to load
+ * @return    The current shadow `%gs.base`
+ */
+static inline uintptr_t wrgsshadow(uintptr_t gss) {
+  /*
+   * It seems that the best/fastest way to access the GS Shadow register is
+   * to do SWAPGS, RD/WRGSBASE, and SWAPGS again. The ISA also provides an
+   * MSR for direct access to GS Shadow (alongside the similar MSRs for
+   * direct access to FS/GS Base), but it seems that the double-SWAPGS method
+   * is preferable (probably for performance?), because that's how Xen does
+   * it.
+   */
+
+  swapgs();
+  uintptr_t old = rdgsbase();
+  wrgsbase(gss);
+  swapgs();
+
+  return old;
+}
+
+/**
+ * Get the current shadow `%gs.base`.
+ *
+ * @return  The current shadown `%gs.base`
+ */
+static inline uintptr_t rdgsshadow(void) {
+  swapgs();
+  uintptr_t gss = rdgsbase();
+  swapgs();
+  return gss;
+}
+
+/**
  * Set the alignment check flag.
  *
  * With SMAP enabled, also disallows supervisor-mode access to user-mode
