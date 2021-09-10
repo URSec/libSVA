@@ -1819,6 +1819,32 @@ sva_resumevm(void) {
 }
 
 /**
+ * Initialize the host control register fields of the current VMCS, except
+ * `%cr3`
+ *
+ * This does not initialize the host `%cr3` VMCS field. This field must be set
+ * to the page table in use during VM entry. See `vmcs_save_host_pt`.
+ */
+static void vmcs_init_host_cr(void) {
+  SVA_ASSERT(getCPUState()->active_vm != NULL,
+      "Caller must have a VMCS loaded");
+  uint64_t host_cr0 = read_cr0();
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_CR0, host_cr0));
+  uint64_t host_cr3 = read_cr3();
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_CR3, host_cr3));
+  uint64_t host_cr4 = read_cr4();
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_CR4, host_cr4));
+  uint64_t host_efer = read_efer();
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_IA32_EFER, host_efer));
+  uint64_t host_pat = rdmsr(MSR_IA32_PAT);
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_IA32_PAT, host_pat));
+
+#if 0
+  DBGPRNT(("run_vm: Saved host control registers.\n"));
+#endif
+}
+
+/**
  * Apply any necessary special handling of VM exits before returning to the
  * hypervisor.
  *
@@ -2005,20 +2031,8 @@ entry:
 #if 0
   DBGPRNT(("run_vm: Saving host state...\n"));
 #endif
-  /* Control registers */
-  uint64_t host_cr0 = read_cr0();
-  writevmcs_unchecked(VMCS_HOST_CR0, host_cr0);
-  uint64_t host_cr3 = read_cr3();
-  writevmcs_unchecked(VMCS_HOST_CR3, host_cr3);
-  uint64_t host_cr4 = read_cr4();
-  writevmcs_unchecked(VMCS_HOST_CR4, host_cr4);
-  uint64_t host_efer = read_efer();
-  writevmcs_unchecked(VMCS_HOST_IA32_EFER, host_efer);
-  uint64_t host_pat = rdmsr(MSR_IA32_PAT);
-  writevmcs_unchecked(VMCS_HOST_IA32_PAT, host_pat);
-#if 0
-  DBGPRNT(("run_vm: Saved host control registers.\n"));
-#endif
+
+  vmcs_init_host_cr();
 
   /* Segment selectors */
   uint16_t es_sel, cs_sel, ss_sel, ds_sel, fs_sel, gs_sel, tr_sel;
