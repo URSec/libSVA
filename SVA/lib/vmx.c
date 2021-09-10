@@ -1847,75 +1847,13 @@ static void vmcs_init_host_segments(void) {
   SVA_ASSERT(getCPUState()->active_vm != NULL,
       "Caller must have a VMCS loaded");
 
-  uint16_t es_sel, cs_sel, ss_sel, ds_sel, fs_sel, gs_sel, tr_sel;
-  asm __volatile__ (
-      "mov %%es, %0\n"
-      "mov %%cs, %1\n"
-      "mov %%ss, %2\n"
-      "mov %%ds, %3\n"
-      "mov %%fs, %4\n"
-      "mov %%gs, %5\n"
-      "str %6\n"
-      : "=rm" (es_sel), "=rm" (cs_sel), "=rm" (ss_sel), "=rm" (ds_sel),
-        "=rm" (fs_sel), "=rm" (gs_sel), "=rm" (tr_sel)
-      );
-  /* The saved host selectors must have RPL = 0 and TI = 0 on VM entry.
-   * (Intel manual, section 26.2.3.)
-   *
-   * FreeBSD/SVA normally has the RPLs for DS, ES, and FS set to 3 in kernel
-   * mode; those will get changed to 0 on VM exit.
-   *
-   *  TODO: Do we need to undo this after VM exit to ensure safety?
-   *
-   *        The fact that the OS leaves these RPLs at 3 in kernel mode makes
-   *        me suspicious that it's doing so to avoid having to reload the
-   *        selectors before SYSRET. If so, then what we're doing here will
-   *        catch the OS "unawares" and leave the data segment RPLs at 0 on
-   *        return to user mode.
-   *
-   *        Note also that VM exit directly sets the in-processor DPLs to 0
-   *        for all usable segments, regardless of what's in the in-memory
-   *        descriptors (and regardless of what's set in these
-   *        saved-host-selector fields that are restored on VM exit). This
-   *        too could open a security hole if the OS is counting on itself
-   *        not having reloaded any segment selectors (i.e., it might not
-   *        bother loading them before SYSRET).
-   *
-   *        This could lead to returning to user mode with CPL=3,
-   *        (in-processor) DPL=0, and RPL=0. As I understand it, this would
-   *        leave user-mode code able to access any memory with privilege
-   *        level 0, since the in-processor DPL is (if I'm interpreting the
-   *        Intel manual correctly) the one actually used to check
-   *        instantaneous memory accesses to the segment.
-   *
-   *        I'm not sure how this would interact with paging - depending on
-   *        how the processor enforces user/supervisor page ownership, this
-   *        may or may not be a moot point, since the OS is actually using
-   *        that to enforce security isolation, not segmentation per se. It
-   *        really depends on whether the processor decides that a memory
-   *        access is from the user or supervisor by looking at the CPL (i.e.
-   *        the CS in-processor DPL) or the in-processor DPL of the code
-   *        segment being used to perform the access. Under "normal"
-   *        operation, both methods would be equivalent, because the
-   *        processor checks CPL before permitting a data segment's DPL to be
-   *        loaded; but this assumption breaks down when using fast
-   *        syscall/return, since only the CPL and CS/SS DPLs are changed on
-   *        a SYSRET. (It's up to the OS to explicitly change the other
-   *        segments if it wants to - and here, if it "knows" it never
-   *        changed them since SYSCALL, it has no need to change them back.
-   *        It doesn't know that we ran some VMX code that changed it...)
-   *
-   *        This is easy to fix if we need to: just save the original segment
-   *        selectors before VM entry, and re-load them on VM exit. But if we
-   *        don't need to, it'll just slow things down.
-   */
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_ES_SEL, es_sel & ~0x7));
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_CS_SEL, cs_sel & ~0x7));
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_SS_SEL, ss_sel & ~0x7));
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_DS_SEL, ds_sel & ~0x7));
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_FS_SEL, fs_sel & ~0x7));
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_GS_SEL, gs_sel & ~0x7));
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_TR_SEL, tr_sel & ~0x7));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_CS_SEL, SVA_KERNEL_CS));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_SS_SEL, 0));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_DS_SEL, 0));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_ES_SEL, 0));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_FS_SEL, 0));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_GS_SEL, 0));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_TR_SEL, SVA_TR));
 #if 0
   DBGPRNT(("run_vm: Saved host segment selectors.\n"));
 #endif
@@ -1952,9 +1890,9 @@ static void vmcs_init_host_segments(void) {
 #endif
 
   /* Get the TR base address from the GDT */
-  uint16_t tr_gdt_index = (tr_sel >> 3);
+  uint16_t tr_gdt_index = (SVA_TR >> 3);
 #if 0
-  DBGPRNT(("TR selector: 0x%hx; index in GDT: 0x%hx\n", tr_sel, tr_gdt_index));
+  DBGPRNT(("TR selector: 0x%hx; index in GDT: 0x%hx\n", SVA_TR, tr_gdt_index));
 #endif
 
   uint32_t * gdt = (uint32_t*) gdt_base;
