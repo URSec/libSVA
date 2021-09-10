@@ -1872,7 +1872,10 @@ static void vmcs_init_host_segments(void) {
   uint64_t gs_base = rdmsr(MSR_GS_BASE);
   BUG_ON(writevmcs_unchecked(VMCS_HOST_GS_BASE, gs_base));
 
-  unsigned char gdtr[10];
+  struct __packed {
+    uint16_t limit;
+    uintptr_t base;
+  } gdtr;
   /* The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
    * memory. The first 2 bytes are the limit field adn the last 8 bytes are
    * the base-address field.
@@ -1881,8 +1884,7 @@ static void vmcs_init_host_segments(void) {
       "sgdt %0\n"
       : "=m"(gdtr)
       );
-  uint64_t gdt_base = *(uint64_t*)(gdtr + 2);
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_GDTR_BASE, gdt_base));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_GDTR_BASE, gdtr.base));
   BUG_ON(writevmcs_unchecked(VMCS_HOST_IDTR_BASE, (uintptr_t)&sva_idt));
 
 #if 0
