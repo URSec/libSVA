@@ -2038,7 +2038,6 @@ entry:
   DBGPRNT(("run_vm: Saving host state...\n"));
 #endif
 
-  vmcs_init_host_cr();
   vmcs_save_host_pt();
 
   /* Segment selectors */
@@ -4920,6 +4919,8 @@ init_vmcs_ctrls(void) {
   entry.fields.reserved12 = 1;
 
   writevmcs_checked(VMCS_VM_ENTRY_CTRLS, entry.buf);
+
+  vmcs_init_host_cr();
 }
 
 static paddr_t exiting_bitmap_create(void) {
