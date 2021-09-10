@@ -38,6 +38,9 @@
 
 #ifdef XEN
 
+#define SVA_KERNEL_CS 0xe008
+#define SVA_TR 0xe040
+
 #define SVA_USER_CS_32 0xe023
 #define SVA_USER_CS_64 0xe033
 #define SVA_USER_SS_32 0xe02b
@@ -52,6 +55,9 @@
 #define SVA_USER_GS_64 0x0
 
 #else
+
+#define SVA_KERNEL_CS 0x20
+#define SVA_TR 0x48
 
 #define SVA_USER_CS_32 0x33
 #define SVA_USER_CS_64 0x43

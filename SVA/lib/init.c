@@ -134,11 +134,7 @@ struct  gate_descriptor {
 
 /* Taken from FreeBSD: amd64/segments.h */
 #define GSEL(s,r) (((s)<<3) | r)      /* a global selector */
-#ifdef XEN
-#define GCODE_SEL 0x1c01 /* Xen Code Descriptor */
-#else
-#define GCODE_SEL 4 /* Kernel Code Descriptor */
-#endif
+#define GCODE_SEL (SVA_KERNEL_CS >> 3)
 
 /*
  * Structure: sva_idt
@@ -298,7 +294,7 @@ static void xen_tss_hack(const tss_t* tss) {
   _Static_assert(sizeof(struct tss_desc) == 16,
                  "TSS descriptor incorrect size");
 
-  const uint16_t xen_tss_desc = 0xe040;
+  const uint16_t xen_tss_desc = SVA_TR;
 
   *((struct tss_desc*)(gdtr.base + (xen_tss_desc & ~0x7))) = desc;
   asm volatile ("ltr %w0" :: "rm"(xen_tss_desc));
