@@ -1847,6 +1847,8 @@ static void vmcs_init_host_segments(void) {
   SVA_ASSERT(getCPUState()->active_vm != NULL,
       "Caller must have a VMCS loaded");
 
+  extern char sva_idt[];
+
   BUG_ON(writevmcs_unchecked(VMCS_HOST_CS_SEL, SVA_KERNEL_CS));
   BUG_ON(writevmcs_unchecked(VMCS_HOST_SS_SEL, 0));
   BUG_ON(writevmcs_unchecked(VMCS_HOST_DS_SEL, 0));
@@ -1870,20 +1872,18 @@ static void vmcs_init_host_segments(void) {
   uint64_t gs_base = rdmsr(MSR_GS_BASE);
   BUG_ON(writevmcs_unchecked(VMCS_HOST_GS_BASE, gs_base));
 
-  unsigned char gdtr[10], idtr[10];
+  unsigned char gdtr[10];
   /* The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
    * memory. The first 2 bytes are the limit field adn the last 8 bytes are
    * the base-address field.
    */
-  asm __volatile__ (
+  asm volatile (
       "sgdt %0\n"
-      "sidt %1\n"
-      : : "m" (gdtr), "m" (idtr)
+      : "=m"(gdtr)
       );
   uint64_t gdt_base = *(uint64_t*)(gdtr + 2);
-  uint64_t idt_base = *(uint64_t*)(idtr + 2);
   BUG_ON(writevmcs_unchecked(VMCS_HOST_GDTR_BASE, gdt_base));
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_IDTR_BASE, idt_base));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_IDTR_BASE, (uintptr_t)&sva_idt));
 
 #if 0
   DBGPRNT(("run_vm: Saved host FS, GS, GDTR, and IDTR bases.\n"));
