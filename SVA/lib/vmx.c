@@ -1841,6 +1841,164 @@ static void vmcs_init_host_cr(void) {
 }
 
 /**
+ * Initialize the host segment VMCS fields.
+ */
+static void vmcs_init_host_segments(void) {
+  SVA_ASSERT(getCPUState()->active_vm != NULL,
+      "Caller must have a VMCS loaded");
+
+  uint16_t es_sel, cs_sel, ss_sel, ds_sel, fs_sel, gs_sel, tr_sel;
+  asm __volatile__ (
+      "mov %%es, %0\n"
+      "mov %%cs, %1\n"
+      "mov %%ss, %2\n"
+      "mov %%ds, %3\n"
+      "mov %%fs, %4\n"
+      "mov %%gs, %5\n"
+      "str %6\n"
+      : "=rm" (es_sel), "=rm" (cs_sel), "=rm" (ss_sel), "=rm" (ds_sel),
+        "=rm" (fs_sel), "=rm" (gs_sel), "=rm" (tr_sel)
+      );
+  /* The saved host selectors must have RPL = 0 and TI = 0 on VM entry.
+   * (Intel manual, section 26.2.3.)
+   *
+   * FreeBSD/SVA normally has the RPLs for DS, ES, and FS set to 3 in kernel
+   * mode; those will get changed to 0 on VM exit.
+   *
+   *  TODO: Do we need to undo this after VM exit to ensure safety?
+   *
+   *        The fact that the OS leaves these RPLs at 3 in kernel mode makes
+   *        me suspicious that it's doing so to avoid having to reload the
+   *        selectors before SYSRET. If so, then what we're doing here will
+   *        catch the OS "unawares" and leave the data segment RPLs at 0 on
+   *        return to user mode.
+   *
+   *        Note also that VM exit directly sets the in-processor DPLs to 0
+   *        for all usable segments, regardless of what's in the in-memory
+   *        descriptors (and regardless of what's set in these
+   *        saved-host-selector fields that are restored on VM exit). This
+   *        too could open a security hole if the OS is counting on itself
+   *        not having reloaded any segment selectors (i.e., it might not
+   *        bother loading them before SYSRET).
+   *
+   *        This could lead to returning to user mode with CPL=3,
+   *        (in-processor) DPL=0, and RPL=0. As I understand it, this would
+   *        leave user-mode code able to access any memory with privilege
+   *        level 0, since the in-processor DPL is (if I'm interpreting the
+   *        Intel manual correctly) the one actually used to check
+   *        instantaneous memory accesses to the segment.
+   *
+   *        I'm not sure how this would interact with paging - depending on
+   *        how the processor enforces user/supervisor page ownership, this
+   *        may or may not be a moot point, since the OS is actually using
+   *        that to enforce security isolation, not segmentation per se. It
+   *        really depends on whether the processor decides that a memory
+   *        access is from the user or supervisor by looking at the CPL (i.e.
+   *        the CS in-processor DPL) or the in-processor DPL of the code
+   *        segment being used to perform the access. Under "normal"
+   *        operation, both methods would be equivalent, because the
+   *        processor checks CPL before permitting a data segment's DPL to be
+   *        loaded; but this assumption breaks down when using fast
+   *        syscall/return, since only the CPL and CS/SS DPLs are changed on
+   *        a SYSRET. (It's up to the OS to explicitly change the other
+   *        segments if it wants to - and here, if it "knows" it never
+   *        changed them since SYSCALL, it has no need to change them back.
+   *        It doesn't know that we ran some VMX code that changed it...)
+   *
+   *        This is easy to fix if we need to: just save the original segment
+   *        selectors before VM entry, and re-load them on VM exit. But if we
+   *        don't need to, it'll just slow things down.
+   */
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_ES_SEL, es_sel & ~0x7));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_CS_SEL, cs_sel & ~0x7));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_SS_SEL, ss_sel & ~0x7));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_DS_SEL, ds_sel & ~0x7));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_FS_SEL, fs_sel & ~0x7));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_GS_SEL, gs_sel & ~0x7));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_TR_SEL, tr_sel & ~0x7));
+#if 0
+  DBGPRNT(("run_vm: Saved host segment selectors.\n"));
+#endif
+
+  /*
+   * Segment and descriptor table base-address registers
+   */
+
+  /* FIXME: use RD/WRFS/GSBASE instructions to access these instead of the
+   * MSRs, as they seem to be considered faster. SVA has helper functions for
+   * these in util.h; use those instead of inline assembly. */
+  uint64_t fs_base = rdmsr(MSR_FS_BASE);
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_FS_BASE, fs_base));
+  uint64_t gs_base = rdmsr(MSR_GS_BASE);
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_GS_BASE, gs_base));
+
+  unsigned char gdtr[10], idtr[10];
+  /* The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
+   * memory. The first 2 bytes are the limit field adn the last 8 bytes are
+   * the base-address field.
+   */
+  asm __volatile__ (
+      "sgdt %0\n"
+      "sidt %1\n"
+      : : "m" (gdtr), "m" (idtr)
+      );
+  uint64_t gdt_base = *(uint64_t*)(gdtr + 2);
+  uint64_t idt_base = *(uint64_t*)(idtr + 2);
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_GDTR_BASE, gdt_base));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_IDTR_BASE, idt_base));
+
+#if 0
+  DBGPRNT(("run_vm: Saved host FS, GS, GDTR, and IDTR bases.\n"));
+#endif
+
+  /* Get the TR base address from the GDT */
+  uint16_t tr_gdt_index = (tr_sel >> 3);
+#if 0
+  DBGPRNT(("TR selector: 0x%hx; index in GDT: 0x%hx\n", tr_sel, tr_gdt_index));
+#endif
+
+  uint32_t * gdt = (uint32_t*) gdt_base;
+#if 0
+  DBGPRNT(("GDT base address: 0x%lx\n", (uint64_t)gdt));
+#endif
+  uint32_t * tr_gdt_entry = gdt + (tr_gdt_index * 2);
+
+#if 0
+  DBGPRNT(("TR entry address: 0x%lx\n", (uint64_t)tr_gdt_entry));
+  DBGPRNT(("TR entry low 32 bits: 0x%x\n", tr_gdt_entry[0]));
+  DBGPRNT(("TR entry high 32 bits: 0x%x\n", tr_gdt_entry[1]));
+#endif
+
+  static const uint32_t SEGDESC_BASEADDR_31_24_MASK = 0xff000000;
+  static const uint32_t SEGDESC_BASEADDR_23_16_MASK = 0xff;
+
+  /* This marvelous bit-shifting exposition brought to you by Intel's
+   * steadfast commitment to backwards compatibility in the x86 architecture!
+   *
+   * (At least, I'm guessing that's why this otherwise perfectly normal
+   * 64-bit address is split up into four noncontiguous chunks placed at the
+   * most inconvenient offsets possible within a 16-byte descriptor...)
+   */
+  uint32_t tr_baseaddr_15_0 = (tr_gdt_entry[0] >> 16);
+  uint32_t tr_baseaddr_23_16 =
+    ((tr_gdt_entry[1] & SEGDESC_BASEADDR_23_16_MASK) << 16);
+  uint32_t tr_baseaddr_31_24 = tr_gdt_entry[1] & SEGDESC_BASEADDR_31_24_MASK;
+  uint32_t tr_baseaddr_31_16 = tr_baseaddr_31_24 | tr_baseaddr_23_16;
+  uint32_t tr_baseaddr_31_0 = tr_baseaddr_31_16 | tr_baseaddr_15_0;
+  uint64_t tr_baseaddr_63_32 = ((uint64_t)tr_gdt_entry[2] << 32);
+  uint64_t tr_baseaddr = tr_baseaddr_63_32 | ((uint64_t)tr_baseaddr_31_0);
+#if 0
+  DBGPRNT(("Reconstructed TR base address: 0x%lx\n", tr_baseaddr));
+#endif
+  /* Write our hard-earned TR base address to the VMCS... */
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_TR_BASE, tr_baseaddr));
+
+#if 0
+  DBGPRNT(("run_vm: Saved host TR base.\n"));
+#endif
+}
+
+/**
  * Save the current host page table pointer (`%cr3`) to the VMCS host state.
  */
 static void vmcs_save_host_pt(void) {
@@ -2040,91 +2198,7 @@ entry:
 
   vmcs_save_host_pt();
 
-  /* Segment selectors */
-  uint16_t es_sel, cs_sel, ss_sel, ds_sel, fs_sel, gs_sel, tr_sel;
-  asm __volatile__ (
-      "mov %%es, %0\n"
-      "mov %%cs, %1\n"
-      "mov %%ss, %2\n"
-      "mov %%ds, %3\n"
-      "mov %%fs, %4\n"
-      "mov %%gs, %5\n"
-      "str %6\n"
-      : "=rm" (es_sel), "=rm" (cs_sel), "=rm" (ss_sel), "=rm" (ds_sel),
-        "=rm" (fs_sel), "=rm" (gs_sel), "=rm" (tr_sel)
-      );
-  /* The saved host selectors must have RPL = 0 and TI = 0 on VM entry.
-   * (Intel manual, section 26.2.3.)
-   *
-   * FreeBSD/SVA normally has the RPLs for DS, ES, and FS set to 3 in kernel
-   * mode; those will get changed to 0 on VM exit.
-   *
-   *  TODO: Do we need to undo this after VM exit to ensure safety?
-   *
-   *        The fact that the OS leaves these RPLs at 3 in kernel mode makes
-   *        me suspicious that it's doing so to avoid having to reload the
-   *        selectors before SYSRET. If so, then what we're doing here will
-   *        catch the OS "unawares" and leave the data segment RPLs at 0 on
-   *        return to user mode.
-   *
-   *        Note also that VM exit directly sets the in-processor DPLs to 0
-   *        for all usable segments, regardless of what's in the in-memory
-   *        descriptors (and regardless of what's set in these
-   *        saved-host-selector fields that are restored on VM exit). This
-   *        too could open a security hole if the OS is counting on itself
-   *        not having reloaded any segment selectors (i.e., it might not
-   *        bother loading them before SYSRET).
-   *
-   *        This could lead to returning to user mode with CPL=3,
-   *        (in-processor) DPL=0, and RPL=0. As I understand it, this would
-   *        leave user-mode code able to access any memory with privilege
-   *        level 0, since the in-processor DPL is (if I'm interpreting the
-   *        Intel manual correctly) the one actually used to check
-   *        instantaneous memory accesses to the segment.
-   *
-   *        I'm not sure how this would interact with paging - depending on
-   *        how the processor enforces user/supervisor page ownership, this
-   *        may or may not be a moot point, since the OS is actually using
-   *        that to enforce security isolation, not segmentation per se. It
-   *        really depends on whether the processor decides that a memory
-   *        access is from the user or supervisor by looking at the CPL (i.e.
-   *        the CS in-processor DPL) or the in-processor DPL of the code
-   *        segment being used to perform the access. Under "normal"
-   *        operation, both methods would be equivalent, because the
-   *        processor checks CPL before permitting a data segment's DPL to be
-   *        loaded; but this assumption breaks down when using fast
-   *        syscall/return, since only the CPL and CS/SS DPLs are changed on
-   *        a SYSRET. (It's up to the OS to explicitly change the other
-   *        segments if it wants to - and here, if it "knows" it never
-   *        changed them since SYSCALL, it has no need to change them back.
-   *        It doesn't know that we ran some VMX code that changed it...)
-   *
-   *        This is easy to fix if we need to: just save the original segment
-   *        selectors before VM entry, and re-load them on VM exit. But if we
-   *        don't need to, it'll just slow things down.
-   */
-  writevmcs_unchecked(VMCS_HOST_ES_SEL, es_sel & ~0x7);
-  writevmcs_unchecked(VMCS_HOST_CS_SEL, cs_sel & ~0x7);
-  writevmcs_unchecked(VMCS_HOST_SS_SEL, ss_sel & ~0x7);
-  writevmcs_unchecked(VMCS_HOST_DS_SEL, ds_sel & ~0x7);
-  writevmcs_unchecked(VMCS_HOST_FS_SEL, fs_sel & ~0x7);
-  writevmcs_unchecked(VMCS_HOST_GS_SEL, gs_sel & ~0x7);
-  writevmcs_unchecked(VMCS_HOST_TR_SEL, tr_sel & ~0x7);
-#if 0
-  DBGPRNT(("run_vm: Saved host segment selectors.\n"));
-#endif
-
-  /*
-   * Segment and descriptor table base-address registers
-   */
-
-  /* FIXME: use RD/WRFS/GSBASE instructions to access these instead of the
-   * MSRs, as they seem to be considered faster. SVA has helper functions for
-   * these in util.h; use those instead of inline assembly. */
-  uint64_t fs_base = rdmsr(MSR_FS_BASE);
-  writevmcs_unchecked(VMCS_HOST_FS_BASE, fs_base);
-  uint64_t gs_base = rdmsr(MSR_GS_BASE);
-  writevmcs_unchecked(VMCS_HOST_GS_BASE, gs_base);
+  vmcs_init_host_segments();
 
   /*
    * Save host and load guest GS Shadow
@@ -2162,70 +2236,6 @@ entry:
       : [host_gss] "=&r" (host_state.gs_shadow)
       : [guest_gss] "r" (host_state.active_vm->state.gs_shadow)
       );
-
-  unsigned char gdtr[10], idtr[10];
-  /* The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
-   * memory. The first 2 bytes are the limit field adn the last 8 bytes are
-   * the base-address field.
-   */
-  asm __volatile__ (
-      "sgdt %0\n"
-      "sidt %1\n"
-      : : "m" (gdtr), "m" (idtr)
-      );
-  uint64_t gdt_base = *(uint64_t*)(gdtr + 2);
-  uint64_t idt_base = *(uint64_t*)(idtr + 2);
-  writevmcs_unchecked(VMCS_HOST_GDTR_BASE, gdt_base);
-  writevmcs_unchecked(VMCS_HOST_IDTR_BASE, idt_base);
-  
-#if 0
-  DBGPRNT(("run_vm: Saved host FS, GS, GDTR, and IDTR bases.\n"));
-#endif
-
-  /* Get the TR base address from the GDT */
-  uint16_t tr_gdt_index = (tr_sel >> 3);
-#if 0
-  DBGPRNT(("TR selector: 0x%hx; index in GDT: 0x%hx\n", tr_sel, tr_gdt_index));
-#endif
-  uint32_t * gdt = (uint32_t*) gdt_base;
-#if 0
-  DBGPRNT(("GDT base address: 0x%lx\n", (uint64_t)gdt));
-#endif
-  uint32_t * tr_gdt_entry = gdt + (tr_gdt_index * 2);
-
-#if 0
-  DBGPRNT(("TR entry address: 0x%lx\n", (uint64_t)tr_gdt_entry));
-  DBGPRNT(("TR entry low 32 bits: 0x%x\n", tr_gdt_entry[0]));
-  DBGPRNT(("TR entry high 32 bits: 0x%x\n", tr_gdt_entry[1]));
-#endif
-
-  static const uint32_t SEGDESC_BASEADDR_31_24_MASK = 0xff000000;
-  static const uint32_t SEGDESC_BASEADDR_23_16_MASK = 0xff;
-
-  /* This marvelous bit-shifting exposition brought to you by Intel's
-   * steadfast commitment to backwards compatibility in the x86 architecture!
-   *
-   * (At least, I'm guessing that's why this otherwise perfectly normal
-   * 64-bit address is split up into four noncontiguous chunks placed at the
-   * most inconvenient offsets possible within a 16-byte descriptor...)
-   */
-  uint32_t tr_baseaddr_15_0 = (tr_gdt_entry[0] >> 16);
-  uint32_t tr_baseaddr_23_16 =
-    ((tr_gdt_entry[1] & SEGDESC_BASEADDR_23_16_MASK) << 16);
-  uint32_t tr_baseaddr_31_24 = tr_gdt_entry[1] & SEGDESC_BASEADDR_31_24_MASK;
-  uint32_t tr_baseaddr_31_16 = tr_baseaddr_31_24 | tr_baseaddr_23_16;
-  uint32_t tr_baseaddr_31_0 = tr_baseaddr_31_16 | tr_baseaddr_15_0;
-  uint64_t tr_baseaddr_63_32 = ((uint64_t)tr_gdt_entry[2] << 32);
-  uint64_t tr_baseaddr = tr_baseaddr_63_32 | ((uint64_t)tr_baseaddr_31_0);
-#if 0
-  DBGPRNT(("Reconstructed TR base address: 0x%lx\n", tr_baseaddr));
-#endif
-  /* Write our hard-earned TR base address to the VMCS... */
-  writevmcs_unchecked(VMCS_HOST_TR_BASE, tr_baseaddr);
-
-#if 0
-  DBGPRNT(("run_vm: Saved host TR base.\n"));
-#endif
 
   /* SYSENTER MSRs */
   /*
