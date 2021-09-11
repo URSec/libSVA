@@ -89,6 +89,8 @@ static int io_bitmaps_init(vm_desc_t* vm);
  */
 static int io_bitmaps_free(vm_desc_t* vm);
 
+static void vmcs_save_host_tls(void);
+
 /*
  * Function: cpuid_1_ecx()
  *
@@ -1253,6 +1255,13 @@ sva_loadvm(int vmid) {
     getCPUState()->active_vm->vmcs_ctrls_initialized = 1;
   }
 
+  /*
+   * Note: SVA does not currently maintain its own GDT. The safety of doing
+   * this here instead of immediately before VM entry relies on Xen using one
+   * GDT per CPU while running VMX guests (which it does).
+   */
+  vmcs_save_host_tls();
+
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
   sva_exit_critical(rflags);
@@ -2105,8 +2114,6 @@ entry:
 #endif
 
   vmcs_save_host_pt();
-
-  vmcs_save_host_tls();
 
   /*
    * In a classic example of ISA-minimalism lawyering on Intel's part, they
