@@ -1861,17 +1861,8 @@ static void vmcs_init_host_segments(void) {
 #endif
 
   /*
-   * Segment and descriptor table base-address registers
+   * Interrupt descriptor table base.
    */
-
-  /* FIXME: use RD/WRFS/GSBASE instructions to access these instead of the
-   * MSRs, as they seem to be considered faster. SVA has helper functions for
-   * these in util.h; use those instead of inline assembly. */
-  uint64_t fs_base = rdmsr(MSR_FS_BASE);
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_FS_BASE, fs_base));
-  uint64_t gs_base = rdmsr(MSR_GS_BASE);
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_GS_BASE, gs_base));
-
   BUG_ON(writevmcs_unchecked(VMCS_HOST_IDTR_BASE, (uintptr_t)&sva_idt));
 
 #if 0
@@ -1890,11 +1881,17 @@ static void vmcs_save_host_pt(void) {
 }
 
 /**
- * Save the current GDT to the VMCS host state.
+ * Save thread-local values to the VMCS host state.
+ *
+ * This includes the GDT and TSS bases as well as the `%fs` and `%gs` segment
+ * bases.
  */
-static void vmcs_save_host_gdt_and_tss(void) {
+static void vmcs_save_host_tls(void) {
   SVA_ASSERT(getCPUState()->active_vm != NULL,
       "Caller must have a VMCS loaded");
+
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_FS_BASE, rdfsbase()));
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_GS_BASE, rdgsbase()));
 
   /*
    * The sgdt/sidt instructions store a 10-byte "pseudo-descriptor" into
@@ -2110,7 +2107,7 @@ entry:
   vmcs_save_host_pt();
 
   vmcs_init_host_segments();
-  vmcs_save_host_gdt_and_tss();
+  vmcs_save_host_tls();
 
   /*
    * In a classic example of ISA-minimalism lawyering on Intel's part, they
