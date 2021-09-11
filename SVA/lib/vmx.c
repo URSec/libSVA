@@ -2106,7 +2106,6 @@ entry:
 
   vmcs_save_host_pt();
 
-  vmcs_init_host_segments();
   vmcs_save_host_tls();
 
   /*
@@ -4813,6 +4812,7 @@ init_vmcs_ctrls(void) {
   writevmcs_checked(VMCS_VM_ENTRY_CTRLS, entry.buf);
 
   vmcs_init_host_cr();
+  vmcs_init_host_segments();
 }
 
 static paddr_t exiting_bitmap_create(void) {
