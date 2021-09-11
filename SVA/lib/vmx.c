@@ -2194,18 +2194,6 @@ entry:
   wrmsr(MSR_LSTAR, host_state.active_vm->state.msr_lstar);
 
   /*
-   * Save host FPU state and Extended Control Register 0 (XCR0).
-   */
-  /*
-   * We will need to clear the TS flag to avoid an FP trap when
-   * saving/restoring FPU state, but we need to save whether TS was enabled
-   * so we can put it back the way it was after VM exit.
-   */
-  unsigned char orig_ts = 1 ? read_cr0() & CR0_TS_OFFSET : 0;
-  /* Clear the TS flag to avoid a fptrap */
-  fpu_enable();
-
-  /*
    * Save the host FP state. Note that we must do this while the host XCR0 is
    * still active so that we are saving the correct state components.
    */
@@ -2705,9 +2693,9 @@ entry:
    * not correctly handling state components corresponding to X-features that
    * the guest currently has *disabled* (which, per the ISA, should remain
    * intact until the guest might again re-enable them).
+   *
+   * NB: FPU was re-enabled by our seting of `VMCS_HOST_CR0`.
    */
-  /* Clear the TS flag to avoid an FP trap when we execute XSAVE. */
-  fpu_enable();
   /* Save guest FPU state. */
   xsave(&host_state.active_vm->state.fp.inner);
 
@@ -2721,12 +2709,6 @@ entry:
 
   /* Restore host FPU state. */
   xrestore(&host_state.fp.inner);
-
-  /* Restore host TS flag if it was set before entry. */
-  if ( orig_ts ) {
-    /* Refetch CR0 in case it's changed */
-    write_cr0(read_cr0() | orig_ts);
-  }
 
 #ifdef MPX
   /*
