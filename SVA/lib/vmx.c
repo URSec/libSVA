@@ -2087,25 +2087,6 @@ entry:
   writevmcs_unchecked(VMCS_EPT_PTR, host_state.active_vm->eptp);
 
   /*
-   * Set the host-state-object fields to recognizable nonsense values so that
-   * we can spot them easily in the debugger if we mess up and fail to
-   * restore state correctly.
-   *
-   * (We can remove this code when we're confident this is working well.)
-   */
-  host_state.rbp = 0xf00f00f0f00f00f0;
-  host_state.rsi = 0xf00f00f0f00f00f0;
-  host_state.rdi = 0xf00f00f0f00f00f0;
-  host_state.r8  = 0xf00f00f0f00f00f0;
-  host_state.r9  = 0xf00f00f0f00f00f0;
-  host_state.r10 = 0xf00f00f0f00f00f0;
-  host_state.r11 = 0xf00f00f0f00f00f0;
-  host_state.r12 = 0xf00f00f0f00f00f0;
-  host_state.r13 = 0xf00f00f0f00f00f0;
-  host_state.r14 = 0xf00f00f0f00f00f0;
-  host_state.r15 = 0xf00f00f0f00f00f0;
-
-  /*
    * Save host state in the VMCS that will be restored automatically by the
    * processor on VM exit.
    */
