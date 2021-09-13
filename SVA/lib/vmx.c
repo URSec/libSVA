@@ -1895,19 +1895,10 @@ static void vmcs_init_host_sysenter(void) {
    * RDMSRs and three VMCS writes. (Considering that MSR reads/writes seem to
    * be considered slow operations, and this is on the VM-exit-handling
    * critical path, this is probably a good idea.)
-   *
-   * FIXME: At the very least, we certainly don't need to be *reading* the
-   * MSRs here, as we can just write constant 0s to them. (I would make this
-   * change right now except that I noticed it in the middle of making other
-   * changes and don't want to change multiple things at once to avoid
-   * debugging complications.)
    */
-  uint64_t ia32_sysenter_cs = rdmsr(MSR_SYSENTER_CS);
-  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_CS, ia32_sysenter_cs);
-  uint64_t ia32_sysenter_esp = rdmsr(MSR_SYSENTER_ESP);
-  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_ESP, ia32_sysenter_esp);
-  uint64_t ia32_sysenter_eip = rdmsr(MSR_SYSENTER_EIP);
-  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_CS, 0);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_ESP, 0);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_EIP, 0);
 
 #if 0
   DBGPRNT(("Saved host SYSENTER MSRs.\n"));
