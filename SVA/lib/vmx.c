@@ -2141,8 +2141,6 @@ entry:
    */
   wrgsshadow(host_state.active_vm->state.gs_shadow);
 
-  vmcs_init_host_sysenter();
-
   /*
    * We've now saved all the host state fields that the processor restores
    * atomically from the VMCS on VM exit. From here to VM entry, we save host
@@ -4784,6 +4782,7 @@ init_vmcs_ctrls(void) {
 
   vmcs_init_host_cr();
   vmcs_init_host_segments();
+  vmcs_init_host_sysenter();
 }
 
 static paddr_t exiting_bitmap_create(void) {
