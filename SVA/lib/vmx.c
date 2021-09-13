@@ -1996,6 +1996,380 @@ static bool vmexit_handler(void) {
   return false;
 }
 
+/**
+ * Assembly VM entry/exit code.
+ */
+static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vmresume) {
+  unsigned long vmexit_rflags;
+
+  /*
+   * This is where the magic happens.
+   *
+   * In this assembly section, we:
+   *  - Save the host's general-purpose register state to the host_state
+   *    structure.
+   *
+   *  - Use the VMWRITE instruction to set the RIP and RSP values that will
+   *    be loaded by the processor on the next VM exit.
+   *
+   *  - Restore the guest's general-purpose register state from the active
+   *    VM's descriptor (vm_desc_t structure).
+   *
+   *  - Execute VMLAUNCH/VMRESUME (as appropriate). This enters guest mode
+   *    and runs the VM until an event occurs that triggers a VM exit.
+   *
+   *  - Return from VM exit. When we set the RIP value to be loaded earlier,
+   *    we pointed it to the vmexit_landing_pad label, which is on the next
+   *    instruction following VMLAUNCH/VMRESUME. This maintains a
+   *    straight-line continuity of control flow, as if VMLAUNCH/VMRESUME
+   *    fell through to the next instruction after VM exit instead of loading
+   *    an arbitrary value into RIP. (This seems the most sane way to stitch
+   *    things together, since it avoids breaking the control flow of the
+   *    surrounding C function in a confusing way.)
+   *
+   *  - Save the current value of RFLAGS so we can pass it to
+   *    query_vmx_result() to determine whether the VM entry succeeded (and
+   *    thence a VM exit actually occurred).
+   *
+   *  - Save the guest's general-purpose register state.
+   *
+   *  - Restore the host's general-purpose register state.
+   */
+  asm volatile (
+      /* Save host RFLAGS.
+       * 
+       * RFLAGS is cleared on every VM exit, so we need to restore it
+       * ourselves.
+       */
+      "pushfq\n"
+
+      /* RAX contains a pointer to the host_state structure.
+       * Push it so that we can get it back after VM exit.
+       */
+      "pushq %%rax\n"
+
+      /*** Save host GPRs ***/
+      /* We don't need to save RAX, RBX, RCX, or RDX because we've used them
+       * as input/output registers for this inline assembly block, i.e., we
+       * know the compiler isn't keeping anything there.
+       */
+      "movq %%rbp,  %c[host_rbp](%%rax)\n"
+      "movq %%rsi,  %c[host_rsi](%%rax)\n"
+      "movq %%rdi,  %c[host_rdi](%%rax)\n"
+      "movq %%r8,   %c[host_r8](%%rax)\n"
+      "movq %%r9,   %c[host_r9](%%rax)\n"
+      "movq %%r10,  %c[host_r10](%%rax)\n"
+      "movq %%r11,  %c[host_r11](%%rax)\n"
+      "movq %%r12,  %c[host_r12](%%rax)\n"
+      "movq %%r13,  %c[host_r13](%%rax)\n"
+      "movq %%r14,  %c[host_r14](%%rax)\n"
+      "movq %%r15,  %c[host_r15](%%rax)\n"
+      /* (Now all the GPRs are free for our own use in this code.) */
+
+      /*** Use VMWRITE to set RIP and RSP to be loaded on VM exit ***/
+      "vmwrite %%rsp, %%rbx\n" // Write RSP to VMCS_HOST_RSP
+      "leaq vmexit_landing_pad(%%rip), %%rbp\n"
+      "vmwrite %%rbp, %%rcx\n" // Write vmexit_landing_pad to VMCS_HOST_RIP
+
+      /*** Determine whether we will be using VMLAUNCH or VMRESUME for VM
+       *** entry, based on the value of use_vmresume. ***/
+      "addb $0, %%dl\n"
+      /* NOTE: the "addb" above sets the zero flag (ZF) if and only if
+       * use_vmresume is 0, i.e., we should use VMLAUNCH.
+       *
+       * We had to wait until now to restore the guest's GPRs, because after
+       * we've done so we'll have no free registers to work with (and any
+       * values we had previously stored in them will be clobbered).
+       *
+       ******
+       * IT IS IMPERATIVE THAT NO INSTRUCTIONS BETWEEN THIS POINT AND THE
+       * "jnz do_vmresume" TOUCH THE ZERO FLAG. Otherwise, we will forget
+       * whether we are launching or resuming the VM.
+       ******
+       *
+       * Fortunately, we only need to use MOVs (and similar) to restore the
+       * guest's register state, and none of those mess with the zero flag
+       * (or any of the flags).
+       *
+       * (If this ever becomes a limitation, there is a way around this: we
+       * could store the boolean use_vmresume in memory, and use the
+       * "immediate + memory" form of ADD, which would have the same desired
+       * effect on ZF. However, we would need to locate use_vmresume in a
+       * statically addressible location, since we'd still have no free
+       * registers to use for a pointer. This is clumsy and it'd be (perhaps
+       * not meaningfully) slower, so let's not do it if we don't have to.)
+       */
+
+#ifdef SVA_LLC_PART
+      /*** Switch to the OS cache partition for side-channel protection ***
+       *
+       * NOTE: we need to be careful what memory we "touch" between here and
+       * VM entry. Anything that we touch gets pulled into the OS cache
+       * partition, meaning it's exposed to side-channel attacks launched by
+       * the OS or the VM guest.
+       *
+       * We have to do this before loading guest register state (and
+       * likewise, switch back after saving guest register state after VM
+       * exit) because we need to have EAX, EDX, and ECX free to issue the
+       * WRMSR instruction that performs the partition switch. When guest
+       * registers are loaded on the processor, we have no free registers
+       * whatsoever.
+       *
+       * This should be safe so long as there is no sensitive information
+       * stored within the same cache line(s) as the guest state structure
+       * (active_vm->state). The guest state values themselves are not
+       * sensitive because they're under control of the OS/hypervisor anyway.
+       *
+       * TODO: determine the actual cache line size of the hardware we're
+       * using (or better, an upper limit on LLC cache line size for x86
+       * processors if there is such a thing). We can then put that amount of
+       * padding around the guest state structure to ensure no neighboring
+       * sensitive information can potentially get exposed to side-channel
+       * attacks.
+       */
+      /*
+       * WRMSR will use EAX, EDX, and ECX as inputs. We used all three of
+       * those as inputs to this assembly block. We finished using the values
+       * in RCX and RDX above, so they're dead (free to overwrite). RAX still
+       * stores a pointer to the active VM descriptor that we'll need below,
+       * so we need to stash that somewhere else while we do the WRMSR.
+       *
+       * The hardcoded numeric values of the constants COS_MSR, OS_COS, and
+       * (below after VM exit) SVA_COS are checked with asserts in
+       * sva_initvmx() to ensure that they match the values defined in
+       * icat.h.
+       */
+      "movq %%rax, %%rbp\n"     // stash active vm_desc ptr. in RBP
+      "movq $0xc8f, %%rcx\n"    // MSR (COS_MSR = 0xc8f) to be written
+      /* Write the constant OS_COS (1) to the MSR */
+      "movq $1, %%rax\n"        // EAX = lower 32 bits to be written to MSR
+      "movq $0, %%rdx\n"        // EDX = upper 32 bits to be written to MSR
+      "wrmsr\n"
+      "movq %%rbp, %%rax\n"     // restore active vm_desc ptr. in RAX
+#endif /* #ifdef SVA_LLC_PART */
+
+      /*** Restore guest register state ***
+       * First, load a pointer to the active VM descriptor (which is stored
+       * in the host_state structure). This is where the guest GPR
+       * save/restore slots are located.
+       */
+      "movq %c[active_vm](%%rax), %%rax\n" // RAX <-- active_vm pointer
+
+      /*** Restore guest CR2 ***
+       *
+       * Note: we do not need to save/restore the host CR2 because it should
+       * always be dead (safe to clobber) here. CR2 should only ever have a
+       * live value during the very short window of time between a page fault
+       * being dispatched and the page-fault handler re-enabling interrupts.
+       *
+       * I can't think of a scenario in which it would ever be correct or
+       * reasonable to call sva_launch/resumevm() during a page fault
+       * handler. The system software shouldn't expect CR2 to be maintained
+       * consistently outside of a page fault handler, so it should be fine
+       * with it being randomly clobbered by sva_launch/resumevm().
+       *
+       * When we do "Virtual Ghost for VMs" in the future to protect VMs from
+       * compromised host system software, we may need to *clear* CR2 after
+       * VM exit to prevent sensitive guest state from being leaked (page
+       * fault access patterns could be relevant in side-channel attacks),
+       * but that's not a concern for now.
+       */
+      "movq %c[guest_cr2](%%rax), %%rbp\n" // move guest CR2 to temp reg
+      "movq %%rbp, %%cr2\n"
+
+      /*** Restore guest GPRs ***
+       * We will restore RAX last, since we need a register in which to keep
+       * the pointer to the active VM descriptor. (The instruction that
+       * restores RAX will both use this pointer and overwrite it.)
+       */
+      "movq %c[guest_rbx](%%rax), %%rbx\n"
+      "movq %c[guest_rcx](%%rax), %%rcx\n"
+      "movq %c[guest_rdx](%%rax), %%rdx\n"
+      "movq %c[guest_rbp](%%rax), %%rbp\n"
+      "movq %c[guest_rsi](%%rax), %%rsi\n"
+      "movq %c[guest_rdi](%%rax), %%rdi\n"
+      "movq %c[guest_r8](%%rax),  %%r8\n"
+      "movq %c[guest_r9](%%rax),  %%r9\n"
+      "movq %c[guest_r10](%%rax), %%r10\n"
+      "movq %c[guest_r11](%%rax), %%r11\n"
+      "movq %c[guest_r12](%%rax), %%r12\n"
+      "movq %c[guest_r13](%%rax), %%r13\n"
+      "movq %c[guest_r14](%%rax), %%r14\n"
+      "movq %c[guest_r15](%%rax), %%r15\n"
+      /* Restore RAX */
+      "movq %c[guest_rax](%%rax), %%rax\n" // replaces active_vm pointer
+      /* All GPRs are now ready for VM entry. */
+
+      /* If zero flag not set, use VMRESUME; otherwise use VMLAUNCH. */
+      "jnz do_vmresume\n"
+      "vmlaunch\n"
+      /* NOTE: we need to place an explicit jump to vmexit_landing_pad
+       * immediately after the VLAUNCH instruction to ensure consistent
+       * behavior if the VM entry fails (and thus execution falls through to
+       * the next instruction).
+       */
+      "jmp vmexit_landing_pad\n"
+
+      "do_vmresume:\n"
+      "vmresume\n"
+      /* Here the fall-through is OK since vmexit_landing_pad is next. */
+
+      /*** VM exits return here!!! ***/
+      "vmexit_landing_pad:\n"
+
+      /*** Save RFLAGS, which contains the VMX error code. ***/
+      /* (We need to return this in RDX at the end of the asm block.) */
+      "pushfq\n"
+
+      /*** Get pointer to the active VM descriptor, using the host_state
+       * pointer which we saved on the stack prior to VM entry.
+       *
+       * We have NO free registers at this point (all of them contain guest
+       * values which we need to save). We therefore start by pushing RAX to
+       * give us one to work with.
+       *
+       * Note: after pushing RAX, our stack looks like:
+       *      (%rsp)  - saved guest RAX
+       *     8(%rsp)  - RFLAGS saved after VM exit (VMX error code)
+       *    16(%rsp)  - pointer to host_state saved before VM entry
+       *    24(%rsp)  - host RFLAGS saved before VM entry
+       * (Since we're not using a frame pointer, and are using push/pop
+       * instructions i.e. a dynamic stack frame, we need to keep track of
+       * this carefully.)
+       */
+      "pushq %%rax\n"
+      "movq 16(%%rsp), %%rax\n"            // RAX <-- host_state pointer
+      "movq %c[active_vm](%%rax), %%rax\n" // RAX <-- active_vm pointer
+
+      /*** Save guest GPRs ***
+       *
+       * We save RBX first since we need another free register to save the
+       * guest RAX we stashed away on the stack (since x86 doesn't do
+       * memory-to-memory moves).
+       */
+      "movq %%rbx, %c[guest_rbx](%%rax)\n"
+      "movq (%%rsp), %%rbx\n"              // We stashed guest RAX at (%rsp).
+      "movq %%rbx, %c[guest_rax](%%rax)\n" // Save guest RAX
+      "movq %%rcx, %c[guest_rcx](%%rax)\n"
+      "movq %%rdx, %c[guest_rdx](%%rax)\n"
+      "movq %%rbp, %c[guest_rbp](%%rax)\n"
+      "movq %%rsi, %c[guest_rsi](%%rax)\n"
+      "movq %%rdi, %c[guest_rdi](%%rax)\n"
+      "movq %%r8,  %c[guest_r8](%%rax)\n"
+      "movq %%r9,  %c[guest_r9](%%rax)\n"
+      "movq %%r10, %c[guest_r10](%%rax)\n"
+      "movq %%r11, %c[guest_r11](%%rax)\n"
+      "movq %%r12, %c[guest_r12](%%rax)\n"
+      "movq %%r13, %c[guest_r13](%%rax)\n"
+      "movq %%r14, %c[guest_r14](%%rax)\n"
+      "movq %%r15, %c[guest_r15](%%rax)\n"
+      /* (Now all the GPRs are free for our own use in this code.) */
+
+      /*** Save guest CR2 ***/
+      "movq %%cr2, %%rbp\n" // move guest CR2 to temp reg
+      "movq %%rbp, %c[guest_cr2](%%rax)\n"
+
+#ifdef SVA_LLC_PART
+      /*** Switch back to SVA cache partition for side-channel protection ***
+       *
+       * All registers are dead here so we're free to clobber RAX, RDX, and
+       * RCX.
+       */
+      "movq $0xc8f, %%rcx\n"    // MSR (COS_MSR = 0xc8f) to be written
+      /* Write the constant SVA_COS (2) to the MSR */
+      "movq $2, %%rax\n"        // EAX = lower 32 bits to be written to MSR
+      "movq $0, %%rdx\n"        // EDX = upper 32 bits to be written to MSR
+      "wrmsr\n"
+#endif
+
+      /* (Re-)get the host_state pointer, which we couldn't keep earlier
+       * because we had no free registers.
+       */
+      "movq 16(%%rsp), %%rax\n"
+
+      /*** Restore host GPRs ***/
+      "movq %c[host_rbp](%%rax), %%rbp\n"
+      "movq %c[host_rsi](%%rax), %%rsi\n"
+      "movq %c[host_rdi](%%rax), %%rdi\n"
+      "movq %c[host_r8](%%rax),  %%r8\n"
+      "movq %c[host_r9](%%rax),  %%r9\n"
+      "movq %c[host_r10](%%rax), %%r10\n"
+      "movq %c[host_r11](%%rax), %%r11\n"
+      "movq %c[host_r12](%%rax), %%r12\n"
+      "movq %c[host_r13](%%rax), %%r13\n"
+      "movq %c[host_r14](%%rax), %%r14\n"
+      "movq %c[host_r15](%%rax), %%r15\n"
+      /*
+       * (Note: from here to the end of the asm block, we are only free to
+       * use the GPRs RAX, RBX, RCX, and RDX, as the rest of them, which we
+       * just restored above, contain potentially-live values which "belong"
+       * to the compiler. RBX and RDX are used as outputs from the asm block
+       * and will be set below.)
+       */
+
+      /* Put the saved RFLAGS (VMX error code) into RDX for output from the
+       * asm block.
+       */
+      "movq 8(%%rsp), %%rdx\n"
+      /* Also put the earlier-saved host RFLAGS (which we're about to
+       * restore) into RBX for output from the asm block (so we can print it).
+       */
+      "movq 24(%%rsp), %%rbx\n"
+
+      /* Return the stack to the way it was when we entered the asm block,
+       * and restore RFLAGS to what it was before VM entry.
+       *
+       * NOTE: interrupts are always blocked (disabled) on VM exit due to
+       * RFLAGS being cleared by the processor. However, that doesn't
+       * actually change anything because we were already in an SVA critical
+       * section (interrupts disabled) for the duration of the
+       * sva_launch/resumevm() intrinsic that called this function. If
+       * interrupts were originally enabled prior to that intrinsic being
+       * called, they'll be re-enabled when the intrinsic restores RFLAGS
+       * before returning.
+       */
+      "addq $24, %%rsp\n" // Unwind the last three pushq's...
+      "popfq\n"           // ...so we can pop the host RFLAGS below them.
+
+      : "=d" (vmexit_rflags)
+      : "a" (host_state), "b" (VMCS_HOST_RSP), "c" (VMCS_HOST_RIP),
+        "d" (use_vmresume),
+         /* Offsets of host_state elements */
+         [active_vm] "i" (offsetof(vmx_host_state_t, active_vm)),
+         [host_rbp] "i" (offsetof(vmx_host_state_t, rbp)),
+         [host_rsi] "i" (offsetof(vmx_host_state_t, rsi)),
+         [host_rdi] "i" (offsetof(vmx_host_state_t, rdi)),
+         [host_r8]  "i" (offsetof(vmx_host_state_t, r8)),
+         [host_r9]  "i" (offsetof(vmx_host_state_t, r9)),
+         [host_r10] "i" (offsetof(vmx_host_state_t, r10)),
+         [host_r11] "i" (offsetof(vmx_host_state_t, r11)),
+         [host_r12] "i" (offsetof(vmx_host_state_t, r12)),
+         [host_r13] "i" (offsetof(vmx_host_state_t, r13)),
+         [host_r14] "i" (offsetof(vmx_host_state_t, r14)),
+         [host_r15] "i" (offsetof(vmx_host_state_t, r15)),
+         /* Offsets of guest state elements in vm_desc_t */
+         [guest_rax] "i" (offsetof(vm_desc_t, state.rax)),
+         [guest_rbx] "i" (offsetof(vm_desc_t, state.rbx)),
+         [guest_rcx] "i" (offsetof(vm_desc_t, state.rcx)),
+         [guest_rdx] "i" (offsetof(vm_desc_t, state.rdx)),
+         [guest_rbp] "i" (offsetof(vm_desc_t, state.rbp)),
+         [guest_rsi] "i" (offsetof(vm_desc_t, state.rsi)),
+         [guest_rdi] "i" (offsetof(vm_desc_t, state.rdi)),
+         [guest_r8]  "i" (offsetof(vm_desc_t, state.r8)),
+         [guest_r9]  "i" (offsetof(vm_desc_t, state.r9)),
+         [guest_r10] "i" (offsetof(vm_desc_t, state.r10)),
+         [guest_r11] "i" (offsetof(vm_desc_t, state.r11)),
+         [guest_r12] "i" (offsetof(vm_desc_t, state.r12)),
+         [guest_r13] "i" (offsetof(vm_desc_t, state.r13)),
+         [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
+         [guest_r15] "i" (offsetof(vm_desc_t, state.r15)),
+         [guest_cr2] "i" (offsetof(vm_desc_t, state.cr2))
+      : "memory", "cc"
+      );
+
+  return vmexit_rflags;
+}
+
 /*
  * Function: run_vm()
  *
@@ -2296,374 +2670,10 @@ entry:
    */
   xrestore(&host_state.active_vm->state.fp.inner);
 
-  /*
-   * This is where the magic happens.
-   *
-   * In this assembly section, we:
-   *  - Save the host's general-purpose register state to the host_state
-   *    structure.
-   *
-   *  - Use the VMWRITE instruction to set the RIP and RSP values that will
-   *    be loaded by the processor on the next VM exit.
-   *
-   *  - Restore the guest's general-purpose register state from the active
-   *    VM's descriptor (vm_desc_t structure).
-   *
-   *  - Execute VMLAUNCH/VMRESUME (as appropriate). This enters guest mode
-   *    and runs the VM until an event occurs that triggers a VM exit.
-   *
-   *  - Return from VM exit. When we set the RIP value to be loaded earlier,
-   *    we pointed it to the vmexit_landing_pad label, which is on the next
-   *    instruction following VMLAUNCH/VMRESUME. This maintains a
-   *    straight-line continuity of control flow, as if VMLAUNCH/VMRESUME
-   *    fell through to the next instruction after VM exit instead of loading
-   *    an arbitrary value into RIP. (This seems the most sane way to stitch
-   *    things together, since it avoids breaking the control flow of the
-   *    surrounding C function in a confusing way.)
-   *
-   *  - Save the current value of RFLAGS so we can pass it to
-   *    query_vmx_result() to determine whether the VM entry succeeded (and
-   *    thence a VM exit actually occurred).
-   *
-   *  - Save the guest's general-purpose register state.
-   *
-   *  - Restore the host's general-purpose register state.
-   */
 #if 0
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
 #endif
-  uint64_t vmexit_rflags, hostrestored_rflags;
-  asm __volatile__ (
-      /* Save host RFLAGS.
-       * 
-       * RFLAGS is cleared on every VM exit, so we need to restore it
-       * ourselves.
-       */
-      "pushfq\n"
-
-      /* RAX contains a pointer to the host_state structure.
-       * Push it so that we can get it back after VM exit.
-       */
-      "pushq %%rax\n"
-
-      /*** Save host GPRs ***/
-      /* We don't need to save RAX, RBX, RCX, or RDX because we've used them
-       * as input/output registers for this inline assembly block, i.e., we
-       * know the compiler isn't keeping anything there.
-       */
-      "movq %%rbp,  %c[host_rbp](%%rax)\n"
-      "movq %%rsi,  %c[host_rsi](%%rax)\n"
-      "movq %%rdi,  %c[host_rdi](%%rax)\n"
-      "movq %%r8,   %c[host_r8](%%rax)\n"
-      "movq %%r9,   %c[host_r9](%%rax)\n"
-      "movq %%r10,  %c[host_r10](%%rax)\n"
-      "movq %%r11,  %c[host_r11](%%rax)\n"
-      "movq %%r12,  %c[host_r12](%%rax)\n"
-      "movq %%r13,  %c[host_r13](%%rax)\n"
-      "movq %%r14,  %c[host_r14](%%rax)\n"
-      "movq %%r15,  %c[host_r15](%%rax)\n"
-      /* (Now all the GPRs are free for our own use in this code.) */
-
-      /*** Use VMWRITE to set RIP and RSP to be loaded on VM exit ***/
-      "vmwrite %%rsp, %%rbx\n" // Write RSP to VMCS_HOST_RSP
-      "leaq vmexit_landing_pad(%%rip), %%rbp\n"
-      "vmwrite %%rbp, %%rcx\n" // Write vmexit_landing_pad to VMCS_HOST_RIP
-
-      /*** Determine whether we will be using VMLAUNCH or VMRESUME for VM
-       *** entry, based on the value of use_vmresume. ***/
-      "addb $0, %%dl\n"
-      /* NOTE: the "addb" above sets the zero flag (ZF) if and only if
-       * use_vmresume is 0, i.e., we should use VMLAUNCH.
-       *
-       * We had to wait until now to restore the guest's GPRs, because after
-       * we've done so we'll have no free registers to work with (and any
-       * values we had previously stored in them will be clobbered).
-       *
-       ******
-       * IT IS IMPERATIVE THAT NO INSTRUCTIONS BETWEEN THIS POINT AND THE
-       * "jnz do_vmresume" TOUCH THE ZERO FLAG. Otherwise, we will forget
-       * whether we are launching or resuming the VM.
-       ******
-       *
-       * Fortunately, we only need to use MOVs (and similar) to restore the
-       * guest's register state, and none of those mess with the zero flag
-       * (or any of the flags).
-       *
-       * (If this ever becomes a limitation, there is a way around this: we
-       * could store the boolean use_vmresume in memory, and use the
-       * "immediate + memory" form of ADD, which would have the same desired
-       * effect on ZF. However, we would need to locate use_vmresume in a
-       * statically addressible location, since we'd still have no free
-       * registers to use for a pointer. This is clumsy and it'd be (perhaps
-       * not meaningfully) slower, so let's not do it if we don't have to.)
-       */
-
-#ifdef SVA_LLC_PART
-      /*** Switch to the OS cache partition for side-channel protection ***
-       *
-       * NOTE: we need to be careful what memory we "touch" between here and
-       * VM entry. Anything that we touch gets pulled into the OS cache
-       * partition, meaning it's exposed to side-channel attacks launched by
-       * the OS or the VM guest.
-       *
-       * We have to do this before loading guest register state (and
-       * likewise, switch back after saving guest register state after VM
-       * exit) because we need to have EAX, EDX, and ECX free to issue the
-       * WRMSR instruction that performs the partition switch. When guest
-       * registers are loaded on the processor, we have no free registers
-       * whatsoever.
-       *
-       * This should be safe so long as there is no sensitive information
-       * stored within the same cache line(s) as the guest state structure
-       * (active_vm->state). The guest state values themselves are not
-       * sensitive because they're under control of the OS/hypervisor anyway.
-       *
-       * TODO: determine the actual cache line size of the hardware we're
-       * using (or better, an upper limit on LLC cache line size for x86
-       * processors if there is such a thing). We can then put that amount of
-       * padding around the guest state structure to ensure no neighboring
-       * sensitive information can potentially get exposed to side-channel
-       * attacks.
-       */
-      /*
-       * WRMSR will use EAX, EDX, and ECX as inputs. We used all three of
-       * those as inputs to this assembly block. We finished using the values
-       * in RCX and RDX above, so they're dead (free to overwrite). RAX still
-       * stores a pointer to the active VM descriptor that we'll need below,
-       * so we need to stash that somewhere else while we do the WRMSR.
-       *
-       * The hardcoded numeric values of the constants COS_MSR, OS_COS, and
-       * (below after VM exit) SVA_COS are checked with asserts in
-       * sva_initvmx() to ensure that they match the values defined in
-       * icat.h.
-       */
-      "movq %%rax, %%rbp\n"     // stash active vm_desc ptr. in RBP
-      "movq $0xc8f, %%rcx\n"    // MSR (COS_MSR = 0xc8f) to be written
-      /* Write the constant OS_COS (1) to the MSR */
-      "movq $1, %%rax\n"        // EAX = lower 32 bits to be written to MSR
-      "movq $0, %%rdx\n"        // EDX = upper 32 bits to be written to MSR
-      "wrmsr\n"
-      "movq %%rbp, %%rax\n"     // restore active vm_desc ptr. in RAX
-#endif /* #ifdef SVA_LLC_PART */
-
-      /*** Restore guest register state ***
-       * First, load a pointer to the active VM descriptor (which is stored
-       * in the host_state structure). This is where the guest GPR
-       * save/restore slots are located.
-       */
-      "movq %c[active_vm](%%rax), %%rax\n" // RAX <-- active_vm pointer
-
-      /*** Restore guest CR2 ***
-       *
-       * Note: we do not need to save/restore the host CR2 because it should
-       * always be dead (safe to clobber) here. CR2 should only ever have a
-       * live value during the very short window of time between a page fault
-       * being dispatched and the page-fault handler re-enabling interrupts.
-       *
-       * I can't think of a scenario in which it would ever be correct or
-       * reasonable to call sva_launch/resumevm() during a page fault
-       * handler. The system software shouldn't expect CR2 to be maintained
-       * consistently outside of a page fault handler, so it should be fine
-       * with it being randomly clobbered by sva_launch/resumevm().
-       *
-       * When we do "Virtual Ghost for VMs" in the future to protect VMs from
-       * compromised host system software, we may need to *clear* CR2 after
-       * VM exit to prevent sensitive guest state from being leaked (page
-       * fault access patterns could be relevant in side-channel attacks),
-       * but that's not a concern for now.
-       */
-      "movq %c[guest_cr2](%%rax), %%rbp\n" // move guest CR2 to temp reg
-      "movq %%rbp, %%cr2\n"
-
-      /*** Restore guest GPRs ***
-       * We will restore RAX last, since we need a register in which to keep
-       * the pointer to the active VM descriptor. (The instruction that
-       * restores RAX will both use this pointer and overwrite it.)
-       */
-      "movq %c[guest_rbx](%%rax), %%rbx\n"
-      "movq %c[guest_rcx](%%rax), %%rcx\n"
-      "movq %c[guest_rdx](%%rax), %%rdx\n"
-      "movq %c[guest_rbp](%%rax), %%rbp\n"
-      "movq %c[guest_rsi](%%rax), %%rsi\n"
-      "movq %c[guest_rdi](%%rax), %%rdi\n"
-      "movq %c[guest_r8](%%rax),  %%r8\n"
-      "movq %c[guest_r9](%%rax),  %%r9\n"
-      "movq %c[guest_r10](%%rax), %%r10\n"
-      "movq %c[guest_r11](%%rax), %%r11\n"
-      "movq %c[guest_r12](%%rax), %%r12\n"
-      "movq %c[guest_r13](%%rax), %%r13\n"
-      "movq %c[guest_r14](%%rax), %%r14\n"
-      "movq %c[guest_r15](%%rax), %%r15\n"
-      /* Restore RAX */
-      "movq %c[guest_rax](%%rax), %%rax\n" // replaces active_vm pointer
-      /* All GPRs are now ready for VM entry. */
-
-      /* If zero flag not set, use VMRESUME; otherwise use VMLAUNCH. */
-      "jnz do_vmresume\n"
-      "vmlaunch\n"
-      /* NOTE: we need to place an explicit jump to vmexit_landing_pad
-       * immediately after the VLAUNCH instruction to ensure consistent
-       * behavior if the VM entry fails (and thus execution falls through to
-       * the next instruction).
-       */
-      "jmp vmexit_landing_pad\n"
-
-      "do_vmresume:\n"
-      "vmresume\n"
-      /* Here the fall-through is OK since vmexit_landing_pad is next. */
-
-      /*** VM exits return here!!! ***/
-      "vmexit_landing_pad:\n"
-
-      /*** Save RFLAGS, which contains the VMX error code. ***/
-      /* (We need to return this in RDX at the end of the asm block.) */
-      "pushfq\n"
-
-      /*** Get pointer to the active VM descriptor, using the host_state
-       * pointer which we saved on the stack prior to VM entry.
-       *
-       * We have NO free registers at this point (all of them contain guest
-       * values which we need to save). We therefore start by pushing RAX to
-       * give us one to work with.
-       *
-       * Note: after pushing RAX, our stack looks like:
-       *      (%rsp)  - saved guest RAX
-       *     8(%rsp)  - RFLAGS saved after VM exit (VMX error code)
-       *    16(%rsp)  - pointer to host_state saved before VM entry
-       *    24(%rsp)  - host RFLAGS saved before VM entry
-       * (Since we're not using a frame pointer, and are using push/pop
-       * instructions i.e. a dynamic stack frame, we need to keep track of
-       * this carefully.)
-       */
-      "pushq %%rax\n"
-      "movq 16(%%rsp), %%rax\n"            // RAX <-- host_state pointer
-      "movq %c[active_vm](%%rax), %%rax\n" // RAX <-- active_vm pointer
-
-      /*** Save guest GPRs ***
-       *
-       * We save RBX first since we need another free register to save the
-       * guest RAX we stashed away on the stack (since x86 doesn't do
-       * memory-to-memory moves).
-       */
-      "movq %%rbx, %c[guest_rbx](%%rax)\n"
-      "movq (%%rsp), %%rbx\n"              // We stashed guest RAX at (%rsp).
-      "movq %%rbx, %c[guest_rax](%%rax)\n" // Save guest RAX
-      "movq %%rcx, %c[guest_rcx](%%rax)\n"
-      "movq %%rdx, %c[guest_rdx](%%rax)\n"
-      "movq %%rbp, %c[guest_rbp](%%rax)\n"
-      "movq %%rsi, %c[guest_rsi](%%rax)\n"
-      "movq %%rdi, %c[guest_rdi](%%rax)\n"
-      "movq %%r8,  %c[guest_r8](%%rax)\n"
-      "movq %%r9,  %c[guest_r9](%%rax)\n"
-      "movq %%r10, %c[guest_r10](%%rax)\n"
-      "movq %%r11, %c[guest_r11](%%rax)\n"
-      "movq %%r12, %c[guest_r12](%%rax)\n"
-      "movq %%r13, %c[guest_r13](%%rax)\n"
-      "movq %%r14, %c[guest_r14](%%rax)\n"
-      "movq %%r15, %c[guest_r15](%%rax)\n"
-      /* (Now all the GPRs are free for our own use in this code.) */
-
-      /*** Save guest CR2 ***/
-      "movq %%cr2, %%rbp\n" // move guest CR2 to temp reg
-      "movq %%rbp, %c[guest_cr2](%%rax)\n"
-
-#ifdef SVA_LLC_PART
-      /*** Switch back to SVA cache partition for side-channel protection ***
-       *
-       * All registers are dead here so we're free to clobber RAX, RDX, and
-       * RCX.
-       */
-      "movq $0xc8f, %%rcx\n"    // MSR (COS_MSR = 0xc8f) to be written
-      /* Write the constant SVA_COS (2) to the MSR */
-      "movq $2, %%rax\n"        // EAX = lower 32 bits to be written to MSR
-      "movq $0, %%rdx\n"        // EDX = upper 32 bits to be written to MSR
-      "wrmsr\n"
-#endif
-
-      /* (Re-)get the host_state pointer, which we couldn't keep earlier
-       * because we had no free registers.
-       */
-      "movq 16(%%rsp), %%rax\n"
-
-      /*** Restore host GPRs ***/
-      "movq %c[host_rbp](%%rax), %%rbp\n"
-      "movq %c[host_rsi](%%rax), %%rsi\n"
-      "movq %c[host_rdi](%%rax), %%rdi\n"
-      "movq %c[host_r8](%%rax),  %%r8\n"
-      "movq %c[host_r9](%%rax),  %%r9\n"
-      "movq %c[host_r10](%%rax), %%r10\n"
-      "movq %c[host_r11](%%rax), %%r11\n"
-      "movq %c[host_r12](%%rax), %%r12\n"
-      "movq %c[host_r13](%%rax), %%r13\n"
-      "movq %c[host_r14](%%rax), %%r14\n"
-      "movq %c[host_r15](%%rax), %%r15\n"
-      /*
-       * (Note: from here to the end of the asm block, we are only free to
-       * use the GPRs RAX, RBX, RCX, and RDX, as the rest of them, which we
-       * just restored above, contain potentially-live values which "belong"
-       * to the compiler. RBX and RDX are used as outputs from the asm block
-       * and will be set below.)
-       */
-
-      /* Put the saved RFLAGS (VMX error code) into RDX for output from the
-       * asm block.
-       */
-      "movq 8(%%rsp), %%rdx\n"
-      /* Also put the earlier-saved host RFLAGS (which we're about to
-       * restore) into RBX for output from the asm block (so we can print it).
-       */
-      "movq 24(%%rsp), %%rbx\n"
-
-      /* Return the stack to the way it was when we entered the asm block,
-       * and restore RFLAGS to what it was before VM entry.
-       *
-       * NOTE: interrupts are always blocked (disabled) on VM exit due to
-       * RFLAGS being cleared by the processor. However, that doesn't
-       * actually change anything because we were already in an SVA critical
-       * section (interrupts disabled) for the duration of the
-       * sva_launch/resumevm() intrinsic that called this function. If
-       * interrupts were originally enabled prior to that intrinsic being
-       * called, they'll be re-enabled when the intrinsic restores RFLAGS
-       * before returning.
-       */
-      "addq $24, %%rsp\n" // Unwind the last three pushq's...
-      "popfq\n"           // ...so we can pop the host RFLAGS below them.
-
-      : "=d" (vmexit_rflags), "=b" (hostrestored_rflags)
-      : "a" (&host_state), "b" (VMCS_HOST_RSP), "c" (VMCS_HOST_RIP),
-        "d" (use_vmresume),
-         /* Offsets of host_state elements */
-         [active_vm] "i" (offsetof(vmx_host_state_t, active_vm)),
-         [host_rbp] "i" (offsetof(vmx_host_state_t, rbp)),
-         [host_rsi] "i" (offsetof(vmx_host_state_t, rsi)),
-         [host_rdi] "i" (offsetof(vmx_host_state_t, rdi)),
-         [host_r8]  "i" (offsetof(vmx_host_state_t, r8)),
-         [host_r9]  "i" (offsetof(vmx_host_state_t, r9)),
-         [host_r10] "i" (offsetof(vmx_host_state_t, r10)),
-         [host_r11] "i" (offsetof(vmx_host_state_t, r11)),
-         [host_r12] "i" (offsetof(vmx_host_state_t, r12)),
-         [host_r13] "i" (offsetof(vmx_host_state_t, r13)),
-         [host_r14] "i" (offsetof(vmx_host_state_t, r14)),
-         [host_r15] "i" (offsetof(vmx_host_state_t, r15)),
-         /* Offsets of guest state elements in vm_desc_t */
-         [guest_rax] "i" (offsetof(vm_desc_t, state.rax)),
-         [guest_rbx] "i" (offsetof(vm_desc_t, state.rbx)),
-         [guest_rcx] "i" (offsetof(vm_desc_t, state.rcx)),
-         [guest_rdx] "i" (offsetof(vm_desc_t, state.rdx)),
-         [guest_rbp] "i" (offsetof(vm_desc_t, state.rbp)),
-         [guest_rsi] "i" (offsetof(vm_desc_t, state.rsi)),
-         [guest_rdi] "i" (offsetof(vm_desc_t, state.rdi)),
-         [guest_r8]  "i" (offsetof(vm_desc_t, state.r8)),
-         [guest_r9]  "i" (offsetof(vm_desc_t, state.r9)),
-         [guest_r10] "i" (offsetof(vm_desc_t, state.r10)),
-         [guest_r11] "i" (offsetof(vm_desc_t, state.r11)),
-         [guest_r12] "i" (offsetof(vm_desc_t, state.r12)),
-         [guest_r13] "i" (offsetof(vm_desc_t, state.r13)),
-         [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
-         [guest_r15] "i" (offsetof(vm_desc_t, state.r15)),
-         [guest_cr2] "i" (offsetof(vm_desc_t, state.cr2))
-      : "memory", "cc"
-      );
+  uint64_t vmexit_rflags = asm_run_vm(&host_state, use_vmresume);
 
   /*
    * Save guest FPU state. This must be done while the guest's XCR0 is still
