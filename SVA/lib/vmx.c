@@ -1880,6 +1880,41 @@ static void vmcs_init_host_segments(void) {
 }
 
 /**
+ * Initialize the SYSENTER MSR VMCS fields.
+ */
+static void vmcs_init_host_sysenter(void) {
+  SVA_ASSERT(getCPUState()->active_vm != NULL,
+      "Caller must have a VMCS loaded");
+
+  /*
+   * FIXME: SVA always sets the SYSENTER MSRs to 0 since it does not support
+   * that syscall mechanism (SYSCALL being preferred in 64-bit mode); we can
+   * optimize here by just setting these three VMCS fields to 0 when we're
+   * initializing the rest of the "set-and-forget" fields the first time
+   * sva_loadvm() is called for this VMCS. That'll allow us to save three
+   * RDMSRs and three VMCS writes. (Considering that MSR reads/writes seem to
+   * be considered slow operations, and this is on the VM-exit-handling
+   * critical path, this is probably a good idea.)
+   *
+   * FIXME: At the very least, we certainly don't need to be *reading* the
+   * MSRs here, as we can just write constant 0s to them. (I would make this
+   * change right now except that I noticed it in the middle of making other
+   * changes and don't want to change multiple things at once to avoid
+   * debugging complications.)
+   */
+  uint64_t ia32_sysenter_cs = rdmsr(MSR_SYSENTER_CS);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_CS, ia32_sysenter_cs);
+  uint64_t ia32_sysenter_esp = rdmsr(MSR_SYSENTER_ESP);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_ESP, ia32_sysenter_esp);
+  uint64_t ia32_sysenter_eip = rdmsr(MSR_SYSENTER_EIP);
+  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
+
+#if 0
+  DBGPRNT(("Saved host SYSENTER MSRs.\n"));
+#endif
+}
+
+/**
  * Save the current host page table pointer (`%cr3`) to the VMCS host state.
  */
 static void vmcs_save_host_pt(void) {
@@ -2115,32 +2150,7 @@ entry:
    */
   wrgsshadow(host_state.active_vm->state.gs_shadow);
 
-  /* SYSENTER MSRs */
-  /*
-   * FIXME: SVA always sets the SYSENTER MSRs to 0 since it does not support
-   * that syscall mechanism (SYSCALL being preferred in 64-bit mode); we can
-   * optimize here by just setting these three VMCS fields to 0 when we're
-   * initializing the rest of the "set-and-forget" fields the first time
-   * sva_loadvm() is called for this VMCS. That'll allow us to save three
-   * RDMSRs and three VMCS writes. (Considering that MSR reads/writes seem to
-   * be considered slow operations, and this is on the VM-exit-handling
-   * critical path, this is probably a good idea.)
-   *
-   * FIXME: At the very least, we certainly don't need to be *reading* the
-   * MSRs here, as we can just write constant 0s to them. (I would make this
-   * change right now except that I noticed it in the middle of making other
-   * changes and don't want to change multiple things at once to avoid
-   * debugging complications.)
-   */
-  uint64_t ia32_sysenter_cs = rdmsr(MSR_SYSENTER_CS);
-  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_CS, ia32_sysenter_cs);
-  uint64_t ia32_sysenter_esp = rdmsr(MSR_SYSENTER_ESP);
-  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_ESP, ia32_sysenter_esp);
-  uint64_t ia32_sysenter_eip = rdmsr(MSR_SYSENTER_EIP);
-  writevmcs_unchecked(VMCS_HOST_IA32_SYSENTER_EIP, ia32_sysenter_eip);
-#if 0
-  DBGPRNT(("Saved host SYSENTER MSRs.\n"));
-#endif
+  vmcs_init_host_sysenter();
 
   /*
    * We've now saved all the host state fields that the processor restores
