@@ -16,6 +16,7 @@
 #include <sva/vmx.h>
 #include <sva/vmx_intrinsics.h>
 #include <sva/apic.h>
+#include <sva/cr.h>
 #include <sva/fpu.h>
 #include <sva/interrupt.h>
 #include <sva/mmu.h>
@@ -2139,28 +2140,6 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
        */
       "movq %c[active_vm](%%rax), %%rax\n" // RAX <-- active_vm pointer
 
-      /*** Restore guest CR2 ***
-       *
-       * Note: we do not need to save/restore the host CR2 because it should
-       * always be dead (safe to clobber) here. CR2 should only ever have a
-       * live value during the very short window of time between a page fault
-       * being dispatched and the page-fault handler re-enabling interrupts.
-       *
-       * I can't think of a scenario in which it would ever be correct or
-       * reasonable to call sva_launch/resumevm() during a page fault
-       * handler. The system software shouldn't expect CR2 to be maintained
-       * consistently outside of a page fault handler, so it should be fine
-       * with it being randomly clobbered by sva_launch/resumevm().
-       *
-       * When we do "Virtual Ghost for VMs" in the future to protect VMs from
-       * compromised host system software, we may need to *clear* CR2 after
-       * VM exit to prevent sensitive guest state from being leaked (page
-       * fault access patterns could be relevant in side-channel attacks),
-       * but that's not a concern for now.
-       */
-      "movq %c[guest_cr2](%%rax), %%rbp\n" // move guest CR2 to temp reg
-      "movq %%rbp, %%cr2\n"
-
       /*** Restore guest GPRs ***
        * We will restore RAX last, since we need a register in which to keep
        * the pointer to the active VM descriptor. (The instruction that
@@ -2249,10 +2228,6 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
       "movq %%r15, %c[guest_r15](%%rax)\n"
       /* (Now all the GPRs are free for our own use in this code.) */
 
-      /*** Save guest CR2 ***/
-      "movq %%cr2, %%rbp\n" // move guest CR2 to temp reg
-      "movq %%rbp, %c[guest_cr2](%%rax)\n"
-
 #ifdef SVA_LLC_PART
       /*** Switch back to SVA cache partition for side-channel protection ***
        *
@@ -2315,8 +2290,7 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
          [guest_r12] "i" (offsetof(vm_desc_t, state.r12)),
          [guest_r13] "i" (offsetof(vm_desc_t, state.r13)),
          [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
-         [guest_r15] "i" (offsetof(vm_desc_t, state.r15)),
-         [guest_cr2] "i" (offsetof(vm_desc_t, state.cr2))
+         [guest_r15] "i" (offsetof(vm_desc_t, state.r15))
       : "memory", "cc", /* "rax", "rbx", "rcx", */ "rsi", "rdi",
          "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
       );
@@ -2624,10 +2598,34 @@ entry:
    */
   xrestore(&host_state.active_vm->state.fp.inner);
 
+  /*** Restore guest CR2 ***
+   *
+   * Note: we do not need to save/restore the host CR2 because it should
+   * always be dead (safe to clobber) here. CR2 should only ever have a
+   * live value during the very short window of time between a page fault
+   * being dispatched and the page-fault handler re-enabling interrupts.
+   *
+   * I can't think of a scenario in which it would ever be correct or
+   * reasonable to call sva_launch/resumevm() during a page fault
+   * handler. The system software shouldn't expect CR2 to be maintained
+   * consistently outside of a page fault handler, so it should be fine
+   * with it being randomly clobbered by sva_launch/resumevm().
+   *
+   * When we do "Virtual Ghost for VMs" in the future to protect VMs from
+   * compromised host system software, we may need to *clear* CR2 after
+   * VM exit to prevent sensitive guest state from being leaked (page
+   * fault access patterns could be relevant in side-channel attacks),
+   * but that's not a concern for now.
+   */
+  write_cr2(host_state.active_vm->state.cr2);
+
 #if 0
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
 #endif
   uint64_t vmexit_rflags = asm_run_vm(&host_state, use_vmresume);
+
+  /*** Save guest CR2 ***/
+  host_state.active_vm->state.cr2 = read_cr2();
 
   /*
    * Save guest FPU state. This must be done while the guest's XCR0 is still
