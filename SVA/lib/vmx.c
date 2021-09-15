@@ -2002,13 +2002,18 @@ static bool vmexit_handler(void) {
 static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vmresume) {
   unsigned long vmexit_rflags;
 
+  /**
+   * Unused asm outputs for clobbered inputs.
+   *
+   * Clang doesn't let us specify the same register as an asm input and
+   * clobber.
+   */
+  unsigned long _dummy[3];
+
   /*
    * This is where the magic happens.
    *
    * In this assembly section, we:
-   *  - Save the host's general-purpose register state to the host_state
-   *    structure.
-   *
    *  - Use the VMWRITE instruction to set the RIP and RSP values that will
    *    be loaded by the processor on the next VM exit.
    *
@@ -2032,39 +2037,18 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
    *    thence a VM exit actually occurred).
    *
    *  - Save the guest's general-purpose register state.
-   *
-   *  - Restore the host's general-purpose register state.
    */
   asm volatile (
-      /* Save host RFLAGS.
-       * 
-       * RFLAGS is cleared on every VM exit, so we need to restore it
-       * ourselves.
+      /*
+       * Clang silently ignores an `%rbp` clobber in a function with stack
+       * realignment, so it's up to us to save/restore it.
        */
-      "pushfq\n"
+      "pushq %%rbp\n\t"
 
       /* RAX contains a pointer to the host_state structure.
        * Push it so that we can get it back after VM exit.
        */
       "pushq %%rax\n"
-
-      /*** Save host GPRs ***/
-      /* We don't need to save RAX, RBX, RCX, or RDX because we've used them
-       * as input/output registers for this inline assembly block, i.e., we
-       * know the compiler isn't keeping anything there.
-       */
-      "movq %%rbp,  %c[host_rbp](%%rax)\n"
-      "movq %%rsi,  %c[host_rsi](%%rax)\n"
-      "movq %%rdi,  %c[host_rdi](%%rax)\n"
-      "movq %%r8,   %c[host_r8](%%rax)\n"
-      "movq %%r9,   %c[host_r9](%%rax)\n"
-      "movq %%r10,  %c[host_r10](%%rax)\n"
-      "movq %%r11,  %c[host_r11](%%rax)\n"
-      "movq %%r12,  %c[host_r12](%%rax)\n"
-      "movq %%r13,  %c[host_r13](%%rax)\n"
-      "movq %%r14,  %c[host_r14](%%rax)\n"
-      "movq %%r15,  %c[host_r15](%%rax)\n"
-      /* (Now all the GPRs are free for our own use in this code.) */
 
       /*** Use VMWRITE to set RIP and RSP to be loaded on VM exit ***/
       "vmwrite %%rsp, %%rbx\n" // Write RSP to VMCS_HOST_RSP
@@ -2232,7 +2216,7 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
        *      (%rsp)  - saved guest RAX
        *     8(%rsp)  - RFLAGS saved after VM exit (VMX error code)
        *    16(%rsp)  - pointer to host_state saved before VM entry
-       *    24(%rsp)  - host RFLAGS saved before VM entry
+       *    24(%rsp)  - host RBP saved before VM entry
        * (Since we're not using a frame pointer, and are using push/pop
        * instructions i.e. a dynamic stack frame, we need to keep track of
        * this carefully.)
@@ -2287,26 +2271,6 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
        */
       "movq 16(%%rsp), %%rax\n"
 
-      /*** Restore host GPRs ***/
-      "movq %c[host_rbp](%%rax), %%rbp\n"
-      "movq %c[host_rsi](%%rax), %%rsi\n"
-      "movq %c[host_rdi](%%rax), %%rdi\n"
-      "movq %c[host_r8](%%rax),  %%r8\n"
-      "movq %c[host_r9](%%rax),  %%r9\n"
-      "movq %c[host_r10](%%rax), %%r10\n"
-      "movq %c[host_r11](%%rax), %%r11\n"
-      "movq %c[host_r12](%%rax), %%r12\n"
-      "movq %c[host_r13](%%rax), %%r13\n"
-      "movq %c[host_r14](%%rax), %%r14\n"
-      "movq %c[host_r15](%%rax), %%r15\n"
-      /*
-       * (Note: from here to the end of the asm block, we are only free to
-       * use the GPRs RAX, RBX, RCX, and RDX, as the rest of them, which we
-       * just restored above, contain potentially-live values which "belong"
-       * to the compiler. RBX and RDX are used as outputs from the asm block
-       * and will be set below.)
-       */
-
       /* Put the saved RFLAGS (VMX error code) into RDX for output from the
        * asm block.
        */
@@ -2317,7 +2281,7 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
       "movq 24(%%rsp), %%rbx\n"
 
       /* Return the stack to the way it was when we entered the asm block,
-       * and restore RFLAGS to what it was before VM entry.
+       * and restore RBP to what it was before VM entry.
        *
        * NOTE: interrupts are always blocked (disabled) on VM exit due to
        * RFLAGS being cleared by the processor. However, that doesn't
@@ -2329,24 +2293,13 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
        * before returning.
        */
       "addq $24, %%rsp\n" // Unwind the last three pushq's...
-      "popfq\n"           // ...so we can pop the host RFLAGS below them.
+      "popq %%rbp\n\t" // and pop the saved frame pointer.
 
-      : "=d" (vmexit_rflags)
+      : "=d"(vmexit_rflags), "=a"(_dummy[0]), "=b"(_dummy[1]), "=c"(_dummy[2])
       : "a" (host_state), "b" (VMCS_HOST_RSP), "c" (VMCS_HOST_RIP),
         "d" (use_vmresume),
          /* Offsets of host_state elements */
          [active_vm] "i" (offsetof(vmx_host_state_t, active_vm)),
-         [host_rbp] "i" (offsetof(vmx_host_state_t, rbp)),
-         [host_rsi] "i" (offsetof(vmx_host_state_t, rsi)),
-         [host_rdi] "i" (offsetof(vmx_host_state_t, rdi)),
-         [host_r8]  "i" (offsetof(vmx_host_state_t, r8)),
-         [host_r9]  "i" (offsetof(vmx_host_state_t, r9)),
-         [host_r10] "i" (offsetof(vmx_host_state_t, r10)),
-         [host_r11] "i" (offsetof(vmx_host_state_t, r11)),
-         [host_r12] "i" (offsetof(vmx_host_state_t, r12)),
-         [host_r13] "i" (offsetof(vmx_host_state_t, r13)),
-         [host_r14] "i" (offsetof(vmx_host_state_t, r14)),
-         [host_r15] "i" (offsetof(vmx_host_state_t, r15)),
          /* Offsets of guest state elements in vm_desc_t */
          [guest_rax] "i" (offsetof(vm_desc_t, state.rax)),
          [guest_rbx] "i" (offsetof(vm_desc_t, state.rbx)),
@@ -2364,7 +2317,8 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
          [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
          [guest_r15] "i" (offsetof(vm_desc_t, state.r15)),
          [guest_cr2] "i" (offsetof(vm_desc_t, state.cr2))
-      : "memory", "cc"
+      : "memory", "cc", /* "rax", "rbx", "rcx", */ "rsi", "rdi",
+         "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
       );
 
   return vmexit_rflags;
