@@ -2250,10 +2250,6 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
        * asm block.
        */
       "movq 8(%%rsp), %%rdx\n"
-      /* Also put the earlier-saved host RFLAGS (which we're about to
-       * restore) into RBX for output from the asm block (so we can print it).
-       */
-      "movq 24(%%rsp), %%rbx\n"
 
       /* Return the stack to the way it was when we entered the asm block,
        * and restore RBP to what it was before VM entry.
