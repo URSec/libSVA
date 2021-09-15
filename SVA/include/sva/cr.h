@@ -81,6 +81,17 @@ static inline uint64_t read_cr0(void) {
 }
 
 /**
+ * Get the current value of CR2.
+ *
+ * @return  The current value of CR2
+ */
+static inline uintptr_t read_cr2(void) {
+  uint64_t data;
+  __asm __volatile("movq %%cr2, %0" : "=r"(data));
+  return data;
+}
+
+/**
  * Get the current value of CR3.
  *
  * @return  The current value of CR3
@@ -109,6 +120,15 @@ static inline uint64_t read_cr4(void) {
  */
 static inline void write_cr0(uint64_t val) {
   __asm __volatile("movq %0, %%cr0" : : "r"(val));
+}
+
+/**
+ * Set the value of CR2.
+ *
+ * @param val The value to set in CR2
+ */
+static inline void write_cr2(uintptr_t val) {
+  __asm __volatile("movq %0, %%cr2" : : "r"(val));
 }
 
 /**
