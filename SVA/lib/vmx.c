@@ -1263,6 +1263,9 @@ sva_loadvm(int vmid) {
    */
   vmcs_save_host_tls();
 
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_RSP,
+                             (uintptr_t)&getCPUState()->vm_exit_stack));
+
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
   sva_exit_critical(rflags);
@@ -2010,9 +2013,6 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
    * clobber.
    */
   unsigned long _dummy[3];
-
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_RSP,
-                             (uintptr_t)&getCPUState()->vm_exit_stack));
 
   /*
    * This is where the magic happens.
