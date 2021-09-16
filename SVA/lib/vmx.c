@@ -2014,6 +2014,8 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
    */
   unsigned long _dummy[3];
 
+  usersva_to_kernel_pcid();
+
   /*
    * This is where the magic happens.
    *
@@ -2088,54 +2090,6 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
        * registers to use for a pointer. This is clumsy and it'd be (perhaps
        * not meaningfully) slower, so let's not do it if we don't have to.)
        */
-
-#ifdef SVA_LLC_PART
-      /*** Switch to the OS cache partition for side-channel protection ***
-       *
-       * NOTE: we need to be careful what memory we "touch" between here and
-       * VM entry. Anything that we touch gets pulled into the OS cache
-       * partition, meaning it's exposed to side-channel attacks launched by
-       * the OS or the VM guest.
-       *
-       * We have to do this before loading guest register state (and
-       * likewise, switch back after saving guest register state after VM
-       * exit) because we need to have EAX, EDX, and ECX free to issue the
-       * WRMSR instruction that performs the partition switch. When guest
-       * registers are loaded on the processor, we have no free registers
-       * whatsoever.
-       *
-       * This should be safe so long as there is no sensitive information
-       * stored within the same cache line(s) as the guest state structure
-       * (active_vm->state). The guest state values themselves are not
-       * sensitive because they're under control of the OS/hypervisor anyway.
-       *
-       * TODO: determine the actual cache line size of the hardware we're
-       * using (or better, an upper limit on LLC cache line size for x86
-       * processors if there is such a thing). We can then put that amount of
-       * padding around the guest state structure to ensure no neighboring
-       * sensitive information can potentially get exposed to side-channel
-       * attacks.
-       */
-      /*
-       * WRMSR will use EAX, EDX, and ECX as inputs. We used all three of
-       * those as inputs to this assembly block. We finished using the values
-       * in RCX and RDX above, so they're dead (free to overwrite). RAX still
-       * stores a pointer to the active VM descriptor that we'll need below,
-       * so we need to stash that somewhere else while we do the WRMSR.
-       *
-       * The hardcoded numeric values of the constants COS_MSR, OS_COS, and
-       * (below after VM exit) SVA_COS are checked with asserts in
-       * sva_initvmx() to ensure that they match the values defined in
-       * icat.h.
-       */
-      "movq %%rax, %%rbp\n"     // stash active vm_desc ptr. in RBP
-      "movq $0xc8f, %%rcx\n"    // MSR (COS_MSR = 0xc8f) to be written
-      /* Write the constant OS_COS (1) to the MSR */
-      "movq $1, %%rax\n"        // EAX = lower 32 bits to be written to MSR
-      "movq $0, %%rdx\n"        // EDX = upper 32 bits to be written to MSR
-      "wrmsr\n"
-      "movq %%rbp, %%rax\n"     // restore active vm_desc ptr. in RAX
-#endif /* #ifdef SVA_LLC_PART */
 
       /*** Restore guest register state ***
        * First, load a pointer to the active VM descriptor (which is stored
@@ -2238,19 +2192,6 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
       "movq %%r15, %c[guest_r15](%%rax)\n"
       /* (Now all the GPRs are free for our own use in this code.) */
 
-#ifdef SVA_LLC_PART
-      /*** Switch back to SVA cache partition for side-channel protection ***
-       *
-       * All registers are dead here so we're free to clobber RAX, RDX, and
-       * RCX.
-       */
-      "movq $0xc8f, %%rcx\n"    // MSR (COS_MSR = 0xc8f) to be written
-      /* Write the constant SVA_COS (2) to the MSR */
-      "movq $2, %%rax\n"        // EAX = lower 32 bits to be written to MSR
-      "movq $0, %%rdx\n"        // EDX = upper 32 bits to be written to MSR
-      "wrmsr\n"
-#endif
-
       /* (Re-)get the host_state pointer, which we couldn't keep earlier
        * because we had no free registers.
        */
@@ -2301,6 +2242,8 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
       : "memory", "cc", /* "rax", "rbx", "rcx", */ "rsi", "rdi",
          "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
       );
+
+  kernel_to_usersva_pcid();
 
   return vmexit_rflags;
 }
