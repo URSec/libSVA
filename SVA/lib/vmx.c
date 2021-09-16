@@ -2001,6 +2001,21 @@ static bool vmexit_handler(void) {
 }
 
 /**
+ * VM exit landing pad.
+ *
+ * Doesn't do much beyond returning to `asm_run_vm`.
+ */
+static unsigned long __attribute__((naked)) vm_exit_landing_pad(void) {
+  asm volatile (
+      /* Restore the original stack pointer. */
+      "movq (%rsp), %rsp\n"
+
+      /* Return to `asm_run_vm`. */
+      "ret"
+      );
+}
+
+/**
  * Assembly VM entry/exit code.
  */
 static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vmresume) {
@@ -2015,6 +2030,8 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
   unsigned long _dummy[3];
 
   usersva_to_kernel_pcid();
+
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_RIP, (uintptr_t)vm_exit_landing_pad));
 
   /*
    * This is where the magic happens.
@@ -2056,11 +2073,13 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
        */
       "pushq %%rax\n"
 
-      /*** Use VMWRITE to set RIP and RSP to be loaded on VM exit ***/
+      /* Push the address where the VM exit handler will return to. */
+      "leaq .Lreturn_from_vmexit(%%rip), %%rbx\n\t"
+      "pushq %%rbx\n\t"
+
+      /* Store our stack pointer so it can be recovered after VM exit. */
       "movq %%gs:0, %%rbx\n\t"
       "movq %%rsp, %c[exit_stack](%%rbx)\n\t"
-      "leaq vmexit_landing_pad(%%rip), %%rbp\n"
-      "vmwrite %%rbp, %%rcx\n" // Write vmexit_landing_pad to VMCS_HOST_RIP
 
       /*** Determine whether we will be using VMLAUNCH or VMRESUME for VM
        *** entry, based on the value of use_vmresume. ***/
@@ -2129,20 +2148,14 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
        * consistent behavior if the VM entry fails (and thus execution falls
        * through to the next instruction).
        */
-      "jmp .Lvmexit_after_stack_restore\n"
+      "jmp .Lreturn_from_vmexit\n"
 
       "do_vmresume:\n"
       "vmresume\n"
-      "jmp .Lvmexit_after_stack_restore\n"
+      "jmp .Lreturn_from_vmexit\n"
 
       /*** VM exits return here!!! ***/
-      "vmexit_landing_pad:\n"
-
-      /* Restore the original stack pointer. */
-      "movq (%%rsp), %%rsp\n"
-
-      /*** VM entry failures jump here. ***/
-      ".Lvmexit_after_stack_restore:\n\t"
+      ".Lreturn_from_vmexit:\n\t"
 
       /*** Save RFLAGS, which contains the VMX error code. ***/
       /* (We need to return this in RDX at the end of the asm block.) */
