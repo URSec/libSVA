@@ -2017,8 +2017,14 @@ static unsigned long __attribute__((naked)) vm_exit_landing_pad(void) {
 
 /**
  * Assembly VM entry/exit code.
+ *
+ * @param active_vm     The VM to run; must have already been loaded
+ * @param use_vmresume  Whether to enter the VM using `vmlaunch` (false) or
+ *                      `vmresume` (true)
+ * @return              The value of `%rflags` after executing
+ *                      `vmlaunch`/`vmresume`
  */
-static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vmresume) {
+static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
   unsigned long vmexit_rflags;
 
   /**
@@ -2218,7 +2224,7 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
       "popq %%rbp\n\t" // and pop the saved frame pointer.
 
       : "=d"(vmexit_rflags), "=a"(_dummy[0])
-      : "a"(host_state->active_vm), "d"(use_vmresume),
+      : "a"(active_vm), "d"(use_vmresume),
          [exit_stack]"i"(offsetof(struct CPUState, vm_exit_stack)),
          /* Offsets of guest state elements in vm_desc_t */
          [guest_rax] "i" (offsetof(vm_desc_t, state.rax)),
@@ -2569,7 +2575,7 @@ entry:
 #if 0
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
 #endif
-  uint64_t vmexit_rflags = asm_run_vm(&host_state, use_vmresume);
+  uint64_t vmexit_rflags = asm_run_vm(host_state.active_vm, use_vmresume);
 
   /*** Save guest CR2 ***/
   host_state.active_vm->state.cr2 = read_cr2();
