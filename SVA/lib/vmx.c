@@ -2031,15 +2031,10 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
 
   usersva_to_kernel_pcid();
 
-  BUG_ON(writevmcs_unchecked(VMCS_HOST_RIP, (uintptr_t)vm_exit_landing_pad));
-
   /*
    * This is where the magic happens.
    *
    * In this assembly section, we:
-   *  - Use the VMWRITE instruction to set the RIP and RSP values that will
-   *    be loaded by the processor on the next VM exit.
-   *
    *  - Restore the guest's general-purpose register state from the active
    *    VM's descriptor (vm_desc_t structure).
    *
@@ -4708,6 +4703,8 @@ init_vmcs_ctrls(void) {
   vmcs_init_host_cr();
   vmcs_init_host_segments();
   vmcs_init_host_sysenter();
+
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_RIP, (uintptr_t)vm_exit_landing_pad));
 }
 
 static paddr_t exiting_bitmap_create(void) {
