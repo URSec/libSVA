@@ -2011,6 +2011,9 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
    */
   unsigned long _dummy[3];
 
+  BUG_ON(writevmcs_unchecked(VMCS_HOST_RSP,
+                             (uintptr_t)&getCPUState()->vm_exit_stack));
+
   /*
    * This is where the magic happens.
    *
@@ -2052,7 +2055,8 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
       "pushq %%rax\n"
 
       /*** Use VMWRITE to set RIP and RSP to be loaded on VM exit ***/
-      "vmwrite %%rsp, %%rbx\n" // Write RSP to VMCS_HOST_RSP
+      "movq %%gs:0, %%rbx\n\t"
+      "movq %%rsp, %c[exit_stack](%%rbx)\n\t"
       "leaq vmexit_landing_pad(%%rip), %%rbp\n"
       "vmwrite %%rbp, %%rcx\n" // Write vmexit_landing_pad to VMCS_HOST_RIP
 
@@ -2167,18 +2171,24 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
       "jnz do_vmresume\n"
       "vmlaunch\n"
       /* NOTE: we need to place an explicit jump to vmexit_landing_pad
-       * immediately after the VLAUNCH instruction to ensure consistent
-       * behavior if the VM entry fails (and thus execution falls through to
-       * the next instruction).
+       * immediately after the VLAUNCH and VMRESUME instructions to ensure
+       * consistent behavior if the VM entry fails (and thus execution falls
+       * through to the next instruction).
        */
-      "jmp vmexit_landing_pad\n"
+      "jmp .Lvmexit_after_stack_restore\n"
 
       "do_vmresume:\n"
       "vmresume\n"
-      /* Here the fall-through is OK since vmexit_landing_pad is next. */
+      "jmp .Lvmexit_after_stack_restore\n"
 
       /*** VM exits return here!!! ***/
       "vmexit_landing_pad:\n"
+
+      /* Restore the original stack pointer. */
+      "movq (%%rsp), %%rsp\n"
+
+      /*** VM entry failures jump here. ***/
+      ".Lvmexit_after_stack_restore:\n\t"
 
       /*** Save RFLAGS, which contains the VMX error code. ***/
       /* (We need to return this in RDX at the end of the asm block.) */
@@ -2269,6 +2279,7 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
       : "=d"(vmexit_rflags), "=a"(_dummy[0]), "=b"(_dummy[1]), "=c"(_dummy[2])
       : "a" (host_state), "b" (VMCS_HOST_RSP), "c" (VMCS_HOST_RIP),
         "d" (use_vmresume),
+         [exit_stack]"i"(offsetof(struct CPUState, vm_exit_stack)),
          /* Offsets of host_state elements */
          [active_vm] "i" (offsetof(vmx_host_state_t, active_vm)),
          /* Offsets of guest state elements in vm_desc_t */

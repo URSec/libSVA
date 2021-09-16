@@ -323,6 +323,14 @@ struct kernel_stacks {
   uintptr_t fallback_stack;
 };
 
+/**
+ * The stack on VM exit.
+ */
+struct vm_exit_stack {
+  /** Pointer to the real stack. */
+  uintptr_t real_stack;
+};
+
 /*
  * Structure: CPUState
  *
@@ -440,6 +448,18 @@ struct CPUState {
     * Null indicates no VM is currently active.
     */
    struct vm_desc_t *active_vm;
+
+   /**
+    * VM exit stack.
+    *
+    * Putting this here rather than using the real stack pointer on entry
+    * allows us to `vmwrite` to the host `%rsp` VMCS field at VMCS load time
+    * rather than VM entry time.
+    *
+    * This is safe because interrupts are disabled on VM exit and we
+    * immediately return to the real stack.
+    */
+   struct vm_exit_stack vm_exit_stack;
 };
 
 struct sva_tls_area {
