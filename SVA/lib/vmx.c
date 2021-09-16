@@ -2198,11 +2198,6 @@ static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
       "movq %%r15, %c[guest_r15](%%rax)\n"
       /* (Now all the GPRs are free for our own use in this code.) */
 
-      /* (Re-)get the host_state pointer, which we couldn't keep earlier
-       * because we had no free registers.
-       */
-      "movq 16(%%rsp), %%rax\n"
-
       /* Put the saved RFLAGS (VMX error code) into RDX for output from the
        * asm block.
        */
