@@ -2106,13 +2106,6 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
        */
 
       /*** Restore guest register state ***
-       * First, load a pointer to the active VM descriptor (which is stored
-       * in the host_state structure). This is where the guest GPR
-       * save/restore slots are located.
-       */
-      "movq %c[active_vm](%%rax), %%rax\n" // RAX <-- active_vm pointer
-
-      /*** Restore guest GPRs ***
        * We will restore RAX last, since we need a register in which to keep
        * the pointer to the active VM descriptor. (The instruction that
        * restores RAX will both use this pointer and overwrite it.)
@@ -2173,8 +2166,7 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
        * this carefully.)
        */
       "pushq %%rax\n"
-      "movq 16(%%rsp), %%rax\n"            // RAX <-- host_state pointer
-      "movq %c[active_vm](%%rax), %%rax\n" // RAX <-- active_vm pointer
+      "movq 16(%%rsp), %%rax\n"            // RAX <-- active_vm pointer
 
       /*** Save guest GPRs ***
        *
@@ -2226,10 +2218,8 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
       "popq %%rbp\n\t" // and pop the saved frame pointer.
 
       : "=d"(vmexit_rflags), "=a"(_dummy[0])
-      : "a" (host_state), "d" (use_vmresume),
+      : "a"(host_state->active_vm), "d"(use_vmresume),
          [exit_stack]"i"(offsetof(struct CPUState, vm_exit_stack)),
-         /* Offsets of host_state elements */
-         [active_vm] "i" (offsetof(vmx_host_state_t, active_vm)),
          /* Offsets of guest state elements in vm_desc_t */
          [guest_rax] "i" (offsetof(vm_desc_t, state.rax)),
          [guest_rbx] "i" (offsetof(vm_desc_t, state.rbx)),
