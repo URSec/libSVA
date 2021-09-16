@@ -2443,7 +2443,7 @@ entry:
   /*
    * Restore guest MPX bounds registers. We must do this while the *host's*
    * XCR0 is active since we need to save/restore these whether or not the
-   * guest has MPX enabled, and the BNDMOV instruction will cause a #UD if
+   * guest has MPX enabled, and the BNDMOV instruction will be a no-op if
    * XCR0.MPX is not enabled.
    */
   asm __volatile__ (
