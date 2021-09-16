@@ -2225,9 +2225,8 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
       "addq $24, %%rsp\n" // Unwind the last three pushq's...
       "popq %%rbp\n\t" // and pop the saved frame pointer.
 
-      : "=d"(vmexit_rflags), "=a"(_dummy[0]), "=b"(_dummy[1]), "=c"(_dummy[2])
-      : "a" (host_state), "b" (VMCS_HOST_RSP), "c" (VMCS_HOST_RIP),
-        "d" (use_vmresume),
+      : "=d"(vmexit_rflags), "=a"(_dummy[0])
+      : "a" (host_state), "d" (use_vmresume),
          [exit_stack]"i"(offsetof(struct CPUState, vm_exit_stack)),
          /* Offsets of host_state elements */
          [active_vm] "i" (offsetof(vmx_host_state_t, active_vm)),
@@ -2247,7 +2246,7 @@ static unsigned long asm_run_vm(struct vmx_host_state_t* host_state, bool use_vm
          [guest_r13] "i" (offsetof(vm_desc_t, state.r13)),
          [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
          [guest_r15] "i" (offsetof(vm_desc_t, state.r15))
-      : "memory", "cc", /* "rax", "rbx", "rcx", */ "rsi", "rdi",
+      : "memory", "cc", /* "rax", */ "rbx", "rcx", "rsi", "rdi",
          "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
       );
 
