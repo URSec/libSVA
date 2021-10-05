@@ -1533,6 +1533,8 @@ void sva_remove_page(paddr_t paddr) {
 
   frame_unlock(pgDesc, PGT_FREE);
 
+  initDeclaredPage(paddr);
+
   /* Restore interrupts and return to kernel page tables */
   sva_exit_critical(rflags);
   usersva_to_kernel_pcid();
