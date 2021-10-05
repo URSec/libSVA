@@ -2469,6 +2469,40 @@ entry:
 #endif
 
   /*
+   * Restore guest FP state. Since the guest's XCR0 is now active, this will
+   * restore exactly the set of X-state components which were saved on the
+   * last VM exit.
+   *
+   * FIXME: we should really be saving/restoring guest state in a way that
+   * includes *all* live X-state components, even the ones that the guest may
+   * not currently have enabled in XCR0. This is necessary to ensure
+   * continuity of FPU state for the guest as guaranteed by the ISA, which
+   * specifies that state corresponding to features disabled in XCR0 remain
+   * untouched unless and until they are re-enabled. Currently, we are only
+   * saving the state components *currently* enabled by the guest, which
+   * means any disabled ones could get clobbered by the host or other guests.
+   *
+   * More importantly, this could be a **SECURITY ISSUE** since it could
+   * result in X-state data leaking from the host or one guest to another. If
+   * the guest doesn't have a feature enabled on VM entry, whatever state was
+   * in place for that feature from the host or another guest remains
+   * untouched. The guest could read that data by enabling that feature. (It
+   * shouldn't be possible for any guest to *corrupt* the host's or another
+   * guest's X-state, though, except of course if that feature is currently
+   * disabled by the host or other VM, which we already covered above in the
+   * discussion of the "clobbering" issue.)
+   *
+   * Probably the correct behavior here is to just unconditionally
+   * save/restore *all* X-state components supported by the processor on
+   * every entry and exit. This could be achieved by temporarily loading a
+   * "maxed-out" XCR0|XSS value. (Doing so would probably require
+   * enumeration of the processor's supported features to avoid triggering a
+   * fault by setting too many bits. Or we might just hardcode it to match
+   * what our development hardware supports...)
+   */
+  xrestore(&host_state.active_vm->state.fp.inner);
+
+  /*
    * Load guest XCR0.
    *
    * The processor doesn't support saving/loading this atomically during VM
@@ -2512,40 +2546,6 @@ entry:
    */
   wrmsr(MSR_XSS, host_state.active_vm->state.msr_xss);
 
-  /*
-   * Restore guest FP state. Since the guest's XCR0 is now active, this will
-   * restore exactly the set of X-state components which were saved on the
-   * last VM exit.
-   *
-   * FIXME: we should really be saving/restoring guest state in a way that
-   * includes *all* live X-state components, even the ones that the guest may
-   * not currently have enabled in XCR0. This is necessary to ensure
-   * continuity of FPU state for the guest as guaranteed by the ISA, which
-   * specifies that state corresponding to features disabled in XCR0 remain
-   * untouched unless and until they are re-enabled. Currently, we are only
-   * saving the state components *currently* enabled by the guest, which
-   * means any disabled ones could get clobbered by the host or other guests.
-   *
-   * More importantly, this could be a **SECURITY ISSUE** since it could
-   * result in X-state data leaking from the host or one guest to another. If
-   * the guest doesn't have a feature enabled on VM entry, whatever state was
-   * in place for that feature from the host or another guest remains
-   * untouched. The guest could read that data by enabling that feature. (It
-   * shouldn't be possible for any guest to *corrupt* the host's or another
-   * guest's X-state, though, except of course if that feature is currently
-   * disabled by the host or other VM, which we already covered above in the
-   * discussion of the "clobbering" issue.)
-   *
-   * Probably the correct behavior here is to just unconditionally
-   * save/restore *all* X-state components supported by the processor on
-   * every entry and exit. This could be achieved by temporarily loading a
-   * "maxed-out" XCR0|XSS value. (Doing so would probably require
-   * enumeration of the processor's supported features to avoid triggering a
-   * fault by setting too many bits. Or we might just hardcode it to match
-   * what our development hardware supports...)
-   */
-  xrestore(&host_state.active_vm->state.fp.inner);
-
   /*** Restore guest CR2 ***
    *
    * Note: we do not need to save/restore the host CR2 because it should
@@ -2575,6 +2575,14 @@ entry:
   /*** Save guest CR2 ***/
   host_state.active_vm->state.cr2 = read_cr2();
 
+  /* Save guest XCR0 and XSS values. */
+  host_state.active_vm->state.xcr0 = xgetbv();
+  host_state.active_vm->state.msr_xss = rdmsr(MSR_XSS);
+
+  /* Restore host value of XCR0, and clear XSS to 0. */
+  xsetbv(host_state.xcr0);
+  wrmsr(MSR_XSS, 0);
+
   /*
    * Save guest FPU state. This must be done while the guest's XCR0 is still
    * active to ensure we are saving the correct set of X-state components.
@@ -2588,14 +2596,6 @@ entry:
    */
   /* Save guest FPU state. */
   xsave(&host_state.active_vm->state.fp.inner);
-
-  /* Save guest XCR0 and XSS values. */
-  host_state.active_vm->state.xcr0 = xgetbv();
-  host_state.active_vm->state.msr_xss = rdmsr(MSR_XSS);
-
-  /* Restore host value of XCR0, and clear XSS to 0. */
-  xsetbv(host_state.xcr0);
-  wrmsr(MSR_XSS, 0);
 
   /* Restore host FPU state. */
   xrestore(&host_state.fp.inner);
