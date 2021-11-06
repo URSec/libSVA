@@ -6,3 +6,5 @@ CXX=clang++
 # Include SVA header files
 #
 CPPFLAGS += @sva_hacks_for@ -I@abs_top_srcdir@/SVA/include
+
+CFLAGS += -fno-sva-cfi -fno-sva-sfi
