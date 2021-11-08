@@ -18,6 +18,13 @@
 
 #include <sva/types.h>
 
+/**
+ * An opaque handle to an SVA thread.
+ *
+ * In practice, this is currently a pointer to a `struct SVAThread`.
+ */
+typedef uintptr_t sva_thread_handle_t;
+
 enum sva_segment_register {
   SVA_SEG_CS,
   SVA_SEG_SS,
