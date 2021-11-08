@@ -2339,14 +2339,6 @@ entry:
              (void*)getCPUState()->currentThread);
 
   /*
-   * Initialize the XSAVE area within host_state. This is necessary to
-   * prevent #GP when we re-load from it after VM exit (as, apparently, using
-   * XSAVES to previously save state to this area is not sufficient to
-   * guarantee all its fields are appropriately initialized).
-   */
-  xinit(&host_state.fp.inner);
-
-  /*
    * Load the VM's extended page table pointer (EPTP) from the VM descriptor.
    *
    * This is the extended-paging equivalent of the CR3 register used in
@@ -2420,12 +2412,6 @@ entry:
   wrmsr(MSR_LSTAR, host_state.active_vm->state.msr_lstar);
 
   /*
-   * Save the host FP state. Note that we must do this while the host XCR0 is
-   * still active so that we are saving the correct state components.
-   */
-  xsave(&host_state.fp.inner);
-
-  /*
    * TODO: save host MPX bounds registers. We must do this here while the
    * host XCR0 is active since MPX is controlled by XCR0 and the guest might
    * not have MPX enabled.
@@ -2463,40 +2449,6 @@ entry:
 #if 0
   DBGPRNT(("Host XCR0 saved: 0x%lx\n", host_state.xcr0));
 #endif
-
-  /*
-   * Restore guest FP state. Since the guest's XCR0 is now active, this will
-   * restore exactly the set of X-state components which were saved on the
-   * last VM exit.
-   *
-   * FIXME: we should really be saving/restoring guest state in a way that
-   * includes *all* live X-state components, even the ones that the guest may
-   * not currently have enabled in XCR0. This is necessary to ensure
-   * continuity of FPU state for the guest as guaranteed by the ISA, which
-   * specifies that state corresponding to features disabled in XCR0 remain
-   * untouched unless and until they are re-enabled. Currently, we are only
-   * saving the state components *currently* enabled by the guest, which
-   * means any disabled ones could get clobbered by the host or other guests.
-   *
-   * More importantly, this could be a **SECURITY ISSUE** since it could
-   * result in X-state data leaking from the host or one guest to another. If
-   * the guest doesn't have a feature enabled on VM entry, whatever state was
-   * in place for that feature from the host or another guest remains
-   * untouched. The guest could read that data by enabling that feature. (It
-   * shouldn't be possible for any guest to *corrupt* the host's or another
-   * guest's X-state, though, except of course if that feature is currently
-   * disabled by the host or other VM, which we already covered above in the
-   * discussion of the "clobbering" issue.)
-   *
-   * Probably the correct behavior here is to just unconditionally
-   * save/restore *all* X-state components supported by the processor on
-   * every entry and exit. This could be achieved by temporarily loading a
-   * "maxed-out" XCR0|XSS value. (Doing so would probably require
-   * enumeration of the processor's supported features to avoid triggering a
-   * fault by setting too many bits. Or we might just hardcode it to match
-   * what our development hardware supports...)
-   */
-  xrestore(&host_state.active_vm->state.fp.inner);
 
   /*
    * Load guest XCR0.
@@ -2578,23 +2530,6 @@ entry:
   /* Restore host value of XCR0, and clear XSS to 0. */
   xsetbv(host_state.xcr0);
   wrmsr(MSR_XSS, 0);
-
-  /*
-   * Save guest FPU state. This must be done while the guest's XCR0 is still
-   * active to ensure we are saving the correct set of X-state components.
-   *
-   * FIXME: as detailed above where we're loading this prior to entry, we are
-   * not correctly handling state components corresponding to X-features that
-   * the guest currently has *disabled* (which, per the ISA, should remain
-   * intact until the guest might again re-enable them).
-   *
-   * NB: FPU was re-enabled by our seting of `VMCS_HOST_CR0`.
-   */
-  /* Save guest FPU state. */
-  xsave(&host_state.active_vm->state.fp.inner);
-
-  /* Restore host FPU state. */
-  xrestore(&host_state.fp.inner);
 
 #ifdef MPX
   /*
