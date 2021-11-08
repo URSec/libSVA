@@ -768,8 +768,10 @@ int sva_allocvm(sva_thread_handle_t thread) {
 
   struct vm_desc_t* vm = &vm_descs[vmid];
 
-  /* TODO: link VM with thread */
-  (void)thread;
+  /*
+   * Link the new VM with its thread.
+   */
+  vm->thread = thread;
 
   /*
    * Initialize the guest's XSAVE area so that we won't #GP when trying to
