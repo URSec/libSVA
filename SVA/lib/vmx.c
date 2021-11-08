@@ -26,6 +26,7 @@
 #include <sva/uaccess.h>
 
 #include "icat.h"
+#include "thread_stack.h"
 
 #include <errno.h>
 #include <string.h>
@@ -771,7 +772,10 @@ int sva_allocvm(sva_thread_handle_t thread) {
   /*
    * Link the new VM with its thread.
    */
-  vm->thread = thread;
+  struct SVAThread* checked_thread = validateThreadPointer(thread);
+  SVA_ASSERT(checked_thread,
+      "%p is not a valid SVA thread pointer\n", (void*)thread);
+  vm->thread = (sva_thread_handle_t)checked_thread;
 
   /*
    * Initialize the guest's XSAVE area so that we won't #GP when trying to
