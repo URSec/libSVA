@@ -686,27 +686,7 @@ sva_initvmx(void) {
 }
 
 
-/*
- * Intrinsic: sva_allocvm()
- *
- * Description:
- *  Allocates a virtual machine descriptor and numeric ID for a new virtual
- *  machine. Creates and initializes any auxiliary structures (such as the
- *  Virtual Machine Control Structure) necessary to load this VM onto the
- *  processor.
- *
- * Return value:
- *  A positive integer which will be used to identify this virtual
- *  machine in future invocations of VMX intrinsics. If the return value is
- *  negative, an error occurred and nothing was allocated.
- *
- *  Note that zero is not used as a VMID because we use the VMID as the VPID
- *  to tag TLB entries belonging to the VM; Intel reserves VPID=0 to tag the
- *  host's TLB entires (and asking the processor to launch a VM with VPID=0
- *  will result in an error). This intrinsic should *never* return zero.
- */
-int
-sva_allocvm(void) {
+int sva_allocvm(sva_thread_handle_t thread) {
   /* Disable interrupts so that we appear to execute as a single instruction. */
   unsigned long rflags = sva_enter_critical();
   /*
@@ -787,6 +767,9 @@ sva_allocvm(void) {
   }
 
   struct vm_desc_t* vm = &vm_descs[vmid];
+
+  /* TODO: link VM with thread */
+  (void)thread;
 
   /*
    * Initialize the guest's XSAVE area so that we won't #GP when trying to

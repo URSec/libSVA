@@ -308,7 +308,26 @@ enum sva_vm_reg {
  *****************************************************************************
  */
 unsigned char sva_initvmx(void);
-int sva_allocvm(void);
+
+/**
+ * Allocate a virtual machine descriptor ID for a new virtual machine.
+ *
+ * Creates and initializes any auxiliary structures (such as the Virtual
+ * Machine Control Structure) necessary to load this VM onto the processor.
+ *
+ * This function takes a handle to a thread that must be the currently running
+ * thread before SVA will allow the VM to be launched.
+ *
+ * Note that zero is not used as a VMID because we use the VMID as the VPID to
+ * tag TLB entries belonging to the VM; Intel reserves VPID=0 to tag the host's
+ * TLB entires (and asking the processor to launch a VM with VPID=0 will result
+ * in an error). This intrinsic should *never* return zero.
+ *
+ * @param thread  An SVA thread handle to associate the VM with
+ * @return        The ID of the new VM or a negative error code
+ */
+int sva_allocvm(sva_thread_handle_t thread);
+
 void sva_freevm(int vmid);
 int sva_loadvm(int vmid);
 int sva_unloadvm(int vmid);
