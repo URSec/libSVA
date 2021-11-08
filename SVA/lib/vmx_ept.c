@@ -221,7 +221,8 @@ sva_load_eptable(int vmid, uintptr_t eptp) {
    * Take the lock for this VM if we don't already have it.
    */
   int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
-  SVA_ASSERT(acquired_lock, "sva_getfp(): failed to acquire VM descriptor lock!\n");
+  SVA_ASSERT(acquired_lock,
+      "sva_load_eptable(): failed to acquire VM descriptor lock!\n");
 
   /*
    * If the VM descriptor indicated by this ID has a null VMCS pointer, it
@@ -350,7 +351,8 @@ sva_save_eptable(int vmid) {
    * Take the lock for this VM if we don't already have it.
    */
   int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
-  SVA_ASSERT(acquired_lock, "sva_getfp(): failed to acquire VM descriptor lock!\n");
+  SVA_ASSERT(acquired_lock,
+      "sva_save_eptable(): failed to acquire VM descriptor lock!\n");
 
   /*
    * If the VM descriptor indicated by this ID has a null VMCS pointer, it
