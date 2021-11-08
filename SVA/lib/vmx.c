@@ -2328,6 +2328,17 @@ entry:
   host_state.active_vm = getCPUState()->active_vm;
 
   /*
+   * Make sure we are running the VM's associated thread.
+   *
+   * NB: Panic instead of returning an error because this will eventually become
+   * impossible by construction.
+   */
+  SVA_ASSERT((sva_thread_handle_t)getCPUState()->currentThread == host_state.active_vm->thread,
+             "Running VM (%p) on the wrong thread (%p)",
+             (void*)host_state.active_vm->thread,
+             (void*)getCPUState()->currentThread);
+
+  /*
    * Initialize the XSAVE area within host_state. This is necessary to
    * prevent #GP when we re-load from it after VM exit (as, apparently, using
    * XSAVES to previously save state to this area is not sufficient to
