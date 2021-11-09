@@ -3906,9 +3906,10 @@ sva_getvmfpu(int vmid, union xsave_area_max __kern* out_data) {
   int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
   SVA_ASSERT(acquired_lock, "sva_getvmfpu(): failed to acquire VM descriptor lock!\n");
 
+  union xsave_area_max* fp = &vm_descs[vmid].thread->integerState.fpstate;
+
   /* Sanity check (should be statically optimized away) */
-  SVA_ASSERT(__builtin_types_compatible_p(typeof(out_data),
-                                          typeof(&vm_descs[vmid].state.fp)),
+  SVA_ASSERT(__builtin_types_compatible_p(typeof(out_data), typeof(fp)),
       "Type mismatch between sva_getvmfpu() parameter and VM descriptor "
       "FPU state object");
 
@@ -3916,7 +3917,6 @@ sva_getvmfpu(int vmid, union xsave_area_max __kern* out_data) {
    * Copy the specified VM's FPU data from its descriptor to the buffer
    * pointed to by out_data.
    */
-  union xsave_area_max* fp = &vm_descs[vmid].state.fp;
   SVA_ASSERT(sva_copy_to_kernel(out_data, fp, sizeof(*fp)) == 0,
       "Fault copying data to kernel");
 
@@ -3981,9 +3981,10 @@ sva_setvmfpu(int vmid, union xsave_area_max __kern* in_data) {
   int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
   SVA_ASSERT(acquired_lock, "sva_setvmfpu(): failed to acquire VM descriptor lock!\n");
 
+  union xsave_area_max* fp = &vm_descs[vmid].thread->integerState.fpstate;
+
   /* Sanity check (should be statically optimized away) */
-  SVA_ASSERT(__builtin_types_compatible_p(typeof(in_data),
-                                          typeof(&vm_descs[vmid].state.fp)),
+  SVA_ASSERT(__builtin_types_compatible_p(typeof(in_data), typeof(fp)),
       "Type mismatch between sva_setvmfpu() parameter and VM descriptor "
       "FPU state object");
 
@@ -3991,7 +3992,6 @@ sva_setvmfpu(int vmid, union xsave_area_max __kern* in_data) {
    * Copy the new FPU data from the buffer pointed to by in_data to the
    * specified VM's descriptor.
    */
-  union xsave_area_max* fp = &vm_descs[vmid].state.fp;
   SVA_ASSERT(sva_copy_from_kernel(fp, in_data, sizeof(*fp)) == 0,
       "Fault copying data from kernel");
 
