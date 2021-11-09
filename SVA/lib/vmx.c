@@ -3891,13 +3891,15 @@ sva_getvmfpu(int vmid, union xsave_area_max __kern* out_data) {
    * actually allocated. See comment in sva_getvmreg() for explanation why.
    */
 
+  vm_desc_t* vm = &vm_descs[vmid];
+
   /*
    * Take the lock for this VM if we don't already have it.
    */
-  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  int acquired_lock = vm_desc_ensure_lock(vm);
   SVA_ASSERT(acquired_lock, "sva_getvmfpu(): failed to acquire VM descriptor lock!\n");
 
-  union xsave_area_max* fp = &vm_descs[vmid].thread->integerState.fpstate;
+  union xsave_area_max* fp = &vm->thread->integerState.fpstate;
 
   /* Sanity check (should be statically optimized away) */
   SVA_ASSERT(__builtin_types_compatible_p(typeof(out_data), typeof(fp)),
@@ -3913,7 +3915,7 @@ sva_getvmfpu(int vmid, union xsave_area_max __kern* out_data) {
 
   /* Release the VM descriptor lock if we took it earlier. */
   if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
-    vm_desc_unlock(&vm_descs[vmid]);
+    vm_desc_unlock(vm);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
@@ -3966,13 +3968,15 @@ sva_setvmfpu(int vmid, union xsave_area_max __kern* in_data) {
    * actually allocated. See comment in sva_setvmreg() for explanation why.
    */
 
+  vm_desc_t* vm = &vm_descs[vmid];
+
   /*
    * Take the lock for this VM if we don't already have it.
    */
-  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  int acquired_lock = vm_desc_ensure_lock(vm);
   SVA_ASSERT(acquired_lock, "sva_setvmfpu(): failed to acquire VM descriptor lock!\n");
 
-  union xsave_area_max* fp = &vm_descs[vmid].thread->integerState.fpstate;
+  union xsave_area_max* fp = &vm->thread->integerState.fpstate;
 
   /* Sanity check (should be statically optimized away) */
   SVA_ASSERT(__builtin_types_compatible_p(typeof(in_data), typeof(fp)),
@@ -3988,7 +3992,7 @@ sva_setvmfpu(int vmid, union xsave_area_max __kern* in_data) {
 
   /* Release the VM descriptor lock if we took it earlier. */
   if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
-    vm_desc_unlock(&vm_descs[vmid]);
+    vm_desc_unlock(vm);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
