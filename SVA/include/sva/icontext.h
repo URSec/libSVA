@@ -170,84 +170,40 @@ _Static_assert(sizeof(sva_icontext_t) % 16 == 0, "Interrupt stack misaligned");
  *  The stack pointer should probably be removed.
  */
 typedef struct {
-  /* Invoke Pointer */
-  void * invokep;                     // 0x00
+  /** Flag for whether the integer state is valid to be loaded */
+  unsigned long valid;
 
-  /* Segment selector registers */
-  unsigned short fs;                  // 0x08
-  unsigned short gs;
-  unsigned short es;
+  /** `%ds` segment selector */
   unsigned short ds;
 
-  /* Segment bases */
-  unsigned long fsbase;               // 0x10
-  unsigned long gsbase;               // 0x18
+  /** `%es` segment selector */
+  unsigned short es;
 
-  unsigned long rdi;                  // 0x20
-  unsigned long rsi;                  // 0x28
+  /** `%fs` segment selector */
+  unsigned short fs;
 
-  unsigned long rax;                  // 0x30
-  unsigned long rbx;                  // 0x38
-  unsigned long rcx;                  // 0x40
-  unsigned long rdx;                  // 0x48
-
-  unsigned long r8;                   // 0x50
-  unsigned long r9;                   // 0x58
-  unsigned long r10;                  // 0x60
-  unsigned long r11;                  // 0x68
-  unsigned long r12;                  // 0x70
-  unsigned long r13;                  // 0x78
-  unsigned long r14;                  // 0x80
-  unsigned long r15;                  // 0x88
-
-  /*
-   * Keep this register right here.  We'll use it in assembly code, and we
-   * place it here for easy saving and recovery.
-   */
-  unsigned long rbp;                  // 0x90
-
-  /* Hardware trap number */
-  unsigned long trapno;               // 0x98
-
-  /*
-   * These values are automagically saved by the x86_64 hardware upon an
-   * interrupt or exception.
-   */
-  unsigned long code;                 // 0xa0
-  unsigned long rip;                  // 0xa8
-  unsigned long cs;                   // 0xb0
-  unsigned long rflags;               // 0xb8
-  unsigned long * rsp;                // 0xc0
-  unsigned long ss;                   // 0xc8
-
-  /* Flag for whether the integer state is valid */
-  unsigned long valid;                // 0xd0
-
-  /* Store another RIP value for the second return */
-  unsigned long hackRIP;              // 0xd8
+  /** `%gs` segment selector */
+  unsigned short gs;
 
 #ifdef SVA_SPLIT_STACK
   /** Protected stack pointer */
   uintptr_t protected_stack;
 #endif
 
-  /* Kernel stack pointer */
-  unsigned long kstackp;              // 0xe0
+  /** Kernel stack pointer */
+  unsigned long kstackp;
 
-  /* CR3 register */
-  unsigned long cr3;                  // 0xe8
+  /** Current interrupt context location */
+  sva_icontext_t* currentIC;
 
-  /* Current interrupt context location */
-  sva_icontext_t * currentIC;         // 0xf0
+  /** Current setting of IST3 in the TSS */
+  unsigned long ist3;
 
-  /* Current setting of IST3 in the TSS */
-  unsigned long ist3;                // 0xf8
+  /** x86 eXtended states (Xstates) */
+  union xsave_area_max fpstate;
 
-  /* Floating point state */
-  union xsave_area_max fpstate;      // 0x100
-
-  /* Pointer to invoke frame */
-  struct invoke_frame * ifp;
+  /** Pointer to invoke frame */
+  struct invoke_frame* ifp;
 } sva_integer_state_t;
 
 /* The maximum number of interrupt contexts per CPU */
