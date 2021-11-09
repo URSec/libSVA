@@ -3720,10 +3720,12 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
    * sva_allocvm() doesn't let you leave any registers uninitialized.
    */
 
+  vm_desc_t* vm = &vm_descs[vmid];
+
   /*
    * Take the lock for this VM if we don't already have it.
    */
-  int acquired_lock = vm_desc_ensure_lock(&vm_descs[vmid]);
+  int acquired_lock = vm_desc_ensure_lock(vm);
   SVA_ASSERT(acquired_lock, "sva_setvmreg(): failed to acquire VM descriptor lock!\n");
 
   /*
@@ -3735,100 +3737,100 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
    */
   switch (reg) {
     case VM_REG_RAX:
-      vm_descs[vmid].state.rax = data;
+      vm->state.rax = data;
       break;
     case VM_REG_RBX:
-      vm_descs[vmid].state.rbx = data;
+      vm->state.rbx = data;
       break;
     case VM_REG_RCX:
-      vm_descs[vmid].state.rcx = data;
+      vm->state.rcx = data;
       break;
     case VM_REG_RDX:
-      vm_descs[vmid].state.rdx = data;
+      vm->state.rdx = data;
       break;
     case VM_REG_RBP:
-      vm_descs[vmid].state.rbp = data;
+      vm->state.rbp = data;
       break;
     case VM_REG_RSI:
-      vm_descs[vmid].state.rsi = data;
+      vm->state.rsi = data;
       break;
     case VM_REG_RDI:
-      vm_descs[vmid].state.rdi = data;
+      vm->state.rdi = data;
       break;
     case VM_REG_R8:
-      vm_descs[vmid].state.r8 = data;
+      vm->state.r8 = data;
       break;
     case VM_REG_R9:
-      vm_descs[vmid].state.r9 = data;
+      vm->state.r9 = data;
       break;
     case VM_REG_R10:
-      vm_descs[vmid].state.r10 = data;
+      vm->state.r10 = data;
       break;
     case VM_REG_R11:
-      vm_descs[vmid].state.r11 = data;
+      vm->state.r11 = data;
       break;
     case VM_REG_R12:
-      vm_descs[vmid].state.r12 = data;
+      vm->state.r12 = data;
       break;
     case VM_REG_R13:
-      vm_descs[vmid].state.r13 = data;
+      vm->state.r13 = data;
       break;
     case VM_REG_R14:
-      vm_descs[vmid].state.r14 = data;
+      vm->state.r14 = data;
       break;
     case VM_REG_R15:
-      vm_descs[vmid].state.r15 = data;
+      vm->state.r15 = data;
       break;
 
     case VM_REG_CR2:
-      vm_descs[vmid].state.cr2 = data;
+      vm->state.cr2 = data;
       break;
     case VM_REG_MSR_XSS:
-      vm_descs[vmid].state.msr_xss = data;
+      vm->state.msr_xss = data;
       break;
 
     case VM_REG_XCR0:
-      vm_descs[vmid].state.xcr0 = data;
+      vm->state.xcr0 = data;
       break;
 
     case VM_REG_MSR_FMASK:
-      vm_descs[vmid].state.msr_fmask = data;
+      vm->state.msr_fmask = data;
       break;
     case VM_REG_MSR_STAR:
-      vm_descs[vmid].state.msr_star = data;
+      vm->state.msr_star = data;
       break;
     case VM_REG_MSR_LSTAR:
-      vm_descs[vmid].state.msr_lstar = data;
+      vm->state.msr_lstar = data;
       break;
 
     case VM_REG_GS_SHADOW:
-      vm_descs[vmid].state.gs_shadow = data;
+      vm->state.gs_shadow = data;
       break;
 
 #ifdef MPX
     case VM_REG_BND0_LOWER:
-      vm_descs[vmid].state.bnd0[0] = data;
+      vm->state.bnd0[0] = data;
       break;
     case VM_REG_BND0_UPPER:
-      vm_descs[vmid].state.bnd0[1] = data;
+      vm->state.bnd0[1] = data;
       break;
     case VM_REG_BND1_LOWER:
-      vm_descs[vmid].state.bnd1[0] = data;
+      vm->state.bnd1[0] = data;
       break;
     case VM_REG_BND1_UPPER:
-      vm_descs[vmid].state.bnd1[1] = data;
+      vm->state.bnd1[1] = data;
       break;
     case VM_REG_BND2_LOWER:
-      vm_descs[vmid].state.bnd2[0] = data;
+      vm->state.bnd2[0] = data;
       break;
     case VM_REG_BND2_UPPER:
-      vm_descs[vmid].state.bnd2[1] = data;
+      vm->state.bnd2[1] = data;
       break;
     case VM_REG_BND3_LOWER:
-      vm_descs[vmid].state.bnd3[0] = data;
+      vm->state.bnd3[0] = data;
       break;
     case VM_REG_BND3_UPPER:
-      vm_descs[vmid].state.bnd3[1] = data;
+      vm->state.bnd3[1] = data;
       break;
 #endif /* end #ifdef MPX */
 
@@ -3840,7 +3842,7 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
 
   /* Release the VM descriptor lock if we took it earlier. */
   if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
-    vm_desc_unlock(&vm_descs[vmid]);
+    vm_desc_unlock(vm);
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
