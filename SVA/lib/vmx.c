@@ -778,15 +778,6 @@ int sva_allocvm(sva_thread_handle_t thread) {
   vm->thread = checked_thread;
 
   /*
-   * Initialize the guest's XSAVE area so that we won't #GP when trying to
-   * load it. The hypervisor may optionally call sva_setvmfpu() to provide an
-   * initial state for the FPU before the first VM entry, but if it doesn't
-   * (as is the case in Xen), we need to ensure that sane initial values are
-   * in place.
-   */
-  xinit(&vm->state.fp.inner);
-
-  /*
    * Mark that the initial values of VMCS controls have not yet been
    * installed so that we know we need to do so the first time the VMCS is
    * loaded.

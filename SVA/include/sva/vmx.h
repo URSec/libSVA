@@ -513,9 +513,6 @@ typedef struct sva_vmx_guest_state {
   uint64_t cr2;
   /* TODO: also handle CR8 */
 
-  /* FP State */
-  union xsave_area_max fp;
-
 #ifdef MPX
   /*
    * MPX bounds registers
