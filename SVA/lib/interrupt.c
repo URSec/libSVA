@@ -16,6 +16,7 @@
 #include <sva/apic.h>
 #include <sva/assert.h>
 #include <sva/callbacks.h>
+#include <sva/cfi.h>
 #include <sva/config.h>
 #include <sva/frame_meta.h>
 #include <sva/icontext.h>
@@ -322,6 +323,10 @@ bool sva_register_general_exception(unsigned int vector,
   }
 #endif
 
+  if (!is_valid_kernel_fn((void __kern*)handler)) {
+    return false;
+  }
+
   /*
    * Put the handler into our dispatch table.
    */
@@ -356,6 +361,10 @@ bool sva_register_memory_exception(unsigned int vector,
   }
 #endif
 
+  if (!is_valid_kernel_fn((void __kern*)handler)) {
+    return false;
+  }
+
   /*
    * Put the handler into our dispatch table.
    */
@@ -372,6 +381,10 @@ bool sva_register_interrupt(unsigned int vector, interrupt_handler_t handler) {
    * Ensure that the number is within range.
    */
   if (vector < 32 || vector >= 256) {
+    return false;
+  }
+
+  if (!is_valid_kernel_fn((void __kern*)handler)) {
     return false;
   }
 
