@@ -392,7 +392,7 @@ void* sva_getCPUState(tss_t* tssp) {
    * and mark it as an initial thread for this CPU.
    */
   struct SVAThread* st = alloc_initial_thread();
-  sva_icontext_t* ic = &st->interruptContexts[maxIC - 1];
+  sva_icontext_t* ic = user_ctxt(st);
 
   /*
    * Initialize a dummy interrupt context so that it looks like we

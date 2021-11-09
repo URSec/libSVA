@@ -1348,7 +1348,7 @@ uintptr_t sva_create_icontext(uintptr_t start, uintptr_t arg1, uintptr_t arg2,
    *        and that the first interrupt context is at the end of the interrupt
    *        context list.
    */
-  sva_icontext_t* ic = newThread->interruptContexts + maxIC - 1;
+  sva_icontext_t* ic = user_ctxt(newThread);
 
   /*
    * Initialze the integer state of the new thread of control.

@@ -506,6 +506,13 @@ hasGhostMemory (void) {
 }
 
 /**
+ * Get a thread's userspace `icontext`.
+ */
+static inline sva_icontext_t* user_ctxt(struct SVAThread* thread) {
+  return &thread->interruptContexts[maxIC - 1];
+}
+
+/**
  * Copy the parent's page table of ghost memory to the child. Write protect
  * these page table entries for both the parent and the child.
  *
