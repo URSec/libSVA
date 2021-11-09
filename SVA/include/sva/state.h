@@ -89,6 +89,10 @@ extern uintptr_t sva_swap_integer(uintptr_t new, uintptr_t __kern* state);
  */
 extern bool sva_swap_user_integer(uintptr_t new, uintptr_t __kern* state);
 
+/*
+ * FIXME: Currently disabled due to no callers (no way to test).
+ */
+#if 0
 /**
  * Create a new kernel stack and initialize it to call the specified function.
  *
@@ -107,6 +111,7 @@ extern uintptr_t sva_init_stack(unsigned char* sp,
                                 uintptr_t arg1,
                                 uintptr_t arg2,
                                 uintptr_t arg3);
+#endif
 
 /**
  * Reset the kernel stack to the most recent interrupt context and jump to the

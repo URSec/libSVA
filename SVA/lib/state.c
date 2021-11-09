@@ -1552,6 +1552,7 @@ void sva_release_stack(uintptr_t id) {
   SVA_PROF_EXIT_MULTI(release_stack, 2);
 }
 
+#if 0
 uintptr_t sva_init_stack(unsigned char* start_stackp,
                          uintptr_t length,
                          void* func,
@@ -1772,6 +1773,7 @@ uintptr_t sva_init_stack(unsigned char* start_stackp,
   SVA_PROF_EXIT(init_stack);
   return (unsigned long) newThread;
 }
+#endif
 
 void __attribute__((noreturn)) sva_reinit_stack(void (*func)(void)) {
   extern void sva_iret(void); // Interrupt return
