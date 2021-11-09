@@ -626,7 +626,7 @@ typedef struct vm_desc_t {
    */
   size_t in_use;
 
-  sva_thread_handle_t thread;
+  struct SVAThread* thread;
 
   /*
    * Physical-address pointer to the VM's Virtual Machine Control Structure

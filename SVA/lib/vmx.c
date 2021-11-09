@@ -775,7 +775,7 @@ int sva_allocvm(sva_thread_handle_t thread) {
   struct SVAThread* checked_thread = validateThreadPointer(thread);
   SVA_ASSERT(checked_thread,
       "%p is not a valid SVA thread pointer\n", (void*)thread);
-  vm->thread = (sva_thread_handle_t)checked_thread;
+  vm->thread = checked_thread;
 
   /*
    * Initialize the guest's XSAVE area so that we won't #GP when trying to
@@ -2337,7 +2337,7 @@ entry:
    * NB: Panic instead of returning an error because this will eventually become
    * impossible by construction.
    */
-  SVA_ASSERT((sva_thread_handle_t)getCPUState()->currentThread == host_state.active_vm->thread,
+  SVA_ASSERT(getCPUState()->currentThread == host_state.active_vm->thread,
              "Running VM (%p) on the wrong thread (%p)",
              (void*)host_state.active_vm->thread,
              (void*)getCPUState()->currentThread);
