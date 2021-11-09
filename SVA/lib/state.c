@@ -1778,11 +1778,9 @@ void __attribute__((noreturn)) sva_reinit_stack(void (*func)(void)) {
 
   kernel_to_usersva_pcid();
 
-  uint32_t target_insn = *(uint32_t*)func;
-
-  // TODO: alignment check, address space region check, and page-fault safety.
-  if (target_insn != CHECKLABEL) {
-      panic("Attempt to jump to invalid target");
+  if (!is_valid_kernel_fn((void __kern*)func)) {
+      printf("Attempt to jump to invalid target %p\n", func);
+      BUG();
   }
 
   /*

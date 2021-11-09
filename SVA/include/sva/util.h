@@ -45,6 +45,12 @@
 #define is_aligned_pow2(val, align) \
   (is_aligned((val), (__typeof__(val))1 << (align)))
 
+#define is_ptr_aligned(ptr, align) \
+  (is_aligned((uintptr_t)(ptr), (align)))
+
+#define is_ptr_aligned_pow2(ptr, align) \
+  (is_aligned_pow2((uintptr_t)(ptr), (align)))
+
 #ifdef __cplusplus
 extern "C" {
 #endif

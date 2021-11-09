@@ -16,8 +16,11 @@
 #ifndef SVA_CFI_H
 #define SVA_CFI_H
 
+#define CFI_BUNDLE_SIZE 32
+
 /* CFI label: endbr64 */
-#define CHECKLABEL 0xfa1e0ff3
+#define CFI_LABEL 0xfa1e0ff3
+#define CHECKLABEL CFI_LABEL
 
 #ifdef __ASSEMBLER__
 
@@ -66,6 +69,28 @@
 .endm
 
 #endif
+
+#else
+
+#include <sva/types.h>
+#include <sva/uaccess.h>
+#include <sva/util.h>
+
+/**
+ * Check that a kernel function has a valid CFI label.
+ */
+static bool is_valid_kernel_fn(void __kern* fn) {
+  if (!is_ptr_aligned(fn, CFI_BUNDLE_SIZE)) {
+    return false;
+  }
+
+  uint32_t label;
+  if (sva_copy_from_kernel(&label, fn, sizeof(label)) != 0) {
+    return false;
+  }
+
+  return label == CFI_LABEL;
+}
 
 #endif /* __ASSEMBLER__ */
 
