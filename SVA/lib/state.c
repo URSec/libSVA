@@ -794,12 +794,6 @@ saveThread(struct SVAThread* oldThread, bool switchStack) {
     old->ifp = NULL;
   }
 
-  /*
-   * Save this functions return address because it can be overwritten by
-   * calling interim FreeBSD code that does a native FreeBSD context switch.
-   */
-  old->hackRIP = (uintptr_t)__builtin_return_address(0);
-
 #ifdef SVA_LAZY_FPU
   /*
    * Turn off access to the Floating Point Unit (FPU).  We will leave this
