@@ -103,8 +103,9 @@ static inline uint32_t xgetbv(void) {
  *
  * @param xcr0  The new value to set in `%xcr0`
  */
-static inline void xsetbv(uint32_t xcr0) {
-  asm volatile ("xsetbv" :: "a"(xcr0), "c"(0), "d"(0));
+static inline void xsetbv(uint64_t xcr0) {
+  asm volatile ("xsetbv"
+                :: "a"((uint32_t)xcr0), "c"(0), "d"((uint32_t)(xcr0 >> 32)));
 }
 
 #endif /* _SVA_FPU_H */
