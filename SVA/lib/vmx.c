@@ -3901,6 +3901,11 @@ sva_getvmfpu(int vmid, union xsave_area_max __kern* out_data) {
 
   union xsave_area_max* fp = &vm->thread->integerState.fpstate;
 
+  if (vm->thread == getCPUState()->currentThread) {
+    /* Saved state may be dirty. */
+    xsave(&fp->inner);
+  }
+
   /* Sanity check (should be statically optimized away) */
   SVA_ASSERT(__builtin_types_compatible_p(typeof(out_data), typeof(fp)),
       "Type mismatch between sva_getvmfpu() parameter and VM descriptor "
@@ -3989,6 +3994,11 @@ sva_setvmfpu(int vmid, union xsave_area_max __kern* in_data) {
    */
   SVA_ASSERT(sva_copy_from_kernel(fp, in_data, sizeof(*fp)) == 0,
       "Fault copying data from kernel");
+
+  if (vm->thread == getCPUState()->currentThread) {
+    /* Load the new state. */
+    xrestore(&fp->inner);
+  }
 
   /* Release the VM descriptor lock if we took it earlier. */
   if (acquired_lock == 2 /* 2 == lock newly taken by ensure_lock call above */)
