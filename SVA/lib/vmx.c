@@ -2404,9 +2404,9 @@ entry:
    * effects on Intel hardware, the guest doesn't know the difference, but
    * Xen doesn't have to waste time context-switching it.)
    */
-  wrmsr(MSR_FMASK, host_state.active_vm->state.msr_fmask);
-  wrmsr(MSR_STAR, host_state.active_vm->state.msr_star);
-  wrmsr(MSR_LSTAR, host_state.active_vm->state.msr_lstar);
+  wrmsr(MSR_FMASK, state->ext.fmask);
+  wrmsr(MSR_STAR, state->ext.star);
+  wrmsr(MSR_LSTAR, state->ext.lstar);
 
   /*
    * TODO: save host MPX bounds registers. We must do this here while the
@@ -2593,9 +2593,9 @@ entry:
 #endif /* end #ifdef MPX */
 
   /* Save guest SYSCALL-handling MSRs. */
-  host_state.active_vm->state.msr_fmask = rdmsr(MSR_FMASK);
-  host_state.active_vm->state.msr_star = rdmsr(MSR_STAR);
-  host_state.active_vm->state.msr_lstar = rdmsr(MSR_LSTAR);
+  state->ext.fmask = rdmsr(MSR_FMASK);
+  state->ext.star = rdmsr(MSR_STAR);
+  state->ext.lstar = rdmsr(MSR_LSTAR);
 
   /*
    * Restore host SYSCALL-handling MSRs.
@@ -3621,13 +3621,13 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
       break;
 
     case VM_REG_MSR_FMASK:
-      retval = vm->state.msr_fmask;
+      retval = state->ext.fmask;
       break;
     case VM_REG_MSR_STAR:
-      retval = vm->state.msr_star;
+      retval = state->ext.star;
       break;
     case VM_REG_MSR_LSTAR:
-      retval = vm->state.msr_lstar;
+      retval = state->ext.lstar;
       break;
 
     case VM_REG_GS_SHADOW:
@@ -3799,13 +3799,13 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
       break;
 
     case VM_REG_MSR_FMASK:
-      vm->state.msr_fmask = data;
+      state->ext.fmask = data;
       break;
     case VM_REG_MSR_STAR:
-      vm->state.msr_star = data;
+      state->ext.star = data;
       break;
     case VM_REG_MSR_LSTAR:
-      vm->state.msr_lstar = data;
+      state->ext.lstar = data;
       break;
 
     case VM_REG_GS_SHADOW:

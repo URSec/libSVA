@@ -527,14 +527,6 @@ typedef struct sva_vmx_guest_state {
 #endif
 
   /*
-   * MSRs related to SYSCALL handling
-   *
-   * Unlike the SYSENTER MSRs, these are *not* switched atomically during VM
-   * entry/exit. (I'm sure someone at Intel has a good reason for that...)
-   */
-  uint64_t msr_fmask, msr_star, msr_lstar, msr_cstar;
-
-  /*
    * GS Shadow register
    *
    * In a classic example of ISA-minimalism lawyering on Intel's part, they

@@ -227,6 +227,30 @@ typedef struct {
      * guests, so we must context-switch it.
      */
     uint64_t xss;
+
+    /**
+     * Contains segment selectors loaded by `syscall` and `sysret`.
+     *
+     * Note that the base/limit/etc. of these descriptors are loaded with fixed
+     * values, this MSR merely defines the numeric value to which the selectors
+     * are set.
+     */
+    uint64_t star;
+
+    /**
+     * Syscall target address.
+     */
+    uint64_t lstar;
+
+    /**
+     * Not used on Intel CPUs (all of our test machines are Intel).
+     */
+    uint64_t cstar;
+
+    /**
+     * Mask of values to clear in `%rflags` when `syscall` is executed.
+     */
+    uint64_t fmask;
   } ext;
 
   /** Pointer to invoke frame */
