@@ -2321,6 +2321,8 @@ entry:
    */
   struct vmx_host_state_t host_state;
   host_state.active_vm = getCPUState()->active_vm;
+  vm_desc_t* vm = host_state.active_vm;
+  sva_integer_state_t* state = &vm->thread->integerState;
 
   /*
    * Make sure we are running the VM's associated thread.
@@ -2464,10 +2466,9 @@ entry:
    * software is free to crash the system if it so desires.)
    */
 #if 0
-  DBGPRNT(("Loading guest XCR0 = 0x%lx...\n",
-        host_state.active_vm->state.xcr0));
+  DBGPRNT(("Loading guest XCR0 = 0x%lx...\n", state->ext.xcr0));
 #endif
-  xsetbv(host_state.active_vm->state.xcr0);
+  xsetbv(state->ext.xcr0);
 
   /*
    * Load guest XSS MSR.
@@ -2487,7 +2488,7 @@ entry:
    * We do *not* need to save the host's value of this MSR since we know it
    * should always be 0.
    */
-  wrmsr(MSR_XSS, host_state.active_vm->state.msr_xss);
+  wrmsr(MSR_XSS, state->ext.xss);
 
   /*** Restore guest CR2 ***
    *
@@ -2519,8 +2520,8 @@ entry:
   host_state.active_vm->state.cr2 = read_cr2();
 
   /* Save guest XCR0 and XSS values. */
-  host_state.active_vm->state.xcr0 = xgetbv();
-  host_state.active_vm->state.msr_xss = rdmsr(MSR_XSS);
+  state->ext.xcr0 = xgetbv();
+  state->ext.xss = rdmsr(MSR_XSS);
 
   /* Restore host value of XCR0, and clear XSS to 0. */
   xsetbv(host_state.xcr0);
@@ -3555,6 +3556,8 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
   int acquired_lock = vm_desc_ensure_lock(vm);
   SVA_ASSERT(acquired_lock, "sva_getvmreg(): failed to acquire VM descriptor lock!\n");
 
+  sva_integer_state_t* state = &vm_descs[vmid].thread->integerState;
+
   /*
    * Get the respective register from the specified VM's descriptor.
    */
@@ -3611,10 +3614,10 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
       break;
 
     case VM_REG_XCR0:
-      retval = vm->state.xcr0;
+      retval = state->ext.xcr0;
       break;
     case VM_REG_MSR_XSS:
-      retval = vm->state.msr_xss;
+      retval = state->ext.xss;
       break;
 
     case VM_REG_MSR_FMASK:
@@ -3728,6 +3731,8 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
   int acquired_lock = vm_desc_ensure_lock(vm);
   SVA_ASSERT(acquired_lock, "sva_setvmreg(): failed to acquire VM descriptor lock!\n");
 
+  sva_integer_state_t* state = &vm_descs[vmid].thread->integerState;
+
   /*
    * Write to the respective register field in the specified VM's descriptor.
    *
@@ -3786,11 +3791,11 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
       vm->state.cr2 = data;
       break;
     case VM_REG_MSR_XSS:
-      vm->state.msr_xss = data;
+      state->ext.xss = data;
       break;
 
     case VM_REG_XCR0:
-      vm->state.xcr0 = data;
+      state->ext.xcr0 = data;
       break;
 
     case VM_REG_MSR_FMASK:
