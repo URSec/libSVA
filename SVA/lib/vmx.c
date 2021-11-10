@@ -2524,7 +2524,7 @@ entry:
   DBGPRNT(("Loading guest XCR0 = 0x%lx...\n",
         host_state.active_vm->state.xcr0));
 #endif
-  xsetbv((uint32_t) host_state.active_vm->state.xcr0);
+  xsetbv(host_state.active_vm->state.xcr0);
 
   /*
    * Load guest XSS MSR.
