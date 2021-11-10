@@ -2374,7 +2374,7 @@ entry:
    * context-switch certain pieces of state rather than loading and saving them
    * on every entry/exit.
    */
-  wrgsshadow(host_state.active_vm->state.gs_shadow);
+  wrgsshadow(state->ext.gs_shadow);
 
   /*
    * We've now saved all the host state fields that the processor restores
@@ -2645,7 +2645,7 @@ entry:
   /*
    * Save the guest's shadow `%gs.base`.
    */
-  host_state.active_vm->state.gs_shadow = rdgsshadow();
+  state->ext.gs_shadow = rdgsshadow();
 
   /* Confirm that the operation succeeded. */
   enum vmx_statuscode_t result = query_vmx_result(vmexit_rflags);
@@ -3631,7 +3631,7 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
       break;
 
     case VM_REG_GS_SHADOW:
-      retval = vm->state.gs_shadow;
+      retval = state->ext.gs_shadow;
       break;
 
 #ifdef MPX
@@ -3809,7 +3809,7 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
       break;
 
     case VM_REG_GS_SHADOW:
-      vm->state.gs_shadow = data;
+      state->ext.gs_shadow = data;
       break;
 
 #ifdef MPX

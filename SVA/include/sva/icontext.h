@@ -207,6 +207,11 @@ typedef struct {
    */
   struct {
     /**
+     * GS Shadow register
+     */
+    uint64_t gs_shadow;
+
+    /**
      * Extended Control Register 0 (XCR0)
      *
      * This governs the use of the XSAVE feature and enables/disables MPX
