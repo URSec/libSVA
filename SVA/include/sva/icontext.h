@@ -206,6 +206,11 @@ typedef struct {
    * Context-switched control registers and MSRs.
    */
   struct {
+    /** Last #PF linear address */
+    uint64_t cr2;
+
+    /* TODO: also handle CR8 */
+
     /**
      * GS Shadow register
      */

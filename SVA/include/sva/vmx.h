@@ -509,10 +509,6 @@ typedef struct sva_vmx_guest_state {
   uint64_t r8,  r9,  r10, r11;
   uint64_t r12, r13, r14, r15;
 
-  /* Control registers not automatically saved/restored by processor */
-  uint64_t cr2;
-  /* TODO: also handle CR8 */
-
 #ifdef MPX
   /*
    * MPX bounds registers

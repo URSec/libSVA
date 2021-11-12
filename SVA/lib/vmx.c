@@ -2509,7 +2509,7 @@ entry:
    * fault access patterns could be relevant in side-channel attacks),
    * but that's not a concern for now.
    */
-  write_cr2(host_state.active_vm->state.cr2);
+  write_cr2(state->ext.cr2);
 
 #if 0
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
@@ -2517,7 +2517,7 @@ entry:
   uint64_t vmexit_rflags = asm_run_vm(host_state.active_vm, use_vmresume);
 
   /*** Save guest CR2 ***/
-  host_state.active_vm->state.cr2 = read_cr2();
+  state->ext.cr2 = read_cr2();
 
   /* Save guest XCR0 and XSS values. */
   state->ext.xcr0 = xgetbv();
@@ -3610,7 +3610,7 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
       break;
 
     case VM_REG_CR2:
-      retval = vm->state.cr2;
+      retval = state->ext.cr2;
       break;
 
     case VM_REG_XCR0:
@@ -3788,7 +3788,7 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
       break;
 
     case VM_REG_CR2:
-      vm->state.cr2 = data;
+      state->ext.cr2 = data;
       break;
     case VM_REG_MSR_XSS:
       state->ext.xss = data;
