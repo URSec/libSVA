@@ -2285,41 +2285,6 @@ run_vm(unsigned char use_vmresume) {
 entry:
   (void)0;
 
-  /*
-   * Allocate a host_state structure on the stack to give us a place to stash
-   * various host state elements that need to be restored after VM exit.
-   *
-   * We aggregate these fields within a structure rather than as individual
-   * local variables so that we can more conveniently remember where we left
-   * them when we return to host mode in the VM entry/exit assembly block and
-   * have (initially) no GPRs to work with. This way, we can stash a single
-   * pointer to host_state on the stack before VM entry rather than having to
-   * keep track of the RSP-relative positions of numerous registers
-   * individually pushed onto the stack.
-   *
-   * struct vmx_host_state_t also includes, for similar convenience reasons,
-   * a pointer to the active VM's VM descriptor (i.e. a copy of
-   * getCPUState()->active_vm), which we save there at this time.
-   *
-   *   NOTE: This is a rather large allocation to make on the stack, as it
-   *   contains an entire 4 kB union xsave_area_max! Since (at least under
-   *   Xen) SVA only has 8 kB of stack space to work with (which it shares
-   *   with any Xen code preceding it on the call stack), this is something
-   *   to be careful about.
-   *
-   *   Our analysis is that this should be safe here as the only entry point
-   *   for this function is from sva_launch/resumevm(), which don't put much
-   *   on the stack themselves; and they in turn are called by Xen in
-   *   vmx_do_vmentry_sva(), which itself doesn't put much on the stack and
-   *   is called fresh off a reset_stack_and_jump() (i.e. an empty stack).
-   *
-   *   If run_vm() calls itself recursively (e.g. to re-enter the guest after
-   *   intercepting a VM exit which SVA handled without involving the
-   *   hypervisor), care should be taken to make sure the recursive call is
-   *   suitable for tail-call optimization (and that the compiler actually
-   *   applies that optimization).
-   */
-  struct vmx_host_state_t host_state;
   vm_desc_t* vm = getCPUState()->active_vm;
   sva_integer_state_t* state = &vm->thread->integerState;
 
@@ -2387,9 +2352,9 @@ entry:
 #if 0
   DBGPRNT(("Saving host XCR0...\n"));
 #endif
-  host_state.xcr0 = xgetbv();
+  uint64_t host_xcr0 = xgetbv();
 #if 0
-  DBGPRNT(("Host XCR0 saved: 0x%lx\n", host_state.xcr0));
+  DBGPRNT(("Host XCR0 saved: 0x%lx\n", host_xcr0));
 #endif
 
   extern void load_ext_state(struct SVAThread* thread);
@@ -2429,7 +2394,7 @@ entry:
   save_ext_state(vm->thread);
 
   /* Restore host value of XCR0, and clear XSS to 0. */
-  xsetbv(host_state.xcr0);
+  xsetbv(host_xcr0);
   wrmsr(MSR_XSS, 0);
 
 #ifdef MPX
@@ -2547,19 +2512,6 @@ entry:
   if (result == VM_SUCCEED) {
 #if 0
     DBGPRNT(("VM EXIT: returned to host mode.\n"));
-#endif
-
-#if 0
-    DBGPRNT(("--------------------\n"));
-    DBGPRNT(("Host GPR values restored:\n"));
-    DBGPRNT(("RBP: 0x%16lx\tRSI: 0x%16lx\tRDI: 0x%16lx\n",
-          host_state.rbp, host_state.rsi, host_state.rdi));
-    DBGPRNT(("R8:  0x%16lx\tR9:  0x%16lx\tR10: 0x%16lx\tR11: 0x%16lx\n",
-          host_state.r8, host_state.r9, host_state.r10, host_state.r11));
-    DBGPRNT(("R12: 0x%16lx\tR13: 0x%16lx\tR14: 0x%16lx\tR15: 0x%16lx\n",
-          host_state.r12, host_state.r13, host_state.r14, host_state.r15));
-    DBGPRNT(("RFLAGS restored: 0x%lx\n", hostrestored_rflags));
-    DBGPRNT(("--------------------\n"));
 #endif
 
     /*
