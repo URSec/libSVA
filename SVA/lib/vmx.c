@@ -2358,64 +2358,10 @@ entry:
   vmcs_save_host_pt();
 
   /*
-   * In a classic example of ISA-minimalism lawyering on Intel's part, they
-   * decided to leave the GS Shadow register - by itself - to be manually
-   * switched between host and guest values by the hypervisor on VM entry and
-   * exit, despite the fact that *every other part* of the segment registers
-   * (including the non-shadow `%gs.base`) corresponds to a field in the VMCS
-   * and is switched automatically by the processor as part of VM entry/exit.
-   *
-   * NB: The host value of this field corresponds to the current thread's
-   * `%gs.base` when in userspace. However, the SVA threads that Xen uses to
-   * run VMs don't have a real userspace context to return to. Therefore, there
-   * is no need to save the current host value.
-   *
-   * TODO: Require that each VM have its own SVA thread. This will allow us to
-   * context-switch certain pieces of state rather than loading and saving them
-   * on every entry/exit.
-   */
-  wrgsshadow(state->ext.gs_shadow);
-
-  /*
    * We've now saved all the host state fields that the processor restores
    * atomically from the VMCS on VM exit. From here to VM entry, we save host
    * and restore guest state that the ISA leaves for the system software to
    * swap instead of handling atomically as part of entry/exit.
-   */
-
-  /*
-   * Restore guest SYSCALL-handling MSRs. (Unlike the SYSENTER MSRs we just
-   * dealt with above, the processor does *not* handle these atomically as
-   * part of entry/exit. I'm sure somebody at Intel has a good reason for
-   * that...)
-   *
-   * We do *not* need to save the host's values for these because SVA sets
-   * them to constant values at boot and never changes them. On VM exit,
-   * we'll simply restore them to those known values.
-   *
-   * (Note: we do not need to worry about CSTAR, as it's only relevant on AMD
-   * platforms. Intel never supported the SYSCALL instruction in 32-bit mode.
-   * Thus, we can get away with just leaving the host's value (0) in place at
-   * all times. This is consistent with how Xen expects CSTAR to work: it
-   * never actually changes CSTAR on the physical hardware, but since it
-   * takes a VM exit on all guest RD/WRMSRs to it, it provides read/write
-   * consistency by keeping track of what the guest thinks its value is in
-   * its own data structures for that guest. Since this MSR has no side
-   * effects on Intel hardware, the guest doesn't know the difference, but
-   * Xen doesn't have to waste time context-switching it.)
-   */
-  wrmsr(MSR_FMASK, state->ext.fmask);
-  wrmsr(MSR_STAR, state->ext.star);
-  wrmsr(MSR_LSTAR, state->ext.lstar);
-
-  /*
-   * TODO: save host MPX bounds registers. We must do this here while the
-   * host XCR0 is active since MPX is controlled by XCR0 and the guest might
-   * not have MPX enabled.
-   *
-   * For now we can get away without doing this since only SVA is using MPX
-   * in host mode and we just unconditionally re-set the one bounds register
-   * it cares about after exit.
    */
 
 #ifdef MPX
@@ -2447,48 +2393,8 @@ entry:
   DBGPRNT(("Host XCR0 saved: 0x%lx\n", host_state.xcr0));
 #endif
 
-  /*
-   * Load guest XCR0.
-   *
-   * The processor doesn't support saving/loading this atomically during VM
-   * entry/exit, so we have to load this in host mode before VM entry. That
-   * means there's a small window of opportunity (between now and VM entry)
-   * wherein it will govern host execution, so we need to be careful that
-   * this won't let the system software do something that wouldn't otherwise
-   * be allowed.
-   *
-   * In this case, I think it's safe to load any value into XCR0, because
-   * we're not using any XSAVE-related instructions between here and VM entry
-   * (except for loading/saving the guest's FPU state). The worst that could
-   * happen is we get a #GP exception if one of the reserved bits is
-   * set...and if that happens it's the system software's fault. (A crash
-   * isn't a security violation because there are a thousand ways the system
-   * software is free to crash the system if it so desires.)
-   */
-#if 0
-  DBGPRNT(("Loading guest XCR0 = 0x%lx...\n", state->ext.xcr0));
-#endif
-  xsetbv(state->ext.xcr0);
-
-  /*
-   * Load guest XSS MSR.
-   *
-   * This is the counterpart of XCR0 which controls the subset of extended
-   * state components which are accessible only in supervisor mode. At
-   * present (2020-10-20), there is only one such feature in the ISA ("Trace
-   * Packet Configuration State"), which neither Xen nor SVA cares about
-   * using in host (VMX root) mode; but Xen supports the use of XSS features
-   * by guests, so we need to context-switch it for guests' benefit.
-   *
-   * This needs to happen at the same point in the FPU save/restore logic
-   * flow as loading of XSAVE, since the combination of the two (XCR0 |
-   * XSAVE) controls the selection of state components that are
-   * saved/restored by the XSAVES/XRSTORS instructions.
-   *
-   * We do *not* need to save the host's value of this MSR since we know it
-   * should always be 0.
-   */
-  wrmsr(MSR_XSS, state->ext.xss);
+  extern void load_ext_state(struct SVAThread* thread);
+  load_ext_state(vm->thread);
 
   /*** Restore guest CR2 ***
    *
