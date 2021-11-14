@@ -2049,7 +2049,7 @@ static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
        */
       "pushq %%rbp\n\t"
 
-      /* RAX contains a pointer to the host_state structure.
+      /* RAX contains a pointer to the VM descriptor.
        * Push it so that we can get it back after VM exit.
        */
       "pushq %%rax\n"
@@ -2135,8 +2135,7 @@ static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
       /* (We need to return this in RDX at the end of the asm block.) */
       "pushfq\n"
 
-      /*** Get pointer to the active VM descriptor, using the host_state
-       * pointer which we saved on the stack prior to VM entry.
+      /*** Get pointer to the active VM descriptor.
        *
        * We have NO free registers at this point (all of them contain guest
        * values which we need to save). We therefore start by pushing RAX to
@@ -2145,7 +2144,7 @@ static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
        * Note: after pushing RAX, our stack looks like:
        *      (%rsp)  - saved guest RAX
        *     8(%rsp)  - RFLAGS saved after VM exit (VMX error code)
-       *    16(%rsp)  - pointer to host_state saved before VM entry
+       *    16(%rsp)  - pointer to VM descriptor
        *    24(%rsp)  - host RBP saved before VM entry
        * (Since we're not using a frame pointer, and are using push/pop
        * instructions i.e. a dynamic stack frame, we need to keep track of
