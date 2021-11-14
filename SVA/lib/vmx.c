@@ -2320,8 +2320,7 @@ entry:
    *   applies that optimization).
    */
   struct vmx_host_state_t host_state;
-  host_state.active_vm = getCPUState()->active_vm;
-  vm_desc_t* vm = host_state.active_vm;
+  vm_desc_t* vm = getCPUState()->active_vm;
   sva_integer_state_t* state = &vm->thread->integerState;
 
   /*
@@ -2330,9 +2329,9 @@ entry:
    * NB: Panic instead of returning an error because this will eventually become
    * impossible by construction.
    */
-  SVA_ASSERT(getCPUState()->currentThread == host_state.active_vm->thread,
+  SVA_ASSERT(getCPUState()->currentThread == vm->thread,
              "Running VM (%p) on the wrong thread (%p)",
-             (void*)host_state.active_vm->thread,
+             (void*)vm->thread,
              (void*)getCPUState()->currentThread);
 
   /*
@@ -2345,7 +2344,7 @@ entry:
    * intrinsic has already ensured that the EPTP in the VM descriptor points
    * to a valid top-level extended page table.
    */
-  writevmcs_unchecked(VMCS_EPT_PTR, host_state.active_vm->eptp);
+  writevmcs_unchecked(VMCS_EPT_PTR, vm->eptp);
 
   /*
    * Save host state in the VMCS that will be restored automatically by the
@@ -2377,10 +2376,10 @@ entry:
       "bndmov %[guest_bnd2], %%bnd2\n"
       "bndmov %[guest_bnd3], %%bnd3\n"
       : /* no outputs */
-      : [guest_bnd0] "m" (host_state.active_vm->state.bnd0),
-        [guest_bnd1] "m" (host_state.active_vm->state.bnd1),
-        [guest_bnd2] "m" (host_state.active_vm->state.bnd2),
-        [guest_bnd3] "m" (host_state.active_vm->state.bnd3)
+      : [guest_bnd0] "m" (vm->state.bnd0),
+        [guest_bnd1] "m" (vm->state.bnd1),
+        [guest_bnd2] "m" (vm->state.bnd2),
+        [guest_bnd3] "m" (vm->state.bnd3)
       );
 #endif /* end #ifdef MPX */
 
@@ -2422,7 +2421,7 @@ entry:
 #if 0
   DBGPRNT(("VM ENTRY: Entering guest mode!\n"));
 #endif
-  uint64_t vmexit_rflags = asm_run_vm(host_state.active_vm, use_vmresume);
+  uint64_t vmexit_rflags = asm_run_vm(vm, use_vmresume);
 
   /*** Save guest CR2 ***/
   state->ext.cr2 = read_cr2();
@@ -2446,10 +2445,10 @@ entry:
       "bndmov %%bnd1, %[guest_bnd1]\n"
       "bndmov %%bnd2, %[guest_bnd2]\n"
       "bndmov %%bnd3, %[guest_bnd3]\n"
-      : [guest_bnd0] "=m" (host_state.active_vm->state.bnd0),
-        [guest_bnd1] "=m" (host_state.active_vm->state.bnd1),
-        [guest_bnd2] "=m" (host_state.active_vm->state.bnd2),
-        [guest_bnd3] "=m" (host_state.active_vm->state.bnd3)
+      : [guest_bnd0] "=m" (vm->state.bnd0),
+        [guest_bnd1] "=m" (vm->state.bnd1),
+        [guest_bnd2] "=m" (vm->state.bnd2),
+        [guest_bnd3] "=m" (vm->state.bnd3)
       );
 
   /*
