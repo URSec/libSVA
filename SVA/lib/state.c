@@ -729,6 +729,33 @@ static bool load_user_segments(sva_integer_state_t* state) {
 }
 
 /**
+ * Save guest control register and MSR state.
+ *
+ * @param thread  The thread to save to
+ */
+void save_ext_state(struct SVAThread* thread) {
+  sva_integer_state_t* state = &thread->integerState;
+
+  /*
+   * Save guest XCR0 and XSS.
+   */
+  state->ext.xcr0 = xgetbv();
+  state->ext.xss = rdmsr(MSR_XSS);
+
+  /*
+   * Save guest SYSCALL-handling MSRs.
+   */
+  state->ext.fmask = rdmsr(MSR_FMASK);
+  state->ext.star = rdmsr(MSR_STAR);
+  state->ext.lstar = rdmsr(MSR_LSTAR);
+
+  /*
+   * Save the guest's shadow `%gs.base`.
+   */
+  state->ext.gs_shadow = rdgsshadow();
+}
+
+/**
  * Load guest control register and MSR state.
  *
  * @param thread  The thread to load from

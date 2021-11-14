@@ -2394,6 +2394,8 @@ entry:
 #endif
 
   extern void load_ext_state(struct SVAThread* thread);
+  extern void save_ext_state(struct SVAThread* thread);
+
   load_ext_state(vm->thread);
 
   /*** Restore guest CR2 ***
@@ -2425,9 +2427,7 @@ entry:
   /*** Save guest CR2 ***/
   state->ext.cr2 = read_cr2();
 
-  /* Save guest XCR0 and XSS values. */
-  state->ext.xcr0 = xgetbv();
-  state->ext.xss = rdmsr(MSR_XSS);
+  save_ext_state(vm->thread);
 
   /* Restore host value of XCR0, and clear XSS to 0. */
   xsetbv(host_state.xcr0);
@@ -2498,11 +2498,6 @@ entry:
   mpx_bnd_init();
 #endif /* end #ifdef MPX */
 
-  /* Save guest SYSCALL-handling MSRs. */
-  state->ext.fmask = rdmsr(MSR_FMASK);
-  state->ext.star = rdmsr(MSR_STAR);
-  state->ext.lstar = rdmsr(MSR_LSTAR);
-
   /*
    * Restore host SYSCALL-handling MSRs.
    *
@@ -2547,11 +2542,6 @@ entry:
    * initializing on boot) these MSRs.
    */
   register_syscall_handler();
-
-  /*
-   * Save the guest's shadow `%gs.base`.
-   */
-  state->ext.gs_shadow = rdgsshadow();
 
   /* Confirm that the operation succeeded. */
   enum vmx_statuscode_t result = query_vmx_result(vmexit_rflags);
