@@ -679,67 +679,6 @@ typedef struct vm_desc_t {
   paddr_t io_exiting_bitmaps[2];
 } vm_desc_t;
 
-/*
- * Structure: vmx_host_state_t
- *
- * Description:
- *  A structure storing various aspects of the host system's state that must
- *  be saved before VM entry and restored after VM exit.
- *
- *  This structure is intended for use as a stack allocation local to
- *  run_vm(), and exists to provide convenient access to all of these fields
- *  within the VM entry/exit assembly block (rather than having to keep track
- *  of each of these fields' positions on the stack individually).
- */
-typedef struct vmx_host_state_t {
-  /*
-   * Copy of the pointer to the active VM's VM descriptor structure (which is
-   * normally kept in per-CPU storage, i.e. getCPUState()->active_vm) for
-   * more convenient access within the VM entry/exit assembly block of
-   * run_vm(), where we have no GPRs available immediately following VM exit
-   * and must restore everything from the stack.
-   */
-  vm_desc_t *active_vm;
-
-  /*
-   * Host GPRs that need to be saved/restored across VM entries/exits
-   *
-   * Note: we do not need to save/restore RAX, RBX, RCX, and RDX since we use
-   * them as inputs and outputs for the inline assembly block that handles
-   * the saving/restoring (and the VM entry/exit itself). Thus, the compiler
-   * does not expect any values to be preserved in them.
-   */
-  uint64_t rbp, rsi, rdi;
-  uint64_t r8, r9, r10, r11;
-  uint64_t r12, r13, r14, r15;
-
-  /* Host FP State that needs to be saved/restored across VM entries/exits */
-  union xsave_area_max fp;
-
-  /*
-   * Extended Control Register 0 (XCR0)
-   *
-   * This governs the use of processor feature sets controlled by the XSAVE
-   * instruction set. (This includes the FPU instruction sets and MPX.)
-   */
-  uint64_t xcr0;
-
-  /*
-   * GS Shadow register
-   *
-   * In a classic example of ISA-minimalism lawyering on Intel's part, they
-   * decided to leave the GS Shadow register - by itself - to be manually
-   * switched between host and guest values by the hypervisor on VM entry and
-   * exit, despite the fact that *every other part* of the segment registers
-   * (including the non-shadow GS Base) corresponds to a field in the VMCS
-   * and is switched automatically by the processor as part of VM entry/exit.
-   *
-   * Thus, we take care of switching GS Shadow in sva_runvm() along with the
-   * GPRs and other non-VMCS-resident control registers/MSRs stored here.
-   */
-  uint64_t gs_shadow;
-} vmx_host_state_t;
-
 /**********
  * Global variables
 **********/

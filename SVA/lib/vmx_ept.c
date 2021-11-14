@@ -26,8 +26,6 @@
 #include <sva/config.h>
 #include <sva/util.h>
 
-extern vmx_host_state_t __svadata host_state;
-
 /*
  * Intrinsic: sva_declare_l1_eptpage()
  *
