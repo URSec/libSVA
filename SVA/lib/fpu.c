@@ -19,7 +19,7 @@
 
 #include <string.h>
 
-uint32_t __svadata xsave_features;
+uint64_t __svadata xsave_features;
 
 void xinit(struct xsave_area* xsave_area) {
     /*

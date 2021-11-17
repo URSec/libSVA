@@ -22,7 +22,7 @@
 #include <sva/types.h>
 #include <sva/cr.h>
 
-extern uint32_t __svadata xsave_features;
+extern uint64_t __svadata xsave_features;
 
 /**
  * Disable use of the FPU.
