@@ -2347,15 +2347,6 @@ entry:
       );
 #endif /* end #ifdef MPX */
 
-  /* Save host Extended Control Register 0 (XCR0) */
-#if 0
-  DBGPRNT(("Saving host XCR0...\n"));
-#endif
-  uint64_t host_xcr0 = xgetbv();
-#if 0
-  DBGPRNT(("Host XCR0 saved: 0x%lx\n", host_xcr0));
-#endif
-
   extern void load_ext_state(struct SVAThread* thread);
   extern void save_ext_state(struct SVAThread* thread);
 
@@ -2393,7 +2384,7 @@ entry:
   save_ext_state(vm->thread);
 
   /* Restore host value of XCR0, and clear XSS to 0. */
-  xsetbv(host_xcr0);
+  xsetbv(xsave_features);
   wrmsr(MSR_XSS, 0);
 
 #ifdef MPX
