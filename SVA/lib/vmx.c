@@ -2225,6 +2225,107 @@ static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
   return vmexit_rflags;
 }
 
+#ifdef MPX
+
+static void sfi_enter_guest(vm_desc_t* vm) {
+  /*
+   * Restore guest MPX bounds registers. We must do this while the *host's*
+   * XCR0 is active since we need to save/restore these whether or not the
+   * guest has MPX enabled, and the BNDMOV instruction will be a no-op if
+   * XCR0.MPX is not enabled.
+   */
+  asm volatile (
+    "bndmov %[guest_bnd0], %%bnd0\n"
+    "bndmov %[guest_bnd1], %%bnd1\n"
+    "bndmov %[guest_bnd2], %%bnd2\n"
+    "bndmov %[guest_bnd3], %%bnd3\n"
+    : /* no outputs */
+    : [guest_bnd0] "m" (vm->state.bnd0),
+      [guest_bnd1] "m" (vm->state.bnd1),
+      [guest_bnd2] "m" (vm->state.bnd2),
+      [guest_bnd3] "m" (vm->state.bnd3)
+  );
+}
+
+static void sfi_exit_guest(vm_desc_t* vm) {
+  /*
+   * Save guest MPX bounds registers. Note, as above when we restored them
+   * before entry, that we must do this while the *host's* XCR0 is active
+   * since we need to save/restore these whether or not the guest has MPX
+   * enabled, and the BNDMOV instruction will cause a #UD if XCR0.MPX is not
+   * enabled.
+   */
+  asm __volatile__ (
+    "bndmov %%bnd0, %[guest_bnd0]\n"
+    "bndmov %%bnd1, %[guest_bnd1]\n"
+    "bndmov %%bnd2, %[guest_bnd2]\n"
+    "bndmov %%bnd3, %[guest_bnd3]\n"
+    : [guest_bnd0] "=m" (vm->state.bnd0),
+      [guest_bnd1] "=m" (vm->state.bnd1),
+      [guest_bnd2] "=m" (vm->state.bnd2),
+      [guest_bnd3] "=m" (vm->state.bnd3)
+  );
+
+  /*
+   * Save guest's MPX supervisor-mode configuration register (the MSR
+   * IA32_BNDCFGS).
+   *
+   * This piece of state is unusual in that it is VMCS-resident but only
+   * partially managed automatically by the processor on VM entry/exit.  It
+   * is loaded from the VMCS on VM entry (if the hypervisor chooses to enable
+   * the "Load IA32_BNDCFGS" VM-entry control), and can be cleared on VM exit
+   * for the host's benefit (if the hypervisor chooses to enable the "Clear
+   * IA32_BNDCFGS" VM-exit control), but there is no corresponding way to
+   * *save* the guest's value on exit. Basically, a "Save IA32_BNDCFGS"
+   * VM-exit control is conspicuously absent.
+   *
+   * Thus, we need to save the value ourselves on VM exit, although we don't
+   * need to load it on VM entry. We store it to the VMCS instead of to our
+   * own guest state structure.
+   *
+   * Note: SVA does not require the hypervisor to use (or not use) either the
+   * "Load IA32_BNDCFGS" VM-entry control or the "Clear IA32_BNDCFGS" VM-exit
+   * control. If the former is unused, the host's value of BNDCFGS will be
+   * retained by the guest, which is fine from a security perspective because
+   * it contains no sensitive information (only the BNDENABLE and BNDPRESERVE
+   * bits are set). The latter doesn't matter because SVA always reloads its
+   * own value into BNDCFGS after VM exit (see below), so it doesn't matter
+   * whether the hypervisor leaves the guest's value there or clears it on VM
+   * exit.
+   */
+  uint64_t guest_bndcfgs = rdmsr(MSR_IA32_BNDCFGS);
+  /*
+   * Unchecked write is OK since we know this value was just in use by the
+   * guest.
+   */
+  writevmcs_unchecked(VMCS_GUEST_IA32_BNDCFGS, guest_bndcfgs);
+
+  /*
+   * Restore MPX supervisor-mode configuration and bounds register 0 to the
+   * values used by SVA to implement its SFI.
+   *
+   * We don't need to clear/change the other bounds registers since SVA
+   * doesn't use them.
+   */
+  wrmsr(MSR_IA32_BNDCFGS, BNDCFG_BNDENABLE | BNDCFG_BNDPRESERVE);
+
+  mpx_bnd_init();
+}
+
+#else
+
+static void sfi_enter_guest(vm_desc_t* _vm) {
+  // NO-OP
+  (void)_vm;
+}
+
+static void sfi_exit_guest(vm_desc_t* _vm) {
+  // NO-OP
+  (void)_vm;
+}
+
+#endif
+
 /*
  * Function: run_vm()
  *
@@ -2327,25 +2428,7 @@ entry:
    * swap instead of handling atomically as part of entry/exit.
    */
 
-#ifdef MPX
-  /*
-   * Restore guest MPX bounds registers. We must do this while the *host's*
-   * XCR0 is active since we need to save/restore these whether or not the
-   * guest has MPX enabled, and the BNDMOV instruction will be a no-op if
-   * XCR0.MPX is not enabled.
-   */
-  asm __volatile__ (
-      "bndmov %[guest_bnd0], %%bnd0\n"
-      "bndmov %[guest_bnd1], %%bnd1\n"
-      "bndmov %[guest_bnd2], %%bnd2\n"
-      "bndmov %[guest_bnd3], %%bnd3\n"
-      : /* no outputs */
-      : [guest_bnd0] "m" (vm->state.bnd0),
-        [guest_bnd1] "m" (vm->state.bnd1),
-        [guest_bnd2] "m" (vm->state.bnd2),
-        [guest_bnd3] "m" (vm->state.bnd3)
-      );
-#endif /* end #ifdef MPX */
+  sfi_enter_guest(vm);
 
   extern void load_ext_state(struct SVAThread* thread);
   extern void save_ext_state(struct SVAThread* thread);
@@ -2385,70 +2468,7 @@ entry:
   save_ext_state(vm->thread);
   load_host_ext_state();
 
-#ifdef MPX
-  /*
-   * Save guest MPX bounds registers. Note, as above when we restored them
-   * before entry, that we must do this while the *host's* XCR0 is active
-   * since we need to save/restore these whether or not the guest has MPX
-   * enabled, and the BNDMOV instruction will cause a #UD if XCR0.MPX is not
-   * enabled.
-   */
-  asm __volatile__ (
-      "bndmov %%bnd0, %[guest_bnd0]\n"
-      "bndmov %%bnd1, %[guest_bnd1]\n"
-      "bndmov %%bnd2, %[guest_bnd2]\n"
-      "bndmov %%bnd3, %[guest_bnd3]\n"
-      : [guest_bnd0] "=m" (vm->state.bnd0),
-        [guest_bnd1] "=m" (vm->state.bnd1),
-        [guest_bnd2] "=m" (vm->state.bnd2),
-        [guest_bnd3] "=m" (vm->state.bnd3)
-      );
-
-  /*
-   * Save guest's MPX supervisor-mode configuration register (the MSR
-   * IA32_BNDCFGS).
-   *
-   * This piece of state is unusual in that it is VMCS-resident but only
-   * partially managed automatically by the processor on VM entry/exit.  It
-   * is loaded from the VMCS on VM entry (if the hypervisor chooses to enable
-   * the "Load IA32_BNDCFGS" VM-entry control), and can be cleared on VM exit
-   * for the host's benefit (if the hypervisor chooses to enable the "Clear
-   * IA32_BNDCFGS" VM-exit control), but there is no corresponding way to
-   * *save* the guest's value on exit. Basically, a "Save IA32_BNDCFGS"
-   * VM-exit control is conspicuously absent.
-   *
-   * Thus, we need to save the value ourselves on VM exit, although we don't
-   * need to load it on VM entry. We store it to the VMCS instead of to our
-   * own guest state structure.
-   *
-   * Note: SVA does not require the hypervisor to use (or not use) either the
-   * "Load IA32_BNDCFGS" VM-entry control or the "Clear IA32_BNDCFGS" VM-exit
-   * control. If the former is unused, the host's value of BNDCFGS will be
-   * retained by the guest, which is fine from a security perspective because
-   * it contains no sensitive information (only the BNDENABLE and BNDPRESERVE
-   * bits are set). The latter doesn't matter because SVA always reloads its
-   * own value into BNDCFGS after VM exit (see below), so it doesn't matter
-   * whether the hypervisor leaves the guest's value there or clears it on VM
-   * exit.
-   */
-  uint64_t guest_bndcfgs = rdmsr(MSR_IA32_BNDCFGS);
-  /*
-   * Unchecked write is OK since we know this value was just in use by the
-   * guest.
-   */
-  writevmcs_unchecked(VMCS_GUEST_IA32_BNDCFGS, guest_bndcfgs);
-
-  /*
-   * Restore MPX supervisor-mode configuration and bounds register 0 to the
-   * values used by SVA to implement its SFI.
-   *
-   * We don't need to clear/change the other bounds registers since SVA
-   * doesn't use them.
-   */
-  wrmsr(MSR_IA32_BNDCFGS, BNDCFG_BNDENABLE | BNDCFG_BNDPRESERVE);
-
-  mpx_bnd_init();
-#endif /* end #ifdef MPX */
+  sfi_exit_guest(vm);
 
   /* Confirm that the operation succeeded. */
   enum vmx_statuscode_t result = query_vmx_result(vmexit_rflags);
