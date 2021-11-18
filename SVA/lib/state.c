@@ -1508,6 +1508,8 @@ uintptr_t sva_create_icontext(uintptr_t start, uintptr_t arg1, uintptr_t arg2,
 
   xinit(&newThread->integerState.fpstate.inner);
 
+  newThread->integerState.has_ext_state = false;
+
   /*
    * Mark the new thread as valid for loading.
    */

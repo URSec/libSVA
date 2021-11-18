@@ -203,6 +203,13 @@ typedef struct {
   union xsave_area_max fpstate;
 
   /**
+   * Whether this thread's `.ext` field is active.
+   *
+   * If `false`, the value of `this->ext` is undefined.
+   */
+  bool has_ext_state;
+
+  /**
    * Context-switched control registers and MSRs.
    */
   struct {
@@ -571,6 +578,14 @@ hasGhostMemory (void) {
  */
 static inline sva_icontext_t* user_ctxt(struct SVAThread* thread) {
   return &thread->interruptContexts[maxIC - 1];
+}
+
+/**
+ * Initialize a thread's ext state and mark it as active.
+ */
+static inline void thread_ext_state_init(struct SVAThread* thread) {
+  thread->integerState.ext = (__typeof__(thread->integerState.ext)){ };
+  thread->integerState.has_ext_state = true;
 }
 
 /**

@@ -775,6 +775,7 @@ int sva_allocvm(sva_thread_handle_t thread) {
   SVA_ASSERT(checked_thread,
       "%p is not a valid SVA thread pointer\n", (void*)thread);
   vm->thread = checked_thread;
+  thread_ext_state_init(vm->thread);
 
   /*
    * Mark that the initial values of VMCS controls have not yet been
