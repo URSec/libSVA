@@ -832,6 +832,37 @@ void load_ext_state(struct SVAThread* thread) {
 }
 
 /**
+ * Load host control register and MSR state.
+ *
+ * This is intended to be called when switching from a VM to a normal user
+ * process.
+ */
+void load_host_ext_state(void) {
+  /* Restore host value of XCR0, and clear XSS to 0. */
+  xsetbv(xsave_features);
+  wrmsr(MSR_XSS, 0);
+
+  /*
+   * Restore host SYSCALL-handling MSRs.
+   *
+   * FIXME: restoring the SYSENTER MSRs here like this is redundant, since
+   * they are actually restored atomically by the CPU as part of VM exit. (We
+   * saved them to the VMCS above before VM entry for this reason.) If we
+   * want to optimize things and avoid doing three superfluous WRMSRs on the
+   * VM-exit critical performance path, we could either copy the four
+   * SYSCALL-specific lines here from register_syscall_handler(), or, if we
+   * want to avoid duplicating code with "magic values" like this (that being
+   * bad software engineering practice), we could factor them out into an
+   * inline function called both here and in register_syscall_handler(). We
+   * can also safely skip resetting CSTAR when restoring (as opposed to
+   * initializing on boot) these MSRs.
+   */
+  extern void register_syscall_handler(void);
+  register_syscall_handler();
+
+}
+
+/**
  * Saves the current CPU state onto a thread.
  *
  * Note: If we are switching kernel stacks, this function returns twice: once

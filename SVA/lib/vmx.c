@@ -22,7 +22,6 @@
 #include <sva/mmu.h>
 #include <sva/mpx.h>
 #include <sva/config.h>
-#include <sva/init.h> // for register_syscall_handler()
 #include <sva/uaccess.h>
 
 #include "icat.h"
@@ -2349,6 +2348,7 @@ entry:
 
   extern void load_ext_state(struct SVAThread* thread);
   extern void save_ext_state(struct SVAThread* thread);
+  extern void load_host_ext_state(void);
 
   load_ext_state(vm->thread);
 
@@ -2382,10 +2382,7 @@ entry:
   state->ext.cr2 = read_cr2();
 
   save_ext_state(vm->thread);
-
-  /* Restore host value of XCR0, and clear XSS to 0. */
-  xsetbv(xsave_features);
-  wrmsr(MSR_XSS, 0);
+  load_host_ext_state();
 
 #ifdef MPX
   /*
@@ -2451,51 +2448,6 @@ entry:
 
   mpx_bnd_init();
 #endif /* end #ifdef MPX */
-
-  /*
-   * Restore host SYSCALL-handling MSRs.
-   *
-   * TODO: save the guest values somewhere and restore them before entry.
-   * Will need to extend interfaces to allow hypervisor to initialize/get/set
-   * these values. Long-term we want to create a general interface for VMX's
-   * MSR save/load feature, which can handle these and (most) any other MSRs
-   * SVA or Xen might care about; but we may be able to move more quickly by
-   * initially handling these MSRs ad-hoc as additions to the guest's
-   * SVA-managed "register" state.
-   *
-   * (If we end up using the MSR save/load feature for these, we shouldn't
-   * need to call register_syscall_handler() any more since that'll just
-   * automatically save/restore the correct values.)
-   *
-   * register_syscall_handler() sets the following MSRs to the values
-   * required for SVA to mediate syscall handling:
-   *  * MSR_FMASK = IF | IOPL(3) | AC | DF | NT | VM | TF | RF
-   *  * MSR_STAR = GSEL(GCODE_SEL, 0) for SYSCALL; SVA_USER_CS_32 for SYSRET
-   *  * MSR_LSTAR = &SVAsyscall
-   *  * MSR_CSTAR = NULL (we don't handle SYSCALL from 32-bit code; this is
-   *                     actually superfluous on Intel hardware as 32-bit
-   *                     SYSCALL support was only ever provided by AMD, but
-   *                     we set this anyway in register_syscall_handler()
-   *                     since that part of SVA, unlike the VMX stuff here,
-   *                     is at least in theory Intel/AMD-agnostic)
-   * SVA does not support the SYSENTER mechanism, so we set its MSRs to 0:
-   *  * MSR_IA32_SYSENTER_CS = 0
-   *  * MSR_IA32_SYSENTER_EIP = 0
-   *  * MSR_IA32_SYSENTER_ESP = 0
-   *
-   * FIXME: restoring the SYSENTER MSRs here like this is redundant, since
-   * they are actually restored atomically by the CPU as part of VM exit. (We
-   * saved them to the VMCS above before VM entry for this reason.) If we
-   * want to optimize things and avoid doing three superfluous WRMSRs on the
-   * VM-exit critical performance path, we could either copy the four
-   * SYSCALL-specific lines here from register_syscall_handler(), or, if we
-   * want to avoid duplicating code with "magic values" like this (that being
-   * bad software engineering practice), we could factor them out into an
-   * inline function called both here and in register_syscall_handler(). We
-   * can also safely skip resetting CSTAR when restoring (as opposed to
-   * initializing on boot) these MSRs.
-   */
-  register_syscall_handler();
 
   /* Confirm that the operation succeeded. */
   enum vmx_statuscode_t result = query_vmx_result(vmexit_rflags);

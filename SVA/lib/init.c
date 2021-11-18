@@ -859,6 +859,24 @@ void sva_init_secondary_xen(void __kern* tss) {
 void register_syscall_handler(void) {
   extern void SVAsyscall(void);
 
+  /*
+   * register_syscall_handler() sets the following MSRs to the values
+   * required for SVA to mediate syscall handling:
+   *  * MSR_FMASK = IF | IOPL(3) | AC | DF | NT | VM | TF | RF
+   *  * MSR_STAR = GSEL(GCODE_SEL, 0) for SYSCALL; SVA_USER_CS_32 for SYSRET
+   *  * MSR_LSTAR = &SVAsyscall
+   *  * MSR_CSTAR = NULL (we don't handle SYSCALL from 32-bit code; this is
+   *                     actually superfluous on Intel hardware as 32-bit
+   *                     SYSCALL support was only ever provided by AMD, but
+   *                     we set this anyway in register_syscall_handler()
+   *                     since that part of SVA, unlike the VMX stuff here,
+   *                     is at least in theory Intel/AMD-agnostic)
+   * SVA does not support the SYSENTER mechanism, so we set its MSRs to 0:
+   *  * MSR_IA32_SYSENTER_CS = 0
+   *  * MSR_IA32_SYSENTER_EIP = 0
+   *  * MSR_IA32_SYSENTER_ESP = 0
+   */
+
   wrmsr(MSR_FMASK, EFLAGS_IF | EFLAGS_IOPL(3) | EFLAGS_AC | EFLAGS_DF |
                    EFLAGS_NT | EFLAGS_VM | EFLAGS_TF | EFLAGS_RF);
   wrmsr(MSR_STAR, ((uint64_t)GSEL(GCODE_SEL, 0) << SYSCALL_CS_SHIFT) |
