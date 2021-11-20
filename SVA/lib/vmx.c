@@ -2022,7 +2022,7 @@ static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
    *
    * In this assembly section, we:
    *  - Restore the guest's general-purpose register state from the active
-   *    VM's descriptor (vm_desc_t structure).
+   *    guest context (sva_icontext_t structure).
    *
    *  - Execute VMLAUNCH/VMRESUME (as appropriate). This enters guest mode
    *    and runs the VM until an event occurs that triggers a VM exit.
@@ -2049,7 +2049,8 @@ static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
        */
       "pushq %%rbp\n\t"
 
-      /* RAX contains a pointer to the VM descriptor.
+      /*
+       * RAX contains a pointer to the guest context.
        * Push it so that we can get it back after VM exit.
        */
       "pushq %%rax\n"
@@ -2093,8 +2094,8 @@ static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
 
       /*** Restore guest register state ***
        * We will restore RAX last, since we need a register in which to keep
-       * the pointer to the active VM descriptor. (The instruction that
-       * restores RAX will both use this pointer and overwrite it.)
+       * the pointer to the guest context. (The instruction that restores RAX
+       * will both use this pointer and overwrite it.)
        */
       "movq %c[guest_rbx](%%rax), %%rbx\n"
       "movq %c[guest_rcx](%%rax), %%rcx\n"
@@ -2135,7 +2136,7 @@ static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
       /* (We need to return this in RDX at the end of the asm block.) */
       "pushfq\n"
 
-      /*** Get pointer to the active VM descriptor.
+      /*** Get pointer to the active guest context.
        *
        * We have NO free registers at this point (all of them contain guest
        * values which we need to save). We therefore start by pushing RAX to
@@ -2144,14 +2145,14 @@ static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
        * Note: after pushing RAX, our stack looks like:
        *      (%rsp)  - saved guest RAX
        *     8(%rsp)  - RFLAGS saved after VM exit (VMX error code)
-       *    16(%rsp)  - pointer to VM descriptor
+       *    16(%rsp)  - pointer to guest context
        *    24(%rsp)  - host RBP saved before VM entry
        * (Since we're not using a frame pointer, and are using push/pop
        * instructions i.e. a dynamic stack frame, we need to keep track of
        * this carefully.)
        */
       "pushq %%rax\n"
-      "movq 16(%%rsp), %%rax\n"            // RAX <-- active_vm pointer
+      "movq 16(%%rsp), %%rax\n"            // RAX <-- guest context pointer
 
       /*** Save guest GPRs ***
        *
@@ -2198,24 +2199,24 @@ static unsigned long asm_run_vm(vm_desc_t* active_vm, bool use_vmresume) {
       "popq %%rbp\n\t" // and pop the saved frame pointer.
 
       : "=d"(vmexit_rflags), "=a"(_dummy[0])
-      : "a"(active_vm), "d"(use_vmresume),
+      : "a"(user_ctxt(active_vm->thread)), "d"(use_vmresume),
          [exit_stack]"i"(offsetof(struct CPUState, vm_exit_stack)),
-         /* Offsets of guest state elements in vm_desc_t */
-         [guest_rax] "i" (offsetof(vm_desc_t, state.rax)),
-         [guest_rbx] "i" (offsetof(vm_desc_t, state.rbx)),
-         [guest_rcx] "i" (offsetof(vm_desc_t, state.rcx)),
-         [guest_rdx] "i" (offsetof(vm_desc_t, state.rdx)),
-         [guest_rbp] "i" (offsetof(vm_desc_t, state.rbp)),
-         [guest_rsi] "i" (offsetof(vm_desc_t, state.rsi)),
-         [guest_rdi] "i" (offsetof(vm_desc_t, state.rdi)),
-         [guest_r8]  "i" (offsetof(vm_desc_t, state.r8)),
-         [guest_r9]  "i" (offsetof(vm_desc_t, state.r9)),
-         [guest_r10] "i" (offsetof(vm_desc_t, state.r10)),
-         [guest_r11] "i" (offsetof(vm_desc_t, state.r11)),
-         [guest_r12] "i" (offsetof(vm_desc_t, state.r12)),
-         [guest_r13] "i" (offsetof(vm_desc_t, state.r13)),
-         [guest_r14] "i" (offsetof(vm_desc_t, state.r14)),
-         [guest_r15] "i" (offsetof(vm_desc_t, state.r15))
+         /* Offsets of guest state elements in `sva_icontext_t` */
+         [guest_rax] "i" (offsetof(sva_icontext_t, rax)),
+         [guest_rbx] "i" (offsetof(sva_icontext_t, rbx)),
+         [guest_rcx] "i" (offsetof(sva_icontext_t, rcx)),
+         [guest_rdx] "i" (offsetof(sva_icontext_t, rdx)),
+         [guest_rbp] "i" (offsetof(sva_icontext_t, rbp)),
+         [guest_rsi] "i" (offsetof(sva_icontext_t, rsi)),
+         [guest_rdi] "i" (offsetof(sva_icontext_t, rdi)),
+         [guest_r8]  "i" (offsetof(sva_icontext_t, r8)),
+         [guest_r9]  "i" (offsetof(sva_icontext_t, r9)),
+         [guest_r10] "i" (offsetof(sva_icontext_t, r10)),
+         [guest_r11] "i" (offsetof(sva_icontext_t, r11)),
+         [guest_r12] "i" (offsetof(sva_icontext_t, r12)),
+         [guest_r13] "i" (offsetof(sva_icontext_t, r13)),
+         [guest_r14] "i" (offsetof(sva_icontext_t, r14)),
+         [guest_r15] "i" (offsetof(sva_icontext_t, r15))
       : "memory", "cc", /* "rax", */ "rbx", "rcx", "rsi", "rdi",
          "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
       );
@@ -3366,7 +3367,8 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
   int acquired_lock = vm_desc_ensure_lock(vm);
   SVA_ASSERT(acquired_lock, "sva_getvmreg(): failed to acquire VM descriptor lock!\n");
 
-  sva_integer_state_t* state = &vm_descs[vmid].thread->integerState;
+  sva_integer_state_t* state = &vm->thread->integerState;
+  sva_icontext_t* uctx = user_ctxt(vm->thread);
 
   /*
    * Get the respective register from the specified VM's descriptor.
@@ -3374,49 +3376,49 @@ sva_getvmreg(int vmid, enum sva_vm_reg reg) {
   uint64_t retval;
   switch (reg) {
     case VM_REG_RAX:
-      retval = vm->state.rax;
+      retval = uctx->rax;
       break;
     case VM_REG_RBX:
-      retval = vm->state.rbx;
+      retval = uctx->rbx;
       break;
     case VM_REG_RCX:
-      retval = vm->state.rcx;
+      retval = uctx->rcx;
       break;
     case VM_REG_RDX:
-      retval = vm->state.rdx;
+      retval = uctx->rdx;
       break;
     case VM_REG_RBP:
-      retval = vm->state.rbp;
+      retval = uctx->rbp;
       break;
     case VM_REG_RSI:
-      retval = vm->state.rsi;
+      retval = uctx->rsi;
       break;
     case VM_REG_RDI:
-      retval = vm->state.rdi;
+      retval = uctx->rdi;
       break;
     case VM_REG_R8:
-      retval = vm->state.r8;
+      retval = uctx->r8;
       break;
     case VM_REG_R9:
-      retval = vm->state.r9;
+      retval = uctx->r9;
       break;
     case VM_REG_R10:
-      retval = vm->state.r10;
+      retval = uctx->r10;
       break;
     case VM_REG_R11:
-      retval = vm->state.r11;
+      retval = uctx->r11;
       break;
     case VM_REG_R12:
-      retval = vm->state.r12;
+      retval = uctx->r12;
       break;
     case VM_REG_R13:
-      retval = vm->state.r13;
+      retval = uctx->r13;
       break;
     case VM_REG_R14:
-      retval = vm->state.r14;
+      retval = uctx->r14;
       break;
     case VM_REG_R15:
-      retval = vm->state.r15;
+      retval = uctx->r15;
       break;
 
     case VM_REG_CR2:
@@ -3541,7 +3543,8 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
   int acquired_lock = vm_desc_ensure_lock(vm);
   SVA_ASSERT(acquired_lock, "sva_setvmreg(): failed to acquire VM descriptor lock!\n");
 
-  sva_integer_state_t* state = &vm_descs[vmid].thread->integerState;
+  sva_integer_state_t* state = &vm->thread->integerState;
+  sva_icontext_t* uctx = user_ctxt(vm->thread);
 
   /*
    * Write to the respective register field in the specified VM's descriptor.
@@ -3552,49 +3555,49 @@ sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data) {
    */
   switch (reg) {
     case VM_REG_RAX:
-      vm->state.rax = data;
+      uctx->rax = data;
       break;
     case VM_REG_RBX:
-      vm->state.rbx = data;
+      uctx->rbx = data;
       break;
     case VM_REG_RCX:
-      vm->state.rcx = data;
+      uctx->rcx = data;
       break;
     case VM_REG_RDX:
-      vm->state.rdx = data;
+      uctx->rdx = data;
       break;
     case VM_REG_RBP:
-      vm->state.rbp = data;
+      uctx->rbp = data;
       break;
     case VM_REG_RSI:
-      vm->state.rsi = data;
+      uctx->rsi = data;
       break;
     case VM_REG_RDI:
-      vm->state.rdi = data;
+      uctx->rdi = data;
       break;
     case VM_REG_R8:
-      vm->state.r8 = data;
+      uctx->r8 = data;
       break;
     case VM_REG_R9:
-      vm->state.r9 = data;
+      uctx->r9 = data;
       break;
     case VM_REG_R10:
-      vm->state.r10 = data;
+      uctx->r10 = data;
       break;
     case VM_REG_R11:
-      vm->state.r11 = data;
+      uctx->r11 = data;
       break;
     case VM_REG_R12:
-      vm->state.r12 = data;
+      uctx->r12 = data;
       break;
     case VM_REG_R13:
-      vm->state.r13 = data;
+      uctx->r13 = data;
       break;
     case VM_REG_R14:
-      vm->state.r14 = data;
+      uctx->r14 = data;
       break;
     case VM_REG_R15:
-      vm->state.r15 = data;
+      uctx->r15 = data;
       break;
 
     case VM_REG_CR2:

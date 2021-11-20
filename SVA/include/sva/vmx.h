@@ -503,12 +503,6 @@ typedef struct sva_vmx_guest_state {
   uint8_t llc_padding_front[64];
 #endif /* #ifdef SVA_LLC_PART */
 
-  /* General purpose registers */
-  uint64_t rax, rbx, rcx, rdx;
-  uint64_t rbp, rsi, rdi;
-  uint64_t r8,  r9,  r10, r11;
-  uint64_t r12, r13, r14, r15;
-
 #ifdef MPX
   /*
    * MPX bounds registers
