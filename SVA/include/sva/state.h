@@ -100,6 +100,21 @@ extern uintptr_t sva_get_current(void);
  */
 extern int sva_uctx_get_reg(enum sva_reg reg, uint64_t __kern* out);
 
+/**
+ * Set the current value of a user register.
+ *
+ * Not available for ghosting threads.
+ *
+ * @param reg The register to set
+ * @param in  The new value of the register
+ * @return    0 on success or an error code
+ *
+ * Errors:
+ *  EINVAL  An invalid register was specified
+ *  EPERM   Attempted to call this intrinsic on a ghosting thread
+ */
+extern int sva_uctx_set_reg(enum sva_reg reg, uint64_t in);
+
 #if 0
 /* Prototypes for Execution Engine Functions */
 extern unsigned char * sva_get_integer_stackp  (void * integerp);

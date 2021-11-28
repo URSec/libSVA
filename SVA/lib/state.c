@@ -2049,3 +2049,87 @@ int sva_uctx_get_reg(enum sva_reg reg, uint64_t __kern* out) {
 
   return 0;
 }
+
+int sva_uctx_set_reg(enum sva_reg reg, uint64_t in) {
+  struct SVAThread* current = getCPUState()->currentThread;
+  sva_integer_state_t* state = &current->integerState;
+  sva_icontext_t* uctx = user_ctxt(current);
+
+  switch (reg) {
+    case SVA_REG_RAX:
+      WRITE_ONCE(uctx->rax, in);
+      break;
+    case SVA_REG_RBX:
+      WRITE_ONCE(uctx->rbx, in);
+      break;
+    case SVA_REG_RCX:
+      WRITE_ONCE(uctx->rcx, in);
+      break;
+    case SVA_REG_RDX:
+      WRITE_ONCE(uctx->rdx, in);
+      break;
+    case SVA_REG_RBP:
+      WRITE_ONCE(uctx->rbp, in);
+      break;
+    case SVA_REG_RSI:
+      WRITE_ONCE(uctx->rsi, in);
+      break;
+    case SVA_REG_RDI:
+      WRITE_ONCE(uctx->rdi, in);
+      break;
+    case SVA_REG_R8:
+      WRITE_ONCE(uctx->r8, in);
+      break;
+    case SVA_REG_R9:
+      WRITE_ONCE(uctx->r9, in);
+      break;
+    case SVA_REG_R10:
+      WRITE_ONCE(uctx->r10, in);
+      break;
+    case SVA_REG_R11:
+      WRITE_ONCE(uctx->r11, in);
+      break;
+    case SVA_REG_R12:
+      WRITE_ONCE(uctx->r12, in);
+      break;
+    case SVA_REG_R13:
+      WRITE_ONCE(uctx->r13, in);
+      break;
+    case SVA_REG_R14:
+      WRITE_ONCE(uctx->r14, in);
+      break;
+    case SVA_REG_R15:
+      WRITE_ONCE(uctx->r15, in);
+      break;
+
+    case SVA_REG_CR2:
+      WRITE_ONCE(state->ext.cr2, in);
+      break;
+
+    case SVA_REG_XCR0:
+      WRITE_ONCE(state->ext.xcr0, in);
+      break;
+    case SVA_REG_MSR_XSS:
+      WRITE_ONCE(state->ext.xss, in);
+      break;
+
+    case SVA_REG_MSR_STAR:
+      WRITE_ONCE(state->ext.star, in);
+      break;
+    case SVA_REG_MSR_LSTAR:
+      WRITE_ONCE(state->ext.lstar, in);
+      break;
+    case SVA_REG_MSR_FMASK:
+      WRITE_ONCE(state->ext.fmask, in);
+      break;
+
+    case SVA_REG_GS_SHADOW:
+      WRITE_ONCE(state->ext.gs_shadow, in);
+      break;
+
+    default:
+      return -EINVAL;
+  }
+
+  return 0;
+}
