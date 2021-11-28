@@ -25,6 +25,38 @@
  */
 typedef uintptr_t sva_thread_handle_t;
 
+/**
+ * Identifier for a register in the user context.
+ *
+ * Note that not all "types" of user context support all registers. For example,
+ * only VMs have the syscall MSRs as part of their user context.
+ */
+enum sva_reg {
+  SVA_REG_RAX, SVA_REG_RBX, SVA_REG_RCX, SVA_REG_RDX,
+  SVA_REG_RBP, SVA_REG_RSI, SVA_REG_RDI,
+  SVA_REG_R8,  SVA_REG_R9,  SVA_REG_R10, SVA_REG_R11,
+  SVA_REG_R12, SVA_REG_R13, SVA_REG_R14, SVA_REG_R15,
+
+  SVA_REG_CR2,
+
+  SVA_REG_XCR0, SVA_REG_MSR_XSS,
+
+  SVA_REG_MSR_FMASK, SVA_REG_MSR_STAR, SVA_REG_MSR_LSTAR,
+
+  /*
+   * In a classic example of ISA-minimalism lawyering on Intel's part, they
+   * decided to leave the GS Shadow register - by itself - to be manually
+   * switched between host and guest values by the hypervisor on VM entry and
+   * exit, despite the fact that *every other part* of the segment registers
+   * (including the non-shadow GS Base) corresponds to a field in the VMCS
+   * and is switched automatically by the processor as part of VM entry/exit.
+   *
+   * Thus, we take care of switching GS Shadow in sva_runvm() along with the
+   * GPRs and other non-VMCS-resident control registers/MSRs enumerated here.
+   */
+  SVA_REG_GS_SHADOW,
+};
+
 enum sva_segment_register {
   SVA_SEG_CS,
   SVA_SEG_SS,
