@@ -253,55 +253,6 @@ enum sva_vmcs_field {
 };
 
 /*
- * Enumeration: sva_vm_reg
- *
- * Identifies a register in a virtualized system.
- *
- * Note that not all x86 registers virtualized in a VM are included in this
- * enumeration - only the ones that SVA needs to load/save on VM entry and
- * exit.
- *
- * Other registers (e.g. some key control registers, most segment registers,
- * etc.) are automatically loaded/saved by the processor on VM entry/exit
- * from VMCS fields. Those registers' values therefore "live" in their
- * respective VMCS fields and do not need to be tracked separately by SVA.
- * The respective fields are identified in the sva_vmcs_field enumeration
- * above and can be accessed using the sva_read/writevmcs() intrinsics.
- */
-enum sva_vm_reg {
-  VM_REG_RAX, VM_REG_RBX, VM_REG_RCX, VM_REG_RDX,
-  VM_REG_RBP, VM_REG_RSI, VM_REG_RDI,
-  VM_REG_R8,  VM_REG_R9,  VM_REG_R10, VM_REG_R11,
-  VM_REG_R12, VM_REG_R13, VM_REG_R14, VM_REG_R15,
-
-  VM_REG_CR2,
-
-  VM_REG_XCR0, VM_REG_MSR_XSS,
-
-  VM_REG_MSR_FMASK, VM_REG_MSR_STAR, VM_REG_MSR_LSTAR,
-
-  /*
-   * In a classic example of ISA-minimalism lawyering on Intel's part, they
-   * decided to leave the GS Shadow register - by itself - to be manually
-   * switched between host and guest values by the hypervisor on VM entry and
-   * exit, despite the fact that *every other part* of the segment registers
-   * (including the non-shadow GS Base) corresponds to a field in the VMCS
-   * and is switched automatically by the processor as part of VM entry/exit.
-   *
-   * Thus, we take care of switching GS Shadow in sva_runvm() along with the
-   * GPRs and other non-VMCS-resident control registers/MSRs enumerated here.
-   */
-  VM_REG_GS_SHADOW,
-
-#ifdef MPX
-  VM_REG_BND0_LOWER, VM_REG_BND0_UPPER,
-  VM_REG_BND1_LOWER, VM_REG_BND1_UPPER,
-  VM_REG_BND2_LOWER, VM_REG_BND2_UPPER,
-  VM_REG_BND3_LOWER, VM_REG_BND3_UPPER
-#endif
-};
-
-/*
  *****************************************************************************
  * Prototypes for VMX intrinsics implemented in the library
  *  (vmx.c and vmx_ept.c)
@@ -335,8 +286,6 @@ int sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data);
 int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 int sva_launchvm(void);
 int sva_resumevm(void);
-uint64_t sva_getvmreg(int vmid, enum sva_vm_reg reg);
-void sva_setvmreg(int vmid, enum sva_vm_reg reg, uint64_t data);
 void sva_getvmfpu(int vmid, union xsave_area_max __kern* out_data);
 void sva_setvmfpu(int vmid, union xsave_area_max __kern* in_data);
 
