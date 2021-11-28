@@ -35,6 +35,8 @@
 #include <sva/x86.h>
 #include "thread_stack.h"
 
+#include <errno.h>
+
 /*****************************************************************************
  * Externally Visibile Utility Functions
  ****************************************************************************/
@@ -1957,4 +1959,93 @@ void __attribute__((noreturn)) sva_reinit_stack(void (*func)(void)) {
                 : "memory");
 
   __builtin_unreachable();
+}
+
+int sva_uctx_get_reg(enum sva_reg reg, uint64_t __kern* out) {
+  struct SVAThread* current = getCPUState()->currentThread;
+  sva_integer_state_t* state = &current->integerState;
+  sva_icontext_t* uctx = user_ctxt(current);
+  uint64_t val;
+
+  switch (reg) {
+    case SVA_REG_RAX:
+      val = READ_ONCE(uctx->rax);
+      break;
+    case SVA_REG_RBX:
+      val = READ_ONCE(uctx->rbx);
+      break;
+    case SVA_REG_RCX:
+      val = READ_ONCE(uctx->rcx);
+      break;
+    case SVA_REG_RDX:
+      val = READ_ONCE(uctx->rdx);
+      break;
+    case SVA_REG_RBP:
+      val = READ_ONCE(uctx->rbp);
+      break;
+    case SVA_REG_RSI:
+      val = READ_ONCE(uctx->rsi);
+      break;
+    case SVA_REG_RDI:
+      val = READ_ONCE(uctx->rdi);
+      break;
+    case SVA_REG_R8:
+      val = READ_ONCE(uctx->r8);
+      break;
+    case SVA_REG_R9:
+      val = READ_ONCE(uctx->r9);
+      break;
+    case SVA_REG_R10:
+      val = READ_ONCE(uctx->r10);
+      break;
+    case SVA_REG_R11:
+      val = READ_ONCE(uctx->r11);
+      break;
+    case SVA_REG_R12:
+      val = READ_ONCE(uctx->r12);
+      break;
+    case SVA_REG_R13:
+      val = READ_ONCE(uctx->r13);
+      break;
+    case SVA_REG_R14:
+      val = READ_ONCE(uctx->r14);
+      break;
+    case SVA_REG_R15:
+      val = READ_ONCE(uctx->r15);
+      break;
+
+    case SVA_REG_CR2:
+      val = READ_ONCE(state->ext.cr2);
+      break;
+
+    case SVA_REG_XCR0:
+      val = state->ext.xcr0;
+      break;
+    case SVA_REG_MSR_XSS:
+      val = state->ext.xss;
+      break;
+
+    case SVA_REG_MSR_FMASK:
+      val = state->ext.fmask;
+      break;
+    case SVA_REG_MSR_STAR:
+      val = state->ext.star;
+      break;
+    case SVA_REG_MSR_LSTAR:
+      val = state->ext.lstar;
+      break;
+
+    case SVA_REG_GS_SHADOW:
+      val = state->ext.gs_shadow;
+      break;
+
+    default:
+      return -EINVAL;
+  }
+
+  if (sva_copy_to_kernel(out, &val, sizeof(val))) {
+    return -EFAULT;
+  }
+
+  return 0;
 }
