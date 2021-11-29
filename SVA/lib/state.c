@@ -1020,6 +1020,8 @@ static bool loadThread(struct SVAThread* newThread) {
 
   bool segments_succeeded = load_user_segments(new);
 
+  load_host_ext_state();
+
 #ifndef SVA_LAZY_FPU
   xrestore(&new->fpstate.inner);
 
@@ -1032,6 +1034,10 @@ static bool loadThread(struct SVAThread* newThread) {
   mpx_bnd_init();
 #endif
 #endif
+
+  if (new->has_ext_state) {
+    load_ext_state(newThread);
+  }
 
   /* We only save the GPRs during a context switch if we are switching kernel
    * stacks, so only load them if we have a stack to switch to. */
@@ -2108,24 +2114,33 @@ int sva_uctx_set_reg(enum sva_reg reg, uint64_t in) {
 
     case SVA_REG_XCR0:
       WRITE_ONCE(state->ext.xcr0, in);
+      xsetbv(in);
       break;
     case SVA_REG_MSR_XSS:
       WRITE_ONCE(state->ext.xss, in);
+      wrmsr(MSR_XSS, in);
       break;
 
     case SVA_REG_MSR_STAR:
       WRITE_ONCE(state->ext.star, in);
+      wrmsr(MSR_STAR, in);
       break;
     case SVA_REG_MSR_LSTAR:
       WRITE_ONCE(state->ext.lstar, in);
+      wrmsr(MSR_LSTAR, in);
       break;
     case SVA_REG_MSR_FMASK:
       WRITE_ONCE(state->ext.fmask, in);
+      wrmsr(MSR_FMASK, in);
       break;
 
-    case SVA_REG_GS_SHADOW:
+    case SVA_REG_GS_SHADOW: {
+      unsigned long rflags = sva_enter_critical();
       WRITE_ONCE(state->ext.gs_shadow, in);
+      wrgsshadow(in);
+      sva_exit_critical(rflags);
       break;
+    }
 
     default:
       return -EINVAL;

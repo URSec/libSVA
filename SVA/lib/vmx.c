@@ -2431,11 +2431,7 @@ entry:
 
   sfi_enter_guest(vm);
 
-  extern void load_ext_state(struct SVAThread* thread);
   extern void save_ext_state(struct SVAThread* thread);
-  extern void load_host_ext_state(void);
-
-  load_ext_state(vm->thread);
 
   /*** Restore guest CR2 ***
    *
@@ -2467,7 +2463,6 @@ entry:
   state->ext.cr2 = read_cr2();
 
   save_ext_state(vm->thread);
-  load_host_ext_state();
 
   sfi_exit_guest(vm);
 
