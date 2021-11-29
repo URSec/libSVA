@@ -584,7 +584,13 @@ static inline sva_icontext_t* user_ctxt(struct SVAThread* thread) {
  * Initialize a thread's ext state and mark it as active.
  */
 static inline void thread_ext_state_init(struct SVAThread* thread) {
-  thread->integerState.ext = (__typeof__(thread->integerState.ext)){ };
+  thread->integerState.ext = (__typeof__(thread->integerState.ext)){
+    /*
+     * NB: x86 does not allow this register to have a value of `0`, so we
+     * instead set it to the minimal allowed value.
+     */
+    .xcr0 = XCR0_X87 | XCR0_SSE,
+  };
   thread->integerState.has_ext_state = true;
 }
 
