@@ -931,6 +931,11 @@ saveThread(struct SVAThread* oldThread, bool switchStack) {
     old->ifp = NULL;
   }
 
+  if (old->has_ext_state) {
+    save_ext_state(oldThread);
+    load_host_ext_state();
+  }
+
 #ifdef SVA_LAZY_FPU
   /*
    * Turn off access to the Floating Point Unit (FPU).  We will leave this
@@ -1020,7 +1025,7 @@ static bool loadThread(struct SVAThread* newThread) {
 
   bool segments_succeeded = load_user_segments(new);
 
-  load_host_ext_state();
+  /* NB: Host ext state loaded by `saveThread`. */
 
 #ifndef SVA_LAZY_FPU
   xrestore(&new->fpstate.inner);
@@ -2025,25 +2030,28 @@ int sva_uctx_get_reg(enum sva_reg reg, uint64_t __kern* out) {
       break;
 
     case SVA_REG_XCR0:
-      val = state->ext.xcr0;
+      val = xgetbv();
       break;
     case SVA_REG_MSR_XSS:
-      val = state->ext.xss;
+      val = rdmsr(MSR_XSS);
       break;
 
     case SVA_REG_MSR_FMASK:
-      val = state->ext.fmask;
+      val = rdmsr(MSR_FMASK);
       break;
     case SVA_REG_MSR_STAR:
-      val = state->ext.star;
+      val = rdmsr(MSR_STAR);
       break;
     case SVA_REG_MSR_LSTAR:
-      val = state->ext.lstar;
+      val = rdmsr(MSR_LSTAR);
       break;
 
-    case SVA_REG_GS_SHADOW:
-      val = state->ext.gs_shadow;
+    case SVA_REG_GS_SHADOW: {
+      unsigned long rflags = sva_enter_critical();
+      val = rdgsshadow();
+      sva_exit_critical(rflags);
       break;
+    }
 
     default:
       return -EINVAL;
