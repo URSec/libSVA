@@ -2851,9 +2851,7 @@ readvmcs_checked(enum sva_vmcs_field field, uint64_t *data) {
     case VMCS_GUEST_IA32_SYSENTER_CS:
     case VMCS_GUEST_IA32_SYSENTER_ESP:
     case VMCS_GUEST_IA32_SYSENTER_EIP:
-#ifdef MPX
     case VMCS_GUEST_IA32_BNDCFGS:
-#endif
     case VMCS_GUEST_CS_SEL:
     case VMCS_GUEST_CS_BASE:
     case VMCS_GUEST_CS_LIMIT:
@@ -3378,9 +3376,7 @@ writevmcs_checked(enum sva_vmcs_field field, uint64_t data) {
     case VMCS_GUEST_IA32_SYSENTER_CS:
     case VMCS_GUEST_IA32_SYSENTER_ESP:
     case VMCS_GUEST_IA32_SYSENTER_EIP:
-#ifdef MPX
     case VMCS_GUEST_IA32_BNDCFGS:
-#endif
     case VMCS_GUEST_CS_SEL:
     case VMCS_GUEST_CS_BASE:
     case VMCS_GUEST_CS_LIMIT:
