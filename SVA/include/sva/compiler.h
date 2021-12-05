@@ -35,4 +35,19 @@
 #define __user __attribute__((noderef, address_space(1)))
 #define __kern __attribute__((noderef, address_space(2)))
 
+/*
+ * Soft "atomics" for synchronizing with interrupt handlers.
+ */
+#define READ_ONCE(place) ({                                         \
+  _Static_assert(sizeof(place) <= sizeof(void*),                    \
+    "READ_ONCE can only be used on word-sized values or smaller");  \
+  *(const volatile __typeof__(place)*)&(place);                     \
+})
+
+#define WRITE_ONCE(place, val) ({                                   \
+  _Static_assert(sizeof(place) <= sizeof(void*),                    \
+    "WRITE_ONCE can only be used on word-sized values or smaller"); \
+  *(volatile __typeof__(place)*)&(place) = (val);                   \
+})
+
 #endif /* _SVA_COMPILER_H */
