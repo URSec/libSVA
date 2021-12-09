@@ -89,16 +89,15 @@ extern uintptr_t sva_get_current(void);
  *
  * Not available for ghosting threads.
  *
- * @param       reg The register to get
- * @param[out]  out The current value of the register
- * @return          0 on success or an error code
+ * @param reg The register to get
+ * @return    The current value of the register on success or an error code
  *
  * Errors:
  *  EINVAL  An invalid register was specified
  *  EFAULT  Writing to the out parameter failed
  *  EPERM   Attempted to call this intrinsic on a ghosting thread
  */
-extern int sva_uctx_get_reg(enum sva_reg reg, uint64_t __kern* out);
+extern sva_result_t sva_uctx_get_reg(enum sva_reg reg);
 
 /**
  * Set the current value of a user register.

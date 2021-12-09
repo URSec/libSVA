@@ -1972,7 +1972,7 @@ void __attribute__((noreturn)) sva_reinit_stack(void (*func)(void)) {
   __builtin_unreachable();
 }
 
-int sva_uctx_get_reg(enum sva_reg reg, uint64_t __kern* out) {
+sva_result_t sva_uctx_get_reg(enum sva_reg reg) {
   struct SVAThread* current = getCPUState()->currentThread;
   sva_integer_state_t* state = &current->integerState;
   sva_icontext_t* uctx = user_ctxt(current);
@@ -2054,14 +2054,10 @@ int sva_uctx_get_reg(enum sva_reg reg, uint64_t __kern* out) {
     }
 
     default:
-      return -EINVAL;
+      return (sva_result_t){ .error = -EINVAL };
   }
 
-  if (sva_copy_to_kernel(out, &val, sizeof(val))) {
-    return -EFAULT;
-  }
-
-  return 0;
+  return (sva_result_t){ .value = val };
 }
 
 int sva_uctx_set_reg(enum sva_reg reg, uint64_t in) {
