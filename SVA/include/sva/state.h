@@ -112,7 +112,7 @@ extern sva_result_t sva_uctx_get_reg(enum sva_reg reg);
  *  EINVAL  An invalid register was specified
  *  EPERM   Attempted to call this intrinsic on a ghosting thread
  */
-extern int sva_uctx_set_reg(enum sva_reg reg, uint64_t in);
+extern sva_error_t sva_uctx_set_reg(enum sva_reg reg, uint64_t in);
 
 #if 0
 /* Prototypes for Execution Engine Functions */

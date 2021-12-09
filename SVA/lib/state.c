@@ -2060,7 +2060,7 @@ sva_result_t sva_uctx_get_reg(enum sva_reg reg) {
   return (sva_result_t){ .value = val };
 }
 
-int sva_uctx_set_reg(enum sva_reg reg, uint64_t in) {
+sva_error_t sva_uctx_set_reg(enum sva_reg reg, uint64_t in) {
   struct SVAThread* current = getCPUState()->currentThread;
   sva_integer_state_t* state = &current->integerState;
   sva_icontext_t* uctx = user_ctxt(current);
