@@ -30,4 +30,29 @@
 typedef uintptr_t paddr_t;
 #endif
 
+/**
+ * Error type returned by SVA intrinsics.
+ *
+ * Will be 0 for success or a negative `errno` value.
+ */
+typedef int sva_error_t;
+
+/**
+ * A result that can represent either a success with a value or an error.
+ */
+typedef struct {
+
+  /**
+   * 0 for success, or an error code < 0.
+   */
+  sva_error_t error;
+
+  /**
+   * The successful result value.
+   *
+   * Only defined if `self.error` is 0.
+   */
+  unsigned long value;
+} sva_result_t;
+
 #endif /* _SVA_TYPES_H */
