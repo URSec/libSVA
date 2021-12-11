@@ -1449,8 +1449,6 @@ sva_unloadvm(int vmid) {
  */
 int
 sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
   /*
    * Switch to the user/SVA page tables so that we can access SVA memory
    * regions.
@@ -1477,7 +1475,6 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
                "Cannot read from VMCS.\n"));
 
       usersva_to_kernel_pcid();
-      sva_exit_critical(rflags);
       return -1;
     }
   }
@@ -1504,7 +1501,6 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
-  sva_exit_critical(rflags);
 
   return retval;
 }
@@ -1553,8 +1549,6 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
  */
 int
 sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
-  /* Disable interrupts so that we appear to execute as a single instruction. */
-  unsigned long rflags = sva_enter_critical();
   /*
    * Switch to the user/SVA page tables so that we can access SVA memory
    * regions.
@@ -1581,7 +1575,6 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
                "Cannot write to VMCS.\n"));
 
       usersva_to_kernel_pcid();
-      sva_exit_critical(rflags);
       return -1;
     }
   }
@@ -1600,7 +1593,6 @@ sva_writevmcs(enum sva_vmcs_field field, uint64_t data) {
 
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
-  sva_exit_critical(rflags);
 
   return retval;
 }
