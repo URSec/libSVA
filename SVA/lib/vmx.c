@@ -1447,8 +1447,7 @@ sva_unloadvm(int vmid) {
  *        choose to loosen that failure condition in the future to return
  *        this error code instead of hard-panicking.)
  */
-int
-sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
+sva_result_t sva_readvmcs(enum sva_vmcs_field field) {
   /*
    * Switch to the user/SVA page tables so that we can access SVA memory
    * regions.
@@ -1475,7 +1474,7 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
                "Cannot read from VMCS.\n"));
 
       usersva_to_kernel_pcid();
-      return -1;
+      return (sva_result_t){ .error = -ENODEV };
     }
   }
 
@@ -1493,16 +1492,12 @@ sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data) {
    */
   int retval = readvmcs_checked(field, &out);
 
-  if (retval == 0) {
-    if (sva_copy_to_kernel(data, &out, sizeof(out))) {
-      retval = -1;
-    }
-  }
-
   /* Restore interrupts and return to the kernel page tables. */
   usersva_to_kernel_pcid();
 
-  return retval;
+  return retval == 0
+    ? (sva_result_t){ .value = out }
+    : (sva_result_t){ .error = retval };
 }
 
 /*

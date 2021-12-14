@@ -282,7 +282,7 @@ int sva_allocvm(sva_thread_handle_t thread);
 void sva_freevm(int vmid);
 int sva_loadvm(int vmid);
 int sva_unloadvm(int vmid);
-int sva_readvmcs(enum sva_vmcs_field field, uint64_t __kern* data);
+sva_result_t sva_readvmcs(enum sva_vmcs_field field);
 int sva_writevmcs(enum sva_vmcs_field field, uint64_t data);
 int sva_launchvm(void);
 int sva_resumevm(void);
