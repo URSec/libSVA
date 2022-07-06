@@ -1,6 +1,9 @@
 CPP=clang-cpp
 CC=clang
 CXX=clang++
+INSTALL=install -D
+
+DISTDIR=@prefix@
 
 #
 # Include SVA header files
