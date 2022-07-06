@@ -1,2 +1,0 @@
-Some of the source files in this directory are copyrighted by Lehigh University.
-Such files contain an additional copyright notice.
