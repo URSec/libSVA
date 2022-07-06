@@ -16,13 +16,6 @@
 #ifndef _SVA_INTERRUPT_H
 #define _SVA_INTERRUPT_H
 
-#if 0
-#include <sva/config.h>
-#include <sva/exceptions.h>
-#endif
-#include <sva/state.h>
-#include <sva/x86.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif

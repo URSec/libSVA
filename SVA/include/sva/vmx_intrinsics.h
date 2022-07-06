@@ -21,7 +21,7 @@
 #include <sva/asmconfig.h>
 #include <sva/fpu_types.h>
 #include <sva/mmu_types.h>
-#include <sva/icontext.h>
+#include <sva/state.h>
 
 /*
  * Enumeration: sva_vmcs_field

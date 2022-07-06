@@ -20,8 +20,9 @@
 #ifndef _SVA_VMX_H
 #define _SVA_VMX_H
 
-#include <sva/callbacks.h> // for printf()
 #include <sva/vmx_intrinsics.h>
+#include <sva/callbacks.h> // for printf()
+#include <sva/icontext.h>
 #include <sva/state.h>
 
 /* Set this to 1/0 respectively to turn verbose printf's on or off. */
